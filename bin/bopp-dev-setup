@@ -1,0 +1,546 @@
+#!/usr/bin/env bash
+# bopp-dev-setup: Automatically create and provision a high-performance CachyOS dev environment via Distrobox.
+# Designed for BoppOS (Arch/CachyOS-based immutable bootc system).
+
+set -euo pipefail
+
+BIN_NAME="bopp-dev-setup"
+CONTAINER_NAME="bopp-dev"
+
+# --- Colors & Styling ---
+C_RESET=$'\e[0m'
+C_BOLD=$'\e[1m'
+C_RED=$'\e[31m'
+C_GREEN=$'\e[32m'
+C_YELLOW=$'\e[33m'
+C_BLUE=$'\e[34m'
+C_CYAN=$'\e[36m'
+
+log_info() { echo -e "${C_BLUE}[INFO]${C_RESET} $*"; }
+log_warn() { echo -e "${C_YELLOW}[WARN]${C_RESET} $*"; }
+log_err()  { echo -e "${C_RED}[ERROR]${C_RESET} $*" >&2; exit 1; }
+
+usage() {
+  cat <<EOF
+Usage: ${BIN_NAME} [OPTIONS]
+
+Automatically sets up a high-performance CachyOS development container using Distrobox.
+
+Options:
+  -n, --name NAME                    Specify a custom name for the container (default: bopp-dev).
+  -i, --image IMAGE                  Specify a custom container image (must be CachyOS or Arch Linux-based).
+  -H, --home DIR                     Specify a custom home directory path for the container.
+  -y, --yes                          Recreate the container automatically if it already exists.
+  -k, --keep                         Keep the container if it already exists (do not recreate it).
+  --ide IDES                         Comma-separated list of IDEs to install and export (options: code, vscodium, antigravity-ide, zed, pycharm, intellij).
+  --packages PKGS                    Comma-separated list of additional host-compatible pacman packages to install.
+  --additional-packages PKGS         Alias for --packages.
+  -a, --app APPS                     Comma-separated list of application desktop entries to export to the host.
+  -h, --help                         Show this help message.
+
+EOF
+  exit 0
+}
+
+# --- Command Line Arguments ---
+recreate_if_exists="prompt"
+selected_ides=()
+additional_packages=()
+export_apps=()
+custom_image=""
+container_home=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -y|--yes)
+      recreate_if_exists="true"
+      shift
+      ;;
+    -k|--keep)
+      recreate_if_exists="false"
+      shift
+      ;;
+    -n|--name)
+      if [[ -z "${2:-}" ]]; then
+        log_err "Option $1 requires a value."
+      fi
+      CONTAINER_NAME="$2"
+      shift 2
+      ;;
+    -i|--image)
+      if [[ -z "${2:-}" ]]; then
+        log_err "Option $1 requires a value."
+      fi
+      custom_image="$2"
+      shift 2
+      ;;
+    -H|--home)
+      if [[ -z "${2:-}" ]]; then
+        log_err "Option $1 requires a value."
+      fi
+      container_home="$2"
+      shift 2
+      ;;
+    --ide)
+      if [[ -z "${2:-}" ]]; then
+        log_err "Option $1 requires a value."
+      fi
+      IFS=',' read -ra ides <<< "$2"
+      for ide in "${ides[@]}"; do
+        ide_clean=$(echo "$ide" | xargs | tr '[:upper:]' '[:lower:]')
+        if [[ "$ide_clean" == "code" || "$ide_clean" == "vscode" || "$ide_clean" == "visual-studio-code" ]]; then
+          selected_ides+=("code")
+        elif [[ "$ide_clean" == "vscodium" || "$ide_clean" == "codium" ]]; then
+          selected_ides+=("vscodium")
+        elif [[ "$ide_clean" == "antigravity-ide" || "$ide_clean" == "antigravity" ]]; then
+          selected_ides+=("antigravity-ide")
+        elif [[ "$ide_clean" == "zed" ]]; then
+          selected_ides+=("zed")
+        elif [[ "$ide_clean" == "pycharm" || "$ide_clean" == "pycharm-community" ]]; then
+          selected_ides+=("pycharm")
+        elif [[ "$ide_clean" == "intellij" || "$ide_clean" == "intellij-idea" ]]; then
+          selected_ides+=("intellij")
+        else
+          log_err "Unknown IDE: $ide. Valid options: code, vscodium, antigravity-ide, zed, pycharm, intellij"
+        fi
+      done
+      shift 2
+      ;;
+    --packages|--additional-packages)
+      if [[ -z "${2:-}" ]]; then
+        log_err "Option $1 requires a value."
+      fi
+      IFS=',' read -ra extra_pkgs <<< "$2"
+      for pkg in "${extra_pkgs[@]}"; do
+        additional_packages+=("$pkg")
+      done
+      shift 2
+      ;;
+    -a|--app)
+      if [[ -z "${2:-}" ]]; then
+        log_err "Option $1 requires a value."
+      fi
+      IFS=',' read -ra apps <<< "$2"
+      for app in "${apps[@]}"; do
+        export_apps+=("$app")
+      done
+      shift 2
+      ;;
+    -h|--help)
+      usage
+      ;;
+    *)
+      log_err "Unknown argument: $1. Run with --help for options."
+      ;;
+  esac
+done
+
+# --- Host Pre-checks ---
+log_info "Running host dependency pre-checks..."
+
+# Check if distrobox is installed
+if ! command -v distrobox >/dev/null 2>&1; then
+  log_err "distrobox is not installed on the host.\nPlease install distrobox (e.g., 'sudo pacman -S distrobox') and try again."
+fi
+
+# Check for container manager (podman or docker)
+container_mgr=""
+if command -v podman >/dev/null 2>&1; then
+  container_mgr="podman"
+elif command -v docker >/dev/null 2>&1; then
+  container_mgr="docker"
+else
+  log_err "Neither podman nor docker was found on the host.\nPlease install podman or docker and try again."
+fi
+
+# Validate container manager functionality
+log_info "Verifying that container manager '$container_mgr' is functional..."
+if ! "$container_mgr" info >/dev/null 2>&1; then
+  log_err "Container manager '$container_mgr' is installed but does not seem to be running or accessible.\nPlease ensure the service/socket is running and you have permission to access it."
+fi
+
+# Warn if running as root
+if [[ $EUID -eq 0 ]]; then
+  log_warn "You are running this script as root. Distrobox containers are typically designed to run rootless (as a normal user). If you proceed, the container will be owned by root."
+fi
+
+pull_image() {
+  local img="$1"
+  log_info "Checking container image: ${C_CYAN}$img${C_RESET}"
+  if "$container_mgr" image inspect "$img" >/dev/null 2>&1; then
+    log_info "Image is already available locally."
+    return 0
+  fi
+  
+  log_info "Pulling image..."
+  if "$container_mgr" pull "$img"; then
+    log_info "Successfully pulled image."
+    return 0
+  fi
+  return 1
+}
+
+if [ -n "$custom_image" ]; then
+  actual_image="$custom_image"
+  # Warn if the image doesn't appear to be Arch or CachyOS-based, as pacman/AUR dependencies are required.
+  if [[ ! "$actual_image" =~ (cachyos|archlinux|arch) ]]; then
+    log_warn "Custom image '$actual_image' does not appear to be CachyOS or Arch-based. This setup script relies on pacman/AUR packages and may fail."
+  fi
+  if ! pull_image "$actual_image"; then
+    log_err "Failed to fetch custom container image '$actual_image'."
+  fi
+else
+  # --- CPU Architecture Detection ---
+  log_info "Detecting CPU microarchitecture level..."
+
+  v4_supported=false
+  v3_supported=false
+
+  # Method 1: Dynamic Linker
+  if [ -x "/lib64/ld-linux-x86-64.so.2" ]; then
+    ld_output=$(/lib64/ld-linux-x86-64.so.2 --help 2>/dev/null || true)
+    if echo "$ld_output" | grep -q 'x86-64-v4 (supported'; then
+      v4_supported=true
+    fi
+    if echo "$ld_output" | grep -q 'x86-64-v3 (supported'; then
+      v3_supported=true
+    fi
+  fi
+
+  # Method 2: Fallback to /proc/cpuinfo flags
+  if [ "$v4_supported" = false ] && [ "$v3_supported" = false ]; then
+    if [ -f "/proc/cpuinfo" ]; then
+      log_info "Dynamic linker detection returned no results. Falling back to /proc/cpuinfo..."
+      flags=$(grep -m1 'flags' /proc/cpuinfo || true)
+      
+      has_flag() {
+        echo " $flags " | grep -q " $1 "
+      }
+      
+      # x86-64-v3 requirements: avx, avx2, bmi1, bmi2, f16c, fma, lzcnt, movbe, xsave
+      if has_flag "avx" && has_flag "avx2" && has_flag "bmi1" && has_flag "bmi2" && \
+         has_flag "f16c" && has_flag "fma" && has_flag "lzcnt" && has_flag "movbe" && \
+         has_flag "xsave"; then
+         v3_supported=true
+         
+         # x86-64-v4 requirements: v3 + avx512f, avx512bw, avx512cd, avx512dq, avx512vl
+         if has_flag "avx512f" && has_flag "avx512bw" && has_flag "avx512cd" && \
+            has_flag "avx512dq" && has_flag "avx512vl"; then
+            v4_supported=true
+         fi
+      fi
+    fi
+  fi
+
+  # AMD Zen 4/5+ detection: Family 25 (decimal), Model >= 96 is Zen 4. Family 26+ is Zen 5+.
+  is_zen4_or_newer=false
+  if [ -f "/proc/cpuinfo" ]; then
+    vendor_id=$(grep -m1 'vendor_id' /proc/cpuinfo | awk -F': ' '{print $2}' | xargs || true)
+    cpu_family=$(grep -m1 'cpu family' /proc/cpuinfo | awk -F': ' '{print $2}' | xargs || true)
+    cpu_model=$(grep -m1 -E '^model[[:space:]]*:' /proc/cpuinfo | awk -F': ' '{print $2}' | xargs || true)
+
+    if [ "$vendor_id" = "AuthenticAMD" ]; then
+      if [[ "$cpu_family" =~ ^[0-9]+$ ]] && [[ "$cpu_model" =~ ^[0-9]+$ ]]; then
+        if [ "$cpu_family" -eq 25 ] && [ "$cpu_model" -ge 96 ]; then
+          is_zen4_or_newer=true
+        elif [ "$cpu_family" -ge 26 ]; then
+          is_zen4_or_newer=true
+        fi
+      fi
+    fi
+  fi
+
+  # Print detection results
+  if [ "$is_zen4_or_newer" = true ]; then
+    log_info "CPU Feature Level: ${C_GREEN}AMD Zen 4/5+ Optimized${C_RESET}"
+  elif [ "$v4_supported" = true ]; then
+    log_info "CPU Feature Level: ${C_GREEN}x86-64-v4${C_RESET}"
+  elif [ "$v3_supported" = true ]; then
+    log_info "CPU Feature Level: ${C_GREEN}x86-64-v3${C_RESET}"
+  else
+    log_err "Your CPU does not support the minimum required x86-64-v3 instruction set for CachyOS."
+  fi
+
+  # --- Select and Fetch the Best CachyOS Docker Image ---
+  selected_image=""
+  fallback_image=""
+
+  if [ "$is_zen4_or_newer" = true ]; then
+    selected_image="docker.io/cachyos/cachyos-znver4:latest"
+    fallback_image="docker.io/cachyos/cachyos-v4:latest"
+  elif [ "$v4_supported" = true ]; then
+    selected_image="docker.io/cachyos/cachyos-v4:latest"
+    fallback_image="docker.io/cachyos/cachyos-v3:latest"
+  elif [ "$v3_supported" = true ]; then
+    selected_image="docker.io/cachyos/cachyos-v3:latest"
+    fallback_image="docker.io/cachyos/cachyos:latest"
+  fi
+
+  actual_image="$selected_image"
+  if ! pull_image "$actual_image"; then
+    if [ -n "$fallback_image" ]; then
+      log_warn "Failed to fetch primary image '$actual_image'. Attempting fallback to '$fallback_image'..."
+      if pull_image "$fallback_image"; then
+        actual_image="$fallback_image"
+      else
+        log_err "Failed to fetch both primary and fallback container images."
+      fi
+    else
+      log_err "Failed to fetch container image '$actual_image'."
+    fi
+  fi
+fi
+
+log_info "Using container image: ${C_GREEN}${actual_image}${C_RESET}"
+
+# --- Distrobox Container Creation ---
+skip_creation=false
+if distrobox list 2>/dev/null | grep -q "\b${CONTAINER_NAME}\b"; then
+  log_warn "A Distrobox container named '${CONTAINER_NAME}' already exists."
+  
+  choice=""
+  if [ "$recreate_if_exists" = "true" ]; then
+    choice="y"
+  elif [ "$recreate_if_exists" = "false" ]; then
+    choice="n"
+  else
+    if [ -t 0 ]; then
+      read -p "Would you like to delete and recreate it? [y/N]: " choice
+    else
+      choice="n"
+    fi
+  fi
+  
+  if [[ "$choice" =~ ^[Yy]$ ]]; then
+    log_info "Removing existing container '${CONTAINER_NAME}'..."
+    distrobox-rm --force "${CONTAINER_NAME}"
+  else
+    log_info "Keeping existing container. Skipping creation step."
+    skip_creation=true
+  fi
+fi
+
+# Determine whether to install GUI IDEs
+if [[ ${#selected_ides[@]} -eq 0 ]]; then
+  if [ -t 0 ]; then
+    echo -e "\nWould you like to install and export any GUI IDEs?"
+    echo "  1) Visual Studio Code (visual-studio-code-bin)"
+    echo "  2) VSCodium (vscodium-bin)"
+    echo "  3) Antigravity IDE (antigravity-ide)"
+    echo "  4) Zed Editor (zed)"
+    echo "  5) PyCharm Community Edition (pycharm-community-edition)"
+    echo "  6) IntelliJ IDEA Community Edition (intellij-idea-community-edition)"
+    read -p "Enter numbers (separated by space, or press Enter for None): " ide_choices
+    
+    if [[ -n "${ide_choices:-}" ]]; then
+      for choice in $ide_choices; do
+        case "$choice" in
+          1) selected_ides+=("code") ;;
+          2) selected_ides+=("vscodium") ;;
+          3) selected_ides+=("antigravity-ide") ;;
+          4) selected_ides+=("zed") ;;
+          5) selected_ides+=("pycharm") ;;
+          6) selected_ides+=("intellij") ;;
+        esac
+      done
+    fi
+  fi
+fi
+
+if [ "$skip_creation" = false ]; then
+  log_info "Creating Distrobox container '${CONTAINER_NAME}'..."
+  
+  # Workaround for Distrobox volume formatting bug on immutable hosts:
+  # Intercept the container manager CLI calls using our packaged wrapper
+  wrapper_dir=$(mktemp -d /tmp/bopp-wrapper.XXXXXX)
+  trap 'rm -rf "$wrapper_dir"' EXIT
+  
+  wrapper_src=""
+  if [ -f "/usr/lib/boppos/container-manager-wrapper" ]; then
+    wrapper_src="/usr/lib/boppos/container-manager-wrapper"
+  elif [ -f "$(dirname "$0")/../lib/boppos/container-manager-wrapper" ]; then
+    wrapper_src="$(dirname "$0")/../lib/boppos/container-manager-wrapper"
+  else
+    wrapper_src="./lib/boppos/container-manager-wrapper"
+  fi
+  
+  if [ ! -f "$wrapper_src" ]; then
+    rm -rf "$wrapper_dir"
+    log_err "Required wrapper script 'container-manager-wrapper' not found."
+  fi
+  
+  # Symlink our wrapper to act as podman or docker in the PATH override
+  wrapper_src_abs=$(realpath "$wrapper_src")
+  ln -s "$wrapper_src_abs" "${wrapper_dir}/${container_mgr}"
+  
+  set +e
+  distrobox_create_args=("--image" "$actual_image" "--name" "$CONTAINER_NAME" "--yes")
+  if [ -n "$container_home" ]; then
+    distrobox_create_args+=("--home" "$container_home")
+  fi
+  PATH="${wrapper_dir}:${PATH}" distrobox-create "${distrobox_create_args[@]}"
+  create_status=$?
+  set -e
+  
+  rm -rf "$wrapper_dir"
+  trap - EXIT
+  
+  if [ $create_status -ne 0 ]; then
+    log_err "Failed to create Distrobox container."
+  fi
+fi
+
+# --- Provisioning Container ---
+log_info "Provisioning container '${CONTAINER_NAME}'..."
+
+# Configure host repositories inside the container if present
+log_info "Configuring host repositories inside the container..."
+
+# Check and configure bopp-os
+if grep -q "^\[bopp-os\]" /etc/pacman.conf 2>/dev/null; then
+  log_info "Enabling 'bopp-os' repository..."
+  if ! distrobox enter "$CONTAINER_NAME" -- grep -q "^\[bopp-os\]" /etc/pacman.conf; then
+    echo -e '\n[bopp-os]\nSigLevel = Optional TrustAll\nServer = https://repo.ripps.me' | distrobox enter "$CONTAINER_NAME" -- sudo tee -a /etc/pacman.conf >/dev/null
+  fi
+fi
+
+# Check and configure chaotic-aur
+if grep -q "^\[chaotic-aur\]" /etc/pacman.conf 2>/dev/null; then
+  log_info "Enabling 'chaotic-aur' repository..."
+  if ! distrobox enter "$CONTAINER_NAME" -- grep -q "^\[chaotic-aur\]" /etc/pacman.conf; then
+    # Download packages to /tmp/ to install locally, avoiding pacman signature check failures of untrusted keys
+    distrobox enter "$CONTAINER_NAME" -- curl -sL -o /tmp/chaotic-keyring.pkg.tar.zst 'https://cdn-mirror.chaotic.cx/chaotic-aur/chaotic-keyring.pkg.tar.zst'
+    distrobox enter "$CONTAINER_NAME" -- curl -sL -o /tmp/chaotic-mirrorlist.pkg.tar.zst 'https://cdn-mirror.chaotic.cx/chaotic-aur/chaotic-mirrorlist.pkg.tar.zst'
+    
+    if distrobox enter "$CONTAINER_NAME" -- sudo pacman -U --noconfirm /tmp/chaotic-keyring.pkg.tar.zst /tmp/chaotic-mirrorlist.pkg.tar.zst; then
+      distrobox enter "$CONTAINER_NAME" -- sudo pacman-key --populate chaotic
+      echo -e '\n[chaotic-aur]\nInclude = /etc/pacman.d/chaotic-mirrorlist' | distrobox enter "$CONTAINER_NAME" -- sudo tee -a /etc/pacman.conf >/dev/null
+    else
+      log_warn "Failed to install chaotic-aur keys/mirrorlist. Some packages might fail to install."
+    fi
+    distrobox enter "$CONTAINER_NAME" -- rm -f /tmp/chaotic-keyring.pkg.tar.zst /tmp/chaotic-mirrorlist.pkg.tar.zst
+  fi
+fi
+
+packages=(
+  "base-devel" "git" "clang" "go" "rust" "python" "python-pip" "nodejs" "npm" "paru"
+  "neovim" "lazygit" "github-cli" "ripgrep" "fzf" "fd" "bat" "eza" "jq" "tmux" "htop"
+  "strace" "curl" "wget" "unzip" "man-db"
+  "bash" "zsh" "fish" "bash-preexec" "bash-completion" "zsh-completions"
+  "oh-my-zsh-git" "atuin" "starship" "direnv"
+)
+
+# Add packages for the selected IDEs
+for ide in "${selected_ides[@]}"; do
+  case "$ide" in
+    code)
+      packages+=("visual-studio-code-bin")
+      ;;
+    vscodium)
+      packages+=("vscodium-bin")
+      ;;
+    antigravity-ide)
+      packages+=("antigravity-ide")
+      ;;
+    zed)
+      packages+=("zed")
+      ;;
+    pycharm)
+      packages+=("pycharm-community-edition")
+      ;;
+    intellij)
+      packages+=("intellij-idea-community-edition")
+      ;;
+  esac
+done
+
+# Add additional user-specified packages
+for pkg in "${additional_packages[@]}"; do
+  packages+=("$pkg")
+done
+
+log_info "Running pacman database sync & package installation..."
+
+# Ensure the pacman run is fully non-interactive
+if distrobox enter "$CONTAINER_NAME" -- sudo pacman -Syu --noconfirm --needed "${packages[@]}"; then
+  log_info "Container package installation completed successfully."
+  
+  # Export the selected IDEs to the host desktop
+  for ide in "${selected_ides[@]}"; do
+    case "$ide" in
+      code)
+        log_info "Exporting VS Code to host desktop..."
+        if distrobox enter "$CONTAINER_NAME" -- distrobox-export --app code; then
+          log_info "VS Code has been exported to your desktop."
+        else
+          log_warn "Failed to export VS Code launcher."
+        fi
+        ;;
+      vscodium)
+        log_info "Exporting VSCodium to host desktop..."
+        if distrobox enter "$CONTAINER_NAME" -- distrobox-export --app vscodium; then
+          log_info "VSCodium has been exported to your desktop."
+        else
+          log_warn "Failed to export VSCodium launcher."
+        fi
+        ;;
+      antigravity-ide)
+        log_info "Exporting Antigravity IDE to host desktop..."
+        if distrobox enter "$CONTAINER_NAME" -- distrobox-export --app antigravity-ide; then
+          log_info "Antigravity IDE has been exported to your desktop."
+        else
+          log_warn "Failed to export Antigravity IDE launcher."
+        fi
+        ;;
+      zed)
+        log_info "Exporting Zed Editor to host desktop..."
+        if distrobox enter "$CONTAINER_NAME" -- distrobox-export --app zed; then
+          log_info "Zed Editor has been exported to your desktop."
+        else
+          log_warn "Failed to export Zed Editor launcher."
+        fi
+        ;;
+      pycharm)
+        log_info "Exporting PyCharm Community to host desktop..."
+        if distrobox enter "$CONTAINER_NAME" -- distrobox-export --app pycharm; then
+          log_info "PyCharm Community has been exported to your desktop."
+        else
+          log_warn "Failed to export PyCharm Community launcher."
+        fi
+        ;;
+      intellij)
+        log_info "Exporting IntelliJ IDEA Community to host desktop..."
+        if distrobox enter "$CONTAINER_NAME" -- distrobox-export --app intellij-idea-community-edition; then
+          log_info "IntelliJ IDEA Community has been exported to your desktop."
+        else
+          log_warn "Failed to export IntelliJ IDEA Community launcher."
+        fi
+        ;;
+    esac
+  done
+
+  # Export any user-specified apps to the host desktop
+  for app in "${export_apps[@]}"; do
+    log_info "Exporting '${app}' to host desktop..."
+    if distrobox enter "$CONTAINER_NAME" -- distrobox-export --app "$app"; then
+      log_info "Application '${app}' has been exported to your desktop."
+    else
+      log_warn "Failed to export '${app}' launcher."
+    fi
+  done
+else
+  log_err "Failed to provision the container. Please inspect the output above."
+fi
+
+# --- Clean Finish & Instructions ---
+log_info "${C_GREEN}Development environment setup complete!${C_RESET}"
+echo -e "\nYour container ${C_CYAN}${CONTAINER_NAME}${C_RESET} is ready for use."
+echo -e "You can enter the environment by running:"
+echo -e "  ${C_BOLD}distrobox enter ${CONTAINER_NAME}${C_RESET}"
+echo -e "\n${C_BOLD}Integration suggestions:${C_RESET}"
+echo -e "1. ${C_BOLD}Terminal Emulator (e.g., Ptyxis):${C_RESET}"
+echo -e "   Ptyxis automatically discovers Distrobox containers. You can open a new tab"
+echo -e "   or window running directly in ${C_CYAN}${CONTAINER_NAME}${C_RESET} from the profile menu."
+echo -e "2. ${C_BOLD}Shell Alias:${C_RESET}"
+echo -e "   Add this to your ${C_CYAN}~/.bashrc${C_RESET} or ${C_CYAN}~/.zshrc${C_RESET} on the host:"
+echo -e "     ${C_CYAN}alias dev=\"distrobox enter ${CONTAINER_NAME}\"${C_RESET}"
+echo ""

@@ -21,7 +21,9 @@ package_boppos-tools() {
   optdepends=(
     'skopeo: For highly reliable remote image update checking in the tray monitor'
     'fwupd: For firmware updates via boppos-update'
-    'distrobox: For container updates via boppos-update'
+    'distrobox: For container updates and dev environment setup via bopp-dev-setup'
+    'podman: Recommended container manager backend for distrobox'
+    'docker: Alternative container manager backend for distrobox'
   )
 
   cd "${srcdir}/${pkgbase}"

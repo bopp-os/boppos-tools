@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+# container-manager-wrapper: Interceptor to work around Distrobox volume mounting bugs.
+# Resolves the real container manager (podman/docker) and corrects the mount propagation options.
+
+set -euo pipefail
+
+cmd_name=$(basename "$0")
+
+# Find the directory containing the invoked command (which is in PATH) to exclude it
+wrapper_dir=$(cd "$(dirname "$0")" && pwd)
+
+# Reconstruct PATH without the wrapper directory to prevent infinite recursion
+cleaned_path=$(echo "$PATH" | tr ':' '\n' | grep -vF "$wrapper_dir" | tr '\n' ':' | sed 's/:$//')
+
+# Locate the real binary
+real_bin=$(PATH="$cleaned_path" command -v "$cmd_name" || true)
+
+if [ -z "$real_bin" ]; then
+  echo "Error: Real binary '$cmd_name' not found in PATH." >&2
+  exit 127
+fi
+
+# Intercept and modify the arguments
+args=()
+for arg in "$@"; do
+  if [[ "$arg" == *":ro:rslave"* ]]; then
+    # Convert colon-separated propagation flags (e.g. :ro:rslave) to Podman-friendly commas
+    arg="${arg//:ro:rslave/:ro,rslave}"
+  fi
+  args+=("$arg")
+done
+
+# Execute the real container manager with the updated arguments
+exec "$real_bin" "${args[@]}"
