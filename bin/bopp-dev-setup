@@ -464,12 +464,15 @@ log_info "Running pacman database sync & package installation..."
 if distrobox enter "$CONTAINER_NAME" -- sudo pacman -Syu --noconfirm --needed "${packages[@]}"; then
   log_info "Container package installation completed successfully."
   
+  # Resolve host home to handle symlinks on immutable systems (e.g. /home -> /var/home)
+  host_home_resolved=$(realpath "$HOME")
+
   # Export the selected IDEs to the host desktop
   for ide in "${selected_ides[@]}"; do
     case "$ide" in
       code)
         log_info "Exporting VS Code to host desktop..."
-        if distrobox enter "$CONTAINER_NAME" -- distrobox-export --app code; then
+        if distrobox enter "$CONTAINER_NAME" -- env DISTROBOX_HOST_HOME="$host_home_resolved" distrobox-export --app code; then
           log_info "VS Code has been exported to your desktop."
         else
           log_warn "Failed to export VS Code launcher."
@@ -477,7 +480,7 @@ if distrobox enter "$CONTAINER_NAME" -- sudo pacman -Syu --noconfirm --needed "$
         ;;
       vscodium)
         log_info "Exporting VSCodium to host desktop..."
-        if distrobox enter "$CONTAINER_NAME" -- distrobox-export --app vscodium; then
+        if distrobox enter "$CONTAINER_NAME" -- env DISTROBOX_HOST_HOME="$host_home_resolved" distrobox-export --app vscodium; then
           log_info "VSCodium has been exported to your desktop."
         else
           log_warn "Failed to export VSCodium launcher."
@@ -485,7 +488,7 @@ if distrobox enter "$CONTAINER_NAME" -- sudo pacman -Syu --noconfirm --needed "$
         ;;
       antigravity-ide)
         log_info "Exporting Antigravity IDE to host desktop..."
-        if distrobox enter "$CONTAINER_NAME" -- distrobox-export --app antigravity-ide; then
+        if distrobox enter "$CONTAINER_NAME" -- env DISTROBOX_HOST_HOME="$host_home_resolved" distrobox-export --app antigravity-ide; then
           log_info "Antigravity IDE has been exported to your desktop."
         else
           log_warn "Failed to export Antigravity IDE launcher."
@@ -493,7 +496,7 @@ if distrobox enter "$CONTAINER_NAME" -- sudo pacman -Syu --noconfirm --needed "$
         ;;
       zed)
         log_info "Exporting Zed Editor to host desktop..."
-        if distrobox enter "$CONTAINER_NAME" -- distrobox-export --app zed; then
+        if distrobox enter "$CONTAINER_NAME" -- env DISTROBOX_HOST_HOME="$host_home_resolved" distrobox-export --app zed; then
           log_info "Zed Editor has been exported to your desktop."
         else
           log_warn "Failed to export Zed Editor launcher."
@@ -501,7 +504,7 @@ if distrobox enter "$CONTAINER_NAME" -- sudo pacman -Syu --noconfirm --needed "$
         ;;
       pycharm)
         log_info "Exporting PyCharm Community to host desktop..."
-        if distrobox enter "$CONTAINER_NAME" -- distrobox-export --app pycharm; then
+        if distrobox enter "$CONTAINER_NAME" -- env DISTROBOX_HOST_HOME="$host_home_resolved" distrobox-export --app pycharm; then
           log_info "PyCharm Community has been exported to your desktop."
         else
           log_warn "Failed to export PyCharm Community launcher."
@@ -509,7 +512,7 @@ if distrobox enter "$CONTAINER_NAME" -- sudo pacman -Syu --noconfirm --needed "$
         ;;
       intellij)
         log_info "Exporting IntelliJ IDEA Community to host desktop..."
-        if distrobox enter "$CONTAINER_NAME" -- distrobox-export --app intellij-idea-community-edition; then
+        if distrobox enter "$CONTAINER_NAME" -- env DISTROBOX_HOST_HOME="$host_home_resolved" distrobox-export --app intellij-idea-community-edition; then
           log_info "IntelliJ IDEA Community has been exported to your desktop."
         else
           log_warn "Failed to export IntelliJ IDEA Community launcher."
@@ -521,7 +524,7 @@ if distrobox enter "$CONTAINER_NAME" -- sudo pacman -Syu --noconfirm --needed "$
   # Export any user-specified apps to the host desktop
   for app in "${export_apps[@]}"; do
     log_info "Exporting '${app}' to host desktop..."
-    if distrobox enter "$CONTAINER_NAME" -- distrobox-export --app "$app"; then
+    if distrobox enter "$CONTAINER_NAME" -- env DISTROBOX_HOST_HOME="$host_home_resolved" distrobox-export --app "$app"; then
       log_info "Application '${app}' has been exported to your desktop."
     else
       log_warn "Failed to export '${app}' launcher."
