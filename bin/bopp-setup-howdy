@@ -1,0 +1,150 @@
+#!/bin/bash
+set -e
+
+# bopp-setup-howdy
+# An interactive helper script to configure Howdy face authentication for BoppOS.
+
+# Ensure the script is run with sudo/root privileges
+if [ "$EUID" -ne 0 ]; then
+    echo "This helper needs administrative privileges. Re-executing with sudo..."
+    exec sudo "$0" "$@"
+fi
+
+# Detect the real user who ran the script
+REAL_USER="${SUDO_USER:-$USER}"
+if [ "$REAL_USER" = "root" ]; then
+    # If invoked directly as root, ask for target user
+    echo "Please enter the username you wish to enroll for face authentication:"
+    read -r -p "Username: " REAL_USER
+    if [ -z "$REAL_USER" ]; then
+        echo "Error: Username cannot be empty."
+        exit 1
+    fi
+fi
+
+# Verify howdy is installed
+if ! command -v howdy &> /dev/null; then
+    echo "Error: 'howdy' command not found. Please ensure howdy-git is installed."
+    exit 1
+fi
+
+if [ ! -f /etc/howdy/config.ini ]; then
+    echo "Error: /etc/howdy/config.ini not found. Howdy may not be configured properly."
+    exit 1
+fi
+
+echo "============================================="
+echo "        BoppOS Howdy Setup Assistant         "
+echo "============================================="
+echo ""
+echo "This script will help you:"
+echo " 1. Select and configure your IR/webcam device"
+echo " 2. Register your face for user: $REAL_USER"
+echo " 3. Enable Howdy for system authentication (PAM)"
+echo ""
+
+# 1. Device Selection
+echo "--- Step 1: Select Video Device ---"
+devices=()
+if [ -d /dev/v4l/by-path ]; then
+    for dev in /dev/v4l/by-path/*; do
+        # Avoid symlinks that don't point to anything valid
+        if [ -e "$dev" ]; then
+            devices+=("$dev")
+        fi
+    done
+fi
+
+SELECTED_DEV=""
+if [ ${#devices[@]} -eq 0 ]; then
+    echo "No video devices found in /dev/v4l/by-path/."
+    read -r -p "Please enter the path to your video device manually (e.g., /dev/video0): " SELECTED_DEV
+else
+    echo "Please select the video device corresponding to your IR/webcam:"
+    PS3="Select a device (or enter number): "
+    select opt in "${devices[@]}" "Enter path manually"; do
+        if [ "$opt" = "Enter path manually" ]; then
+            read -r -p "Enter device path (e.g., /dev/video0): " SELECTED_DEV
+            break
+        elif [ -n "$opt" ]; then
+            SELECTED_DEV="$opt"
+            break
+        else
+            echo "Invalid selection. Please try again."
+        fi
+    done
+fi
+
+if [ -z "$SELECTED_DEV" ] || [ ! -e "$SELECTED_DEV" ]; then
+    echo "Warning: Selected device path '$SELECTED_DEV' does not exist currently. Continuing anyway..."
+fi
+
+# Update config.ini
+echo "Updating /etc/howdy/config.ini..."
+sed -i "s|^device_path =.*|device_path = $SELECTED_DEV|" /etc/howdy/config.ini
+echo "Camera device path updated to: $SELECTED_DEV"
+echo ""
+
+# 2. Face Enrollment
+echo "--- Step 2: Enroll Face Models ---"
+echo "We will now register a face model for user: $REAL_USER."
+echo "When the camera starts (its light or IR emitters turn on), look directly at the sensor."
+echo ""
+read -r -p "Press Enter to start enrollment..."
+howdy -U "$REAL_USER" add
+echo ""
+
+# 3. PAM Configurations
+echo "--- Step 3: Enable Authentication ---"
+echo "Select which services you would like to enable face unlock for:"
+
+configure_pam() {
+    local service="$1"
+    local pam_file="/etc/pam.d/$service"
+    if [ -f "$pam_file" ]; then
+        if grep -q "pam_howdy.so" "$pam_file"; then
+            echo "  [✓] Howdy is already configured for $service."
+        else
+            # Insert the sufficient rule before any auth include or pam_unix
+            # We want to put it right after #%PAM-1.0 if it is there, otherwise at line 1.
+            if head -n 1 "$pam_file" | grep -q "#%PAM-1.0"; then
+                sed -i '2i auth      sufficient    pam_howdy.so' "$pam_file"
+            else
+                sed -i '1i auth      sufficient    pam_howdy.so' "$pam_file"
+            fi
+            echo "  [+] Enabled Howdy in $pam_file."
+        fi
+    else
+        echo "  [ ] PAM file for $service ($pam_file) not found. Skipping."
+    fi
+}
+
+echo "Would you like to enable Howdy for terminal authentication (sudo)? [y/N]"
+read -r -p "> " answer
+if [[ "$answer" =~ ^[Yy]$ ]]; then
+    configure_pam "sudo"
+fi
+
+echo "Would you like to enable Howdy for lockscreen unlocking (swaylock)? [y/N]"
+read -r -p "> " answer
+if [[ "$answer" =~ ^[Yy]$ ]]; then
+    configure_pam "swaylock"
+fi
+
+echo "Would you like to enable Howdy for SDDM login screen? [y/N]"
+read -r -p "> " answer
+if [[ "$answer" =~ ^[Yy]$ ]]; then
+    configure_pam "sddm"
+fi
+
+echo "Would you like to enable Howdy for local login shells? [y/N]"
+read -r -p "> " answer
+if [[ "$answer" =~ ^[Yy]$ ]]; then
+    configure_pam "system-local-login"
+fi
+
+echo ""
+echo "============================================="
+echo "Setup Complete!"
+echo "To test if face recognition works, run: sudo howdy test"
+echo "============================================="
