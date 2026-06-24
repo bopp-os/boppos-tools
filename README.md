@@ -10,9 +10,10 @@ A collection of custom enhancements, tools, and utilities designed specifically 
 3. [bopp-diff](#bopp-diff-package-diff-analyzer)
 4. [bopp-tray](#bopp-tray-update-notifier)
 5. [install-optional-flatpaks](#install-optional-flatpaks-interactive-apps)
-6. [bopp-kargs](#bopp-kargs-kernel-arguments-manager)
-7. [bopp-tpm-refresh](#bopp-tpm-refresh-tpm2-auto-unlock)
-8. [bopp-migrate](#bopp-migrate-migration-tool)
+6. [bopp-setup-howdy](#bopp-setup-howdy-howdy-face-authentication-setup)
+7. [bopp-kargs](#bopp-kargs-kernel-arguments-manager)
+8. [bopp-tpm-refresh](#bopp-tpm-refresh-tpm2-auto-unlock)
+9. [bopp-migrate](#bopp-migrate-migration-tool)
 
 ---
 
@@ -104,6 +105,21 @@ An interactive wizard that prompts you to install optional, recommended Flatpak 
 ```bash
 install-optional-flatpaks
 ```
+
+---
+
+### `bopp-setup-howdy` (Howdy Face Authentication Setup)
+
+An interactive wizard that configures Howdy face authentication for BoppOS. Since the `/usr` filesystem is read-only at runtime on BoppOS, this helper configures PAM configuration files in the writable `/etc` directory and guides users through selecting their IR/webcam device from `/dev/v4l/by-path/`.
+
+```bash
+sudo bopp-setup-howdy
+```
+
+#### Steps:
+1. **Device Selection**: Automatically lists and helps select your IR/webcam device from `/dev/v4l/by-path/`.
+2. **Face Enrollment**: Registers your face model using the `howdy` tool.
+3. **PAM Configurations**: Optionally enables Howdy face authentication for specific services, including terminal auth (`sudo`), lockscreen (`swaylock`), display manager (`sddm`), and local login shells (`system-local-login`).
 
 ---
 

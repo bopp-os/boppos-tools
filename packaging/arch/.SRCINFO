@@ -1,0 +1,36 @@
+pkgbase = boppos-tools
+	pkgdesc = Custom tools and utilities for BoppOS
+	pkgver = 1.0.2
+	pkgrel = 1
+	url = https://github.com/bopp-os/boppos-tools
+	arch = any
+	license = GPL3
+	makedepends = git
+	makedepends = make
+	source = boppos-tools-1.0.2.tar.gz::https://github.com/bopp-os/boppos-tools/archive/refs/tags/v1.0.2.tar.gz
+	sha256sums = SKIP
+
+pkgname = boppos-tools
+	depends = bash
+	depends = python
+	depends = boppos-artwork
+	depends = jq
+	depends = cosign
+	depends = pacman
+	depends = bootc
+	depends = python-pystray
+	depends = python-pillow
+	depends = libnotify
+	depends = polkit
+	depends = ostree
+	depends = curl
+	depends = flatpak
+	optdepends = skopeo: For highly reliable remote image update checking in the tray monitor
+	optdepends = fwupd: For firmware updates via boppos-update
+	optdepends = distrobox: For container updates and dev environment setup via bopp-dev-setup
+	optdepends = podman: Recommended container manager backend for distrobox
+	optdepends = docker: Alternative container manager backend for distrobox
+
+pkgname = boppos-artwork
+	pkgdesc = Artwork and icons for BoppOS
+	depends = hicolor-icon-theme
