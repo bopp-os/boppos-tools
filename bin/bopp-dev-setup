@@ -49,6 +49,7 @@ additional_packages=()
 export_apps=()
 custom_image=""
 container_home=""
+enable_socket="true"
 while [[ $# -gt 0 ]]; do
   case "$1" in
     -y|--yes)
@@ -372,92 +373,10 @@ if [ "$skip_creation" = false ]; then
   wrapper_src_abs=$(realpath "$wrapper_src")
   ln -s "$wrapper_src_abs" "${wrapper_dir}/${container_mgr}"
   
-  # --- Setup Docker/Podman Socket Access ---
-  enable_socket="false"
-  user_socket=""
-  init_hook_cmd=""
-  
-  echo -e "\n${C_BOLD}--- Docker/Podman Socket Integration ---${C_RESET}"
-  echo -e "Enabling socket integration allows tools running inside the container (e.g. IDEs, compilers)"
-  echo -e "to communicate directly with the host's container engine (Podman/Docker)."
-  echo -e "\n${C_YELLOW}${C_BOLD}Security Ramifications:${C_RESET}"
-  if [ "$container_mgr" = "podman" ]; then
-    echo -e "  - ${C_BOLD}Rootless Podman (Low Risk):${C_RESET} Processes inside the container can manage your"
-    echo -e "    user-owned containers and files on the host, but cannot gain root privileges on the host."
-  else
-    echo -e "  - ${C_BOLD}Rootless Docker (Low Risk):${C_RESET} Restricts control to user-namespace container resources."
-    echo -e "  - ${C_BOLD}Rootful Docker (High Risk):${C_RESET} Processes in the container can control the rootful daemon"
-    echo -e "    and potentially gain root privileges on the host (e.g., by mounting the host root filesystem)."
-  fi
-  echo ""
-
-  if [ "${recreate_if_exists}" = "true" ]; then
-    log_info "Auto-enabling socket integration (--yes flag detected)."
-    enable_socket="true"
-  elif [ -t 0 ]; then
-    read -p "Would you like to enable Docker/Podman socket integration? [Y/n]: " socket_choice
-    socket_choice=${socket_choice:-"y"}
-    if [[ "$socket_choice" =~ ^[Yy]$ ]]; then
-      enable_socket="true"
-    fi
-  else
-    log_info "Non-interactive terminal detected. Skipping socket integration."
-  fi
-
-  if [ "$enable_socket" = "true" ]; then
-    log_info "Configuring socket access..."
-    
-    # Try to enable/start user systemd socket if running rootless
-    if [ "$EUID" -ne 0 ]; then
-      if [ "$container_mgr" = "podman" ]; then
-        log_info "Ensuring user-level podman.socket is enabled and running..."
-        systemctl --user enable --now podman.socket >/dev/null 2>&1 || true
-      elif [ "$container_mgr" = "docker" ]; then
-        log_info "Ensuring user-level docker.socket is enabled and running..."
-        systemctl --user enable --now docker.socket >/dev/null 2>&1 || true
-      fi
-    fi
-    
-    # Detect the user socket path
-    socket_candidates=()
-    if [ "$container_mgr" = "podman" ]; then
-      socket_candidates=(
-        "${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/podman/podman.sock"
-        "/run/user/$(id -u)/podman/podman.sock"
-      )
-    elif [ "$container_mgr" = "docker" ]; then
-      socket_candidates=(
-        "${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/docker.sock"
-        "/run/user/$(id -u)/docker.sock"
-      )
-    fi
-    
-    for candidate in "${socket_candidates[@]}"; do
-      if [ -S "$candidate" ]; then
-        user_socket="$candidate"
-        break
-      fi
-    done
-    
-    # Setup volume mapping or fallback to init hooks
-    if [ -n "$user_socket" ]; then
-      log_info "Exposing rootless socket: ${C_GREEN}${user_socket}${C_RESET} -> /var/run/docker.sock"
-    else
-      log_warn "No active rootless socket found. Falling back to host socket with container ACL adjustment."
-      init_hook_cmd="if [ -S /var/run/docker.sock ]; then setfacl -m u:${USER:-$(whoami)}:rw /var/run/docker.sock || chmod 666 /var/run/docker.sock; fi"
-    fi
-  fi
-
   set +e
   distrobox_create_args=("--image" "$actual_image" "--name" "$CONTAINER_NAME" "--yes")
   if [ -n "$container_home" ]; then
     distrobox_create_args+=("--home" "$container_home")
-  fi
-  if [ -n "$user_socket" ]; then
-    distrobox_create_args+=("--volume" "${user_socket}:/var/run/docker.sock")
-  fi
-  if [ -n "$init_hook_cmd" ]; then
-    distrobox_create_args+=("--init-hooks" "$init_hook_cmd")
   fi
   PATH="${wrapper_dir}:${PATH}" distrobox-create "${distrobox_create_args[@]}"
   create_status=$?
@@ -468,6 +387,139 @@ if [ "$skip_creation" = false ]; then
   
   if [ $create_status -ne 0 ]; then
     log_err "Failed to create Distrobox container."
+  fi
+fi
+
+# --- Host Systemd Socket Activation ---
+if [ "$enable_socket" = "true" ]; then
+  if [ "$EUID" -ne 0 ]; then
+    if [ "$container_mgr" = "podman" ]; then
+      log_info "Ensuring user-level podman.socket is enabled and running on the host..."
+      systemctl --user enable --now podman.socket >/dev/null 2>&1 || true
+    elif [ "$container_mgr" = "docker" ]; then
+      log_info "Ensuring user-level docker.socket is enabled and running on the host..."
+      systemctl --user enable --now docker.socket >/dev/null 2>&1 || true
+    fi
+  fi
+fi
+
+# --- Setup Docker/Podman Host-Exec Integration ---
+log_info "Configuring Docker/Podman host-exec integration wrappers..."
+if distrobox enter "$CONTAINER_NAME" -- sh -c '
+  sudo mkdir -p /usr/local/bin
+  
+  # Write docker wrapper
+  sudo tee /usr/local/bin/docker <<\EOF >/dev/null
+#!/usr/bin/env bash
+USER_UID=$(id -u)
+if [ -S "/run/user/${USER_UID}/docker.sock" ]; then
+  SOCKET_PATH="/run/user/${USER_UID}/docker.sock"
+elif [ -S "/run/user/${USER_UID}/podman/podman.sock" ]; then
+  SOCKET_PATH="/run/user/${USER_UID}/podman/podman.sock"
+else
+  SOCKET_PATH=""
+fi
+
+real_docker=""
+for dir in /usr/bin /bin /usr/sbin /sbin; do
+  if [ -x "${dir}/docker" ] && [ "${dir}/docker" != "/usr/local/bin/docker" ]; then
+    real_docker="${dir}/docker"
+    break
+  fi
+done
+
+if [ -n "$SOCKET_PATH" ] && [ -n "$real_docker" ]; then
+  export DOCKER_HOST="unix://${SOCKET_PATH}"
+  exec "$real_docker" "$@"
+else
+  host_exec=$(command -v distrobox-host-exec)
+  if [ -n "$host_exec" ]; then
+    exec "$host_exec" docker "$@"
+  else
+    echo "Error: Neither local docker nor distrobox-host-exec was found." >&2
+    exit 127
+  fi
+fi
+EOF
+  sudo chmod +x /usr/local/bin/docker
+
+  # Write podman wrapper
+  sudo tee /usr/local/bin/podman <<\EOF >/dev/null
+#!/usr/bin/env bash
+USER_UID=$(id -u)
+SOCKET_PATH="/run/user/${USER_UID}/podman/podman.sock"
+
+real_podman=""
+for dir in /usr/bin /bin /usr/sbin /sbin; do
+  if [ -x "${dir}/podman" ] && [ "${dir}/podman" != "/usr/local/bin/podman" ]; then
+    real_podman="${dir}/podman"
+    break
+  fi
+done
+
+if [ -S "$SOCKET_PATH" ] && [ -n "$real_podman" ]; then
+  export CONTAINER_HOST="unix://${SOCKET_PATH}"
+  exec "$real_podman" --remote "$@"
+else
+  host_exec=$(command -v distrobox-host-exec)
+  if [ -n "$host_exec" ]; then
+    exec "$host_exec" podman "$@"
+  else
+    echo "Error: Neither local podman nor distrobox-host-exec was found." >&2
+    exit 127
+  fi
+fi
+EOF
+  sudo chmod +x /usr/local/bin/podman
+'; then
+  log_info "Docker/Podman host-exec integration configured successfully."
+else
+  log_warn "Failed to configure Docker/Podman integration wrappers."
+fi
+
+# --- Setup Reboot-safe Socket Integration ---
+if [ "$enable_socket" = "true" ]; then
+  log_info "Configuring reboot-safe socket integration inside container..."
+  
+  if distrobox enter "$CONTAINER_NAME" -- sh -c '
+    # If host rootless Docker socket is available, use it
+    if [ -S "/run/user/$(id -u)/docker.sock" ]; then
+      sudo rm -f /var/run/docker.sock
+      sudo ln -sf "/run/user/$(id -u)/docker.sock" /var/run/docker.sock
+    # Else, if /var/run/docker.sock was mounted and is a real socket (not a symlink), keep it
+    elif [ -S "/var/run/docker.sock" ] && [ ! -L "/var/run/docker.sock" ]; then
+      true
+    # Else, if host rootless podman socket is available, use it as fallback
+    elif [ -S "/run/user/$(id -u)/podman/podman.sock" ]; then
+      sudo rm -f /var/run/docker.sock
+      sudo ln -sf "/run/user/$(id -u)/podman/podman.sock" /var/run/docker.sock
+    fi
+  ' && \
+     distrobox enter "$CONTAINER_NAME" -- sudo sh -c 'cat <<\EOF > /etc/profile.d/bopp-docker.sh
+# Dynamically point DOCKER_HOST and CONTAINER_HOST to the active host container engine sockets
+USER_UID=$(id -u)
+
+# Configure Podman host connection
+if [ -S "/run/user/${USER_UID}/podman/podman.sock" ]; then
+  export CONTAINER_HOST="unix:///run/user/${USER_UID}/podman/podman.sock"
+fi
+
+# Configure Docker host connection
+if [ -S "/run/user/${USER_UID}/docker.sock" ]; then
+  export DOCKER_HOST="unix:///run/user/${USER_UID}/docker.sock"
+elif [ -S "/var/run/docker.sock" ]; then
+  # If /var/run/docker.sock is a symlink pointing to podman, we set DOCKER_HOST to podman.sock
+  # Otherwise, we keep it as unix:///var/run/docker.sock (which could be the rootful Docker socket)
+  if [ -L "/var/run/docker.sock" ] && [ "$(readlink -f /var/run/docker.sock)" = "/run/user/${USER_UID}/podman/podman.sock" ]; then
+    export DOCKER_HOST="unix:///run/user/${USER_UID}/podman/podman.sock"
+  else
+    export DOCKER_HOST="unix:///var/run/docker.sock"
+  fi
+fi
+EOF'; then
+    log_info "Socket integration configured successfully."
+  else
+    log_warn "Failed to configure socket integration inside container."
   fi
 fi
 
