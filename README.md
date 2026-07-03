@@ -44,6 +44,13 @@ bopp-dev-setup [OPTIONS]
 > [!TIP]
 > Use the `-H` / `--home` option to run untrusted AUR packages inside a container without risking security exposure to your host SSH keys, documents, or active credentials.
 
+#### Docker & Podman Socket Integration
+
+`bopp-dev-setup` automates host-to-container socket mapping and client execution, allowing containerized development environments to interact directly with the host's container engine:
+* **Automatic Socket Activation**: Activates and mounts host user-level `podman.socket` or `docker.socket` dynamically.
+* **Reboot-Safe Socket Symlinking**: Maps `/var/run/docker.sock` to the active rootless user socket inside the container, configured via a persistent login profile script (`/etc/profile.d/bopp-docker.sh`).
+* **Host-Exec CLI Fallbacks**: Deploys wrappers for `docker` and `podman` in `/usr/local/bin` inside the container that forward commands to the host engine or fall back to `distrobox-host-exec`.
+
 ---
 
 ### `boppos-update` (Update Manager)
