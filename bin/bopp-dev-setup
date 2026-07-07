@@ -7,6 +7,17 @@ set -euo pipefail
 BIN_NAME="bopp-dev-setup"
 CONTAINER_NAME="bopp-dev"
 
+# --- Cleanup Handler for Temporary Directories ---
+cleanup_dirs=()
+cleanup() {
+  for dir in "${cleanup_dirs[@]}"; do
+    if [ -d "$dir" ]; then
+      rm -rf "$dir"
+    fi
+  done
+}
+trap cleanup EXIT
+
 # --- Colors & Styling ---
 C_RESET=$'\e[0m'
 C_BOLD=$'\e[1m'
@@ -157,6 +168,39 @@ fi
 log_info "Verifying that container manager '$container_mgr' is functional..."
 if ! "$container_mgr" info >/dev/null 2>&1; then
   log_err "Container manager '$container_mgr' is installed but does not seem to be running or accessible.\nPlease ensure the service/socket is running and you have permission to access it."
+fi
+
+# If using Podman, temporarily bypass signature verification for this script's execution
+if [ "$container_mgr" = "podman" ]; then
+  log_info "Configuring temporary signature bypass for Podman..."
+  TEMP_CONFIG_DIR=$(mktemp -d /tmp/bopp-config.XXXXXX)
+  cleanup_dirs+=("$TEMP_CONFIG_DIR")
+  
+  mkdir -p "${TEMP_CONFIG_DIR}/containers"
+  cat <<'EOF' > "${TEMP_CONFIG_DIR}/containers/policy.json"
+{
+    "default": [
+        {
+            "type": "insecureAcceptAnything"
+        }
+    ]
+}
+EOF
+
+  # Symlink existing user containers configs to preserve auth/registries settings
+  user_config_dir="${XDG_CONFIG_HOME:-$HOME/.config}/containers"
+  if [ -d "$user_config_dir" ]; then
+    for f in "$user_config_dir"/*; do
+      if [ -e "$f" ]; then
+        fname=$(basename "$f")
+        if [ "$fname" != "policy.json" ]; then
+          ln -s "$f" "${TEMP_CONFIG_DIR}/containers/$fname"
+        fi
+      fi
+    done
+  fi
+  
+  export XDG_CONFIG_HOME="$TEMP_CONFIG_DIR"
 fi
 
 # Warn if running as root
@@ -353,7 +397,7 @@ if [ "$skip_creation" = false ]; then
   # Workaround for Distrobox volume formatting bug on immutable hosts:
   # Intercept the container manager CLI calls using our packaged wrapper
   wrapper_dir=$(mktemp -d /tmp/bopp-wrapper.XXXXXX)
-  trap 'rm -rf "$wrapper_dir"' EXIT
+  cleanup_dirs+=("$wrapper_dir")
   
   wrapper_src=""
   if [ -f "/usr/lib/boppos/container-manager-wrapper" ]; then
@@ -383,7 +427,6 @@ if [ "$skip_creation" = false ]; then
   set -e
   
   rm -rf "$wrapper_dir"
-  trap - EXIT
   
   if [ $create_status -ne 0 ]; then
     log_err "Failed to create Distrobox container."

@@ -1,7 +1,7 @@
 # Maintainer: BoppOS Team
 pkgbase=boppos-tools
 pkgname=('boppos-tools' 'boppos-artwork')
-pkgver=1.0.4
+pkgver=1.0.5
 pkgrel=1
 arch=('any')
 url="https://github.com/bopp-os/boppos-tools"
