@@ -266,7 +266,7 @@ else
   fallback_image=""
 
   if [ "$is_zen4_or_newer" = true ]; then
-    selected_image="docker.io/cachyos/cachyos-znver4:latest"
+    selected_image="ghcr.io/bopp-os/cachyos-docker/cachyos-znver4:latest"
     fallback_image="docker.io/cachyos/cachyos-v4:latest"
   elif [ "$v4_supported" = true ]; then
     selected_image="docker.io/cachyos/cachyos-v4:latest"
