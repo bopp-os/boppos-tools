@@ -17,14 +17,7 @@ build() {
 
 package_boppos-tools() {
   pkgdesc="Custom tools and utilities for BoppOS"
-  depends=('bash' 'python' 'boppos-artwork' 'jq' 'cosign' 'pacman' 'bootc' 'python-pystray' 'python-pillow' 'libnotify' 'polkit' 'ostree' 'curl' 'flatpak')
-  optdepends=(
-    'skopeo: For highly reliable remote image update checking in the tray monitor'
-    'fwupd: For firmware updates via boppos-update'
-    'distrobox: For container updates and dev environment setup via bopp-dev-setup'
-    'podman: Recommended container manager backend for distrobox'
-    'docker: Alternative container manager backend for distrobox'
-  )
+  depends=('bash' 'python' 'boppos-artwork' 'jq' 'cosign' 'pacman' 'bootc' 'python-pystray' 'python-pillow' 'libnotify' 'polkit' 'ostree' 'curl' 'flatpak' 'skopeo' 'fwupd' 'distrobox' 'podman' 'docker')
 
   cd "${srcdir}/${pkgbase}-${pkgver}"
   make DESTDIR="${pkgdir}" PREFIX=/usr SYSCONFDIR=/etc install-tools
