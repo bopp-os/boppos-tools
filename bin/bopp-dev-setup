@@ -574,10 +574,26 @@ log_info "Configuring host repositories inside the container..."
 
 # Check and configure bopp-os
 if grep -q "^\[bopp-os\]" /etc/pacman.conf 2>/dev/null; then
-  log_info "Enabling 'bopp-os' repository..."
-  if ! distrobox enter "$CONTAINER_NAME" -- grep -q "^\[bopp-os\]" /etc/pacman.conf; then
-    echo -e '\n[bopp-os]\nSigLevel = Optional TrustAll\nServer = https://repo.ripps.me' | distrobox enter "$CONTAINER_NAME" -- sudo tee -a /etc/pacman.conf >/dev/null
-  fi
+  log_info "Enabling 'bopp-os' repository and pacman key..."
+  distrobox enter "$CONTAINER_NAME" -- sh -c '
+    if [ ! -d /etc/pacman.d/gnupg ]; then
+      sudo pacman-key --init
+    fi
+    if curl -fsSL -o /tmp/boppos-keyring.pkg.tar.zst "https://repo.ripps.me/bopp-keyring.pkg.tar.zst" 2>/dev/null || \
+       curl -fsSL -o /tmp/boppos-keyring.pkg.tar.zst "https://repo.ripps.me/boppos-keyring.pkg.tar.zst" 2>/dev/null; then
+      sudo pacman -U --noconfirm /tmp/boppos-keyring.pkg.tar.zst
+      sudo pacman-key --populate boppos 2>/dev/null || sudo pacman-key --populate bopp-os 2>/dev/null || true
+      rm -f /tmp/boppos-keyring.pkg.tar.zst
+    elif curl -fsSL -o /tmp/boppos.gpg "https://repo.ripps.me/boppos.gpg" 2>/dev/null || \
+         curl -fsSL -o /tmp/boppos.gpg "https://repo.ripps.me/boppos.asc" 2>/dev/null; then
+      sudo pacman-key --add /tmp/boppos.gpg
+      sudo pacman-key --lsign-key repo@ripps.me || true
+      rm -f /tmp/boppos.gpg
+    fi
+    if ! grep -q "^\[bopp-os\]" /etc/pacman.conf; then
+      echo -e "\n[bopp-os]\nSigLevel = Optional TrustAll\nServer = https://repo.ripps.me" | sudo tee -a /etc/pacman.conf >/dev/null
+    fi
+  '
 fi
 
 # Check and configure chaotic-aur

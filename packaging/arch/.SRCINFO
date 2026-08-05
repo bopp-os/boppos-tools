@@ -1,13 +1,13 @@
 pkgbase = boppos-tools
 	pkgdesc = Custom tools and utilities for BoppOS
-	pkgver = 1.0.2
+	pkgver = 1.0.6
 	pkgrel = 1
 	url = https://github.com/bopp-os/boppos-tools
 	arch = any
 	license = GPL3
 	makedepends = git
 	makedepends = make
-	source = boppos-tools-1.0.2.tar.gz::https://github.com/bopp-os/boppos-tools/archive/refs/tags/v1.0.2.tar.gz
+	source = boppos-tools-1.0.6.tar.gz::https://github.com/bopp-os/boppos-tools/archive/refs/tags/v1.0.6.tar.gz
 	sha256sums = SKIP
 
 pkgname = boppos-tools
