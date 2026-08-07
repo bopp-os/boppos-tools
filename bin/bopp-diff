@@ -34,9 +34,12 @@ for cmd in jq cosign pacman vercmp; do
     fi
 done
 
+TMP_DIR=$(mktemp -d /tmp/bopp-diff.XXXXXX)
+trap 'rm -rf "$TMP_DIR"' EXIT
+
 log_info "🔍 Gathering current system packages..."
 # Get current packages directly from the running host
-pacman -Q | sort > /tmp/current_pkgs.txt
+pacman -Q 2>/dev/null | sort > "$TMP_DIR/current_pkgs.txt"
 
 BOOTED=$(bootc status --json | jq -r '.status.booted.image.image.image // empty')
 
@@ -86,77 +89,75 @@ else
 fi
 
 log_info "📥 Downloading package manifest from target image registry via cosign..."
-if ! cosign download sbom "$TARGET_IMAGE" > /tmp/target_manifest.json 2>/dev/null; then
+if ! cosign download sbom "$TARGET_IMAGE" > "$TMP_DIR/target_manifest.json" 2>/dev/null; then
     log_err "❌ Error: Failed to download package manifest from GHCR for $TARGET_IMAGE."
     log_err "Ensure the image exists and has an attached manifest."
     exit 1
 fi
 
 log_info "📦 Parsing manifest for package differences..."
-jq -r '.packages[] | "\(.name) \(.versionInfo)"' /tmp/target_manifest.json | sort > /tmp/target_pkgs.txt
+jq -r '(if type == "array" then .[] elif type == "object" then (if .packages != null and (.packages | type == "array") then .packages[] elif .components != null and (.components | type == "array") then .components[] elif .predicate.packages != null and (.predicate.packages | type == "array") then .predicate.packages[] else . end) else empty end) | .. | objects | select(.name != null and (.name | type == "string") and .packages == null and .components == null) | "\(.name) \(.version // .versionInfo // "")"' "$TMP_DIR/target_manifest.json" | sort > "$TMP_DIR/target_pkgs.txt"
 
-awk '{print $1}' /tmp/current_pkgs.txt | sort > /tmp/curr_names.txt
-awk '{print $1}' /tmp/target_pkgs.txt | sort > /tmp/tgt_names.txt
+awk '{print $1}' "$TMP_DIR/current_pkgs.txt" | sort > "$TMP_DIR/curr_names.txt"
+awk '{print $1}' "$TMP_DIR/target_pkgs.txt" | sort > "$TMP_DIR/tgt_names.txt"
 
-comm -13 /tmp/curr_names.txt /tmp/tgt_names.txt > /tmp/added_names.txt
-comm -23 /tmp/curr_names.txt /tmp/tgt_names.txt > /tmp/removed_names.txt
-comm -12 /tmp/curr_names.txt /tmp/tgt_names.txt > /tmp/common_names.txt
+comm -13 "$TMP_DIR/curr_names.txt" "$TMP_DIR/tgt_names.txt" > "$TMP_DIR/added_names.txt"
+comm -23 "$TMP_DIR/curr_names.txt" "$TMP_DIR/tgt_names.txt" > "$TMP_DIR/removed_names.txt"
+comm -12 "$TMP_DIR/curr_names.txt" "$TMP_DIR/tgt_names.txt" > "$TMP_DIR/common_names.txt"
 
-> /tmp/upgraded.txt
-> /tmp/downgraded.txt
+> "$TMP_DIR/upgraded.txt"
+> "$TMP_DIR/downgraded.txt"
 
-join /tmp/common_names.txt /tmp/current_pkgs.txt > /tmp/curr_common.txt
-join /tmp/common_names.txt /tmp/target_pkgs.txt > /tmp/tgt_common.txt
+join "$TMP_DIR/common_names.txt" "$TMP_DIR/current_pkgs.txt" > "$TMP_DIR/curr_common.txt"
+join "$TMP_DIR/common_names.txt" "$TMP_DIR/target_pkgs.txt" > "$TMP_DIR/tgt_common.txt"
 
-join -j 1 /tmp/curr_common.txt /tmp/tgt_common.txt | while read -r pkg curr_ver tgt_ver; do
+join -j 1 "$TMP_DIR/curr_common.txt" "$TMP_DIR/tgt_common.txt" | while read -r pkg curr_ver tgt_ver; do
     if [ "$curr_ver" != "$tgt_ver" ]; then
         cmp=$(vercmp "$tgt_ver" "$curr_ver")
         if [ "$cmp" -gt 0 ]; then
-            echo "$pkg $curr_ver $tgt_ver" >> /tmp/upgraded.txt
+            echo "$pkg $curr_ver $tgt_ver" >> "$TMP_DIR/upgraded.txt"
         else
-            echo "$pkg $curr_ver $tgt_ver" >> /tmp/downgraded.txt
+            echo "$pkg $curr_ver $tgt_ver" >> "$TMP_DIR/downgraded.txt"
         fi
     fi
 done
 
-join /tmp/added_names.txt /tmp/target_pkgs.txt > /tmp/added.txt
-join /tmp/removed_names.txt /tmp/current_pkgs.txt > /tmp/removed.txt
+join "$TMP_DIR/added_names.txt" "$TMP_DIR/target_pkgs.txt" > "$TMP_DIR/added.txt"
+join "$TMP_DIR/removed_names.txt" "$TMP_DIR/current_pkgs.txt" > "$TMP_DIR/removed.txt"
 
 if [ "$JSON_OUTPUT" = true ]; then
     # Map the text files strictly to JSON arrays using jq
-    [ -s /tmp/upgraded.txt ] && jq -R -s 'split("\n")[:-1] | map(split(" ") | {name: .[0], old: .[1], new: .[2]})' /tmp/upgraded.txt > /tmp/up.json || echo "[]" > /tmp/up.json
-    [ -s /tmp/downgraded.txt ] && jq -R -s 'split("\n")[:-1] | map(split(" ") | {name: .[0], old: .[1], new: .[2]})' /tmp/downgraded.txt > /tmp/down.json || echo "[]" > /tmp/down.json
-    [ -s /tmp/added.txt ] && jq -R -s 'split("\n")[:-1] | map(split(" ") | {name: .[0], version: .[1]})' /tmp/added.txt > /tmp/add.json || echo "[]" > /tmp/add.json
-    [ -s /tmp/removed.txt ] && jq -R -s 'split("\n")[:-1] | map(split(" ") | {name: .[0], version: .[1]})' /tmp/removed.txt > /tmp/rem.json || echo "[]" > /tmp/rem.json
+    [ -s "$TMP_DIR/upgraded.txt" ] && jq -R -s 'split("\n")[:-1] | map(split(" ") | {name: .[0], old: .[1], new: .[2]})' "$TMP_DIR/upgraded.txt" > "$TMP_DIR/up.json" || echo "[]" > "$TMP_DIR/up.json"
+    [ -s "$TMP_DIR/downgraded.txt" ] && jq -R -s 'split("\n")[:-1] | map(split(" ") | {name: .[0], old: .[1], new: .[2]})' "$TMP_DIR/downgraded.txt" > "$TMP_DIR/down.json" || echo "[]" > "$TMP_DIR/down.json"
+    [ -s "$TMP_DIR/added.txt" ] && jq -R -s 'split("\n")[:-1] | map(split(" ") | {name: .[0], version: .[1]})' "$TMP_DIR/added.txt" > "$TMP_DIR/add.json" || echo "[]" > "$TMP_DIR/add.json"
+    [ -s "$TMP_DIR/removed.txt" ] && jq -R -s 'split("\n")[:-1] | map(split(" ") | {name: .[0], version: .[1]})' "$TMP_DIR/removed.txt" > "$TMP_DIR/rem.json" || echo "[]" > "$TMP_DIR/rem.json"
     
-    jq -n --slurpfile up /tmp/up.json \
-          --slurpfile down /tmp/down.json \
-          --slurpfile add /tmp/add.json \
-          --slurpfile rem /tmp/rem.json \
+    jq -n --slurpfile up "$TMP_DIR/up.json" \
+          --slurpfile down "$TMP_DIR/down.json" \
+          --slurpfile add "$TMP_DIR/add.json" \
+          --slurpfile rem "$TMP_DIR/rem.json" \
           '{upgraded: $up[0], downgraded: $down[0], added: $add[0], removed: $rem[0]}'
 else
     # Standard terminal format
     echo -e "\n==================================="
-    if [ -s /tmp/upgraded.txt ]; then
+    if [ -s "$TMP_DIR/upgraded.txt" ]; then
         echo " 🔼 Upgraded:"
-        awk '{print "  "$1": "$2" -> "$3}' /tmp/upgraded.txt
+        awk '{print "  "$1": "$2" -> "$3}' "$TMP_DIR/upgraded.txt"
     fi
-    if [ -s /tmp/downgraded.txt ]; then
+    if [ -s "$TMP_DIR/downgraded.txt" ]; then
         echo " 🔽 Downgraded:"
-        awk '{print "  "$1": "$2" -> "$3}' /tmp/downgraded.txt
+        awk '{print "  "$1": "$2" -> "$3}' "$TMP_DIR/downgraded.txt"
     fi
-    if [ -s /tmp/removed.txt ]; then
+    if [ -s "$TMP_DIR/removed.txt" ]; then
         echo " ❌ Removed:"
-        awk '{print "  "$1" "$2}' /tmp/removed.txt
+        awk '{print "  "$1" "$2}' "$TMP_DIR/removed.txt"
     fi
-    if [ -s /tmp/added.txt ]; then
+    if [ -s "$TMP_DIR/added.txt" ]; then
         echo " 📦 Added:"
-        awk '{print "  "$1" "$2}' /tmp/added.txt
+        awk '{print "  "$1" "$2}' "$TMP_DIR/added.txt"
     fi
-    if [ ! -s /tmp/upgraded.txt ] && [ ! -s /tmp/downgraded.txt ] && [ ! -s /tmp/removed.txt ] && [ ! -s /tmp/added.txt ]; then
+    if [ ! -s "$TMP_DIR/upgraded.txt" ] && [ ! -s "$TMP_DIR/downgraded.txt" ] && [ ! -s "$TMP_DIR/removed.txt" ] && [ ! -s "$TMP_DIR/added.txt" ]; then
         echo " ✨ No package changes detected."
     fi
     echo "==================================="
 fi
-
-rm -f /tmp/current_pkgs.txt /tmp/target_pkgs.txt /tmp/target_manifest.json /tmp/curr_names.txt /tmp/tgt_names.txt /tmp/added_names.txt /tmp/removed_names.txt /tmp/common_names.txt /tmp/curr_common.txt /tmp/tgt_common.txt /tmp/upgraded.txt /tmp/downgraded.txt /tmp/added.txt /tmp/removed.txt /tmp/up.json /tmp/down.json /tmp/add.json /tmp/rem.json
