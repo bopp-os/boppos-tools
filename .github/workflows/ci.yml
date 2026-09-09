@@ -41,7 +41,7 @@ jobs:
             if [ -f "$f" ]; then
               if head -n 1 "$f" | grep -q 'python'; then
                 echo "  Checking $f"
-                python3 -m py_compile "$f"
+                python3 -c "import ast, sys; ast.parse(open(sys.argv[1]).read(), sys.argv[1])" "$f"
               fi
             fi
           done
