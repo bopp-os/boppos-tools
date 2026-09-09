@@ -1,0 +1,63 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+    paths-ignore:
+      - '**.md'
+  pull_request:
+    branches:
+      - main
+    paths-ignore:
+      - '**.md'
+  workflow_dispatch:
+  workflow_call:
+
+jobs:
+  test:
+    name: Test & Validate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Validate shell script syntax
+        run: |
+          echo "Checking shell scripts for syntax errors..."
+          for f in bin/* lib/boppos/* share/boppos/*.sh; do
+            if [ -f "$f" ]; then
+              if head -n 1 "$f" | grep -E -q 'bash|sh'; then
+                echo "  Checking $f"
+                bash -n "$f"
+              fi
+            fi
+          done
+
+      - name: Validate Python script syntax
+        run: |
+          echo "Checking Python scripts for syntax errors..."
+          for f in bin/* lib/boppos/*; do
+            if [ -f "$f" ]; then
+              if head -n 1 "$f" | grep -q 'python'; then
+                echo "  Checking $f"
+                python3 -m py_compile "$f"
+              fi
+            fi
+          done
+
+      - name: Test installation with Makefile
+        run: |
+          echo "Testing Makefile installation targets..."
+          TMP_DEST=$(mktemp -d)
+          make DESTDIR="$TMP_DEST" install
+          rm -rf "$TMP_DEST"
+
+      - name: Validate PKGBUILD & .SRCINFO consistency
+        run: |
+          echo "Verifying packaging/arch/.SRCINFO matches packaging/arch/PKGBUILD..."
+          docker run --rm -v "$PWD:/workspace" -w /workspace archlinux:latest bash -c '
+            useradd -m builder && \
+            chown -R builder /workspace && \
+            su builder -c "cd packaging/arch && diff -u <(makepkg --printsrcinfo) .SRCINFO"
+          '
