@@ -19,6 +19,8 @@ Right-click menu
 Dependencies (all available in CachyOS / AUR):
     python-pystray   — cross-DE tray icon (GTK/Qt/AppIndicator backends)
     python-pillow    — icon rendering
+    python-gobject   — GObject Introspection bindings (for AppIndicator backend)
+    libappindicator  — AppIndicator3 / StatusNotifierItem support (Wayland, Niri, Cinnamon)
     libnotify        — notify-send for desktop notifications
     polkit           — pkexec for privileged one-shot service trigger
 
@@ -47,7 +49,7 @@ try:
 except ImportError as exc:
     sys.exit(
         f"bopp-tray: missing dependency — {exc}\n"
-        "Install with: sudo pacman -S python-pystray python-pillow"
+        "Install with: sudo pacman -S python-pystray python-pillow python-gobject libappindicator"
     )
 
 # ── Constants ─────────────────────────────────────────────────────────────────

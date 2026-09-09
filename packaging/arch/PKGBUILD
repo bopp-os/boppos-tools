@@ -1,7 +1,7 @@
 # Maintainer: BoppOS Team
 pkgbase=boppos-tools
 pkgname=('boppos-tools' 'boppos-artwork')
-pkgver=1.0.7
+pkgver=1.0.8
 pkgrel=1
 arch=('any')
 url="https://github.com/bopp-os/boppos-tools"
@@ -17,7 +17,7 @@ build() {
 
 package_boppos-tools() {
   pkgdesc="Custom tools and utilities for BoppOS"
-  depends=('bash' 'python' 'boppos-artwork' 'jq' 'cosign' 'pacman' 'bootc' 'python-pystray' 'python-pillow' 'libnotify' 'polkit' 'ostree' 'curl' 'flatpak' 'skopeo' 'fwupd' 'distrobox' 'podman' 'docker')
+  depends=('bash' 'python' 'boppos-artwork' 'jq' 'cosign' 'pacman' 'bootc' 'python-pystray' 'python-pillow' 'python-gobject' 'libappindicator' 'libnotify' 'polkit' 'ostree' 'curl' 'flatpak' 'skopeo' 'fwupd' 'distrobox' 'podman' 'docker')
 
   cd "${srcdir}/${pkgbase}-${pkgver}"
   make DESTDIR="${pkgdir}" PREFIX=/usr SYSCONFDIR=/etc install-tools
