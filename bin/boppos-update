@@ -77,11 +77,22 @@ update_brew() {
 
 update_distrobox() {
     echo -e "\n${GREEN}==> Updating Distroboxes...${NC}"
-    if command -v distrobox &> /dev/null; then
-        run_cmd distrobox upgrade --all || true
-    else
+    if ! command -v distrobox &> /dev/null; then
         echo "distrobox not found, skipping."
+        return
     fi
+    local names name
+    mapfile -t names < <(distrobox list --no-color | tail -n +2 | awk -F'|' '{gsub(/ /, "", $2); print $2}')
+    for name in "${names[@]}"; do
+        [ -z "$name" ] && continue
+        if distrobox enter "$name" -- sh -c 'command -v shelly' &> /dev/null; then
+            echo "Updating $name (shelly)..."
+            run_cmd distrobox enter "$name" -- shelly upgrade all --no-flatpak --no-appimage -n || true
+        else
+            echo "Updating $name..."
+            run_cmd distrobox upgrade "$name" || true
+        fi
+    done
 }
 
 show_help() {
