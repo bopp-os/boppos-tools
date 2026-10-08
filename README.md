@@ -107,7 +107,7 @@ systemctl --user enable --now bopp-tray.service
 
 ### `install-optional-flatpaks` (Interactive Apps)
 
-An interactive wizard that prompts you to install optional, recommended Flatpak applications (sourced from Bazzite-DX configurations). It provides menu selections for developer tools, multimedia, social apps, gaming tools, and virtualization.
+An interactive wizard that prompts you to install optional, recommended Flatpak applications (from the curated BoppOS list in `/usr/share/boppos/boppos-flatpaks.txt`). It provides menu selections for developer tools, multimedia, social apps, gaming tools, and virtualization.
 
 ```bash
 install-optional-flatpaks

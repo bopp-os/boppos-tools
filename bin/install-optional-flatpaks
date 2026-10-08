@@ -1,6 +1,6 @@
 #!/bin/bash
 # BoppOS Optional Flatpak Installer
-# Installs a curated list of Flatpaks sourced from Bazzite-DX
+# Installs the curated BoppOS Flatpak list
 
 set -euo pipefail
 
@@ -8,31 +8,25 @@ echo "=========================================="
 echo " BoppOS Optional Flatpak Installer"
 echo "=========================================="
 
-BAZZITE_URL="https://raw.githubusercontent.com/ublue-os/bazzite-dx/refs/heads/main/system_files/etc/ublue-os/system_flatpaks"
 BOPPOS_LIST="/usr/share/boppos/boppos-flatpaks.txt"
 TMP_LIST=$(mktemp /tmp/boppos_flatpaks.XXXXXX)
 trap 'rm -f "$TMP_LIST"' EXIT
 
-echo "[*] Fetching curated Flatpak list from Bazzite-DX..."
-# Fetch the file, strip comments (#), remove empty lines, and save to temp file
-curl -sSL "$BAZZITE_URL" | sed 's/#.*//' | grep -v '^\s*$' > "$TMP_LIST"
-
-echo "[*] Merging BoppOS custom Flatpaks..."
-if [ -f "$BOPPOS_LIST" ]; then
-    sed 's/#.*//' "$BOPPOS_LIST" | grep -v '^\s*$' >> "$TMP_LIST"
-else
-    echo "[!] Warning: Custom list $BOPPOS_LIST not found. Skipping."
-fi
-
-# Deduplicate and sort the merged list
-sort -u -o "$TMP_LIST" "$TMP_LIST"
-
-if [ ! -s "$TMP_LIST" ]; then
-    echo "[!] Error: Failed to fetch or parse the Flatpak list."
+if [ ! -f "$BOPPOS_LIST" ]; then
+    echo "[!] Error: Flatpak list $BOPPOS_LIST not found."
     exit 1
 fi
 
-echo "[*] The curated list has been downloaded."
+echo "[*] Loading curated Flatpak list..."
+# Strip comments (#) and empty lines, then deduplicate and sort
+sed 's/#.*//' "$BOPPOS_LIST" | grep -v '^\s*$' | sort -u > "$TMP_LIST" || true
+
+if [ ! -s "$TMP_LIST" ]; then
+    echo "[!] Error: Flatpak list $BOPPOS_LIST is empty."
+    exit 1
+fi
+
+echo "[*] Found $(wc -l < "$TMP_LIST") Flatpaks in the curated list."
 read -p "Would you like to review or edit the list before installing? [y/N]: " EDIT_CHOICE
 
 if [[ "$EDIT_CHOICE" =~ ^[Yy]$ ]]; then
