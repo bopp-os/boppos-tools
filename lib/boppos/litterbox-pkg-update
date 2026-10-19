@@ -1,0 +1,30 @@
+#!/bin/sh
+# litterbox-pkg-update: upgrade all packages inside a Litterbox with whichever package manager it has.
+#
+# boppos-update sends this file as root via: litterbox enter NAME --root -- "sh -c <this file>"
+# (only used when litterbox-update from litterbox-sandbox-addons is not installed).
+#
+# The text is wrapped in single quotes and parsed by the container login shell (bash or fish),
+# so this file must not contain any single quote or backslash characters, comments included.
+# boppos-update refuses to send it if it does.
+
+if command -v pacman >/dev/null 2>&1; then
+    pacman -Syu --noconfirm
+elif command -v apt-get >/dev/null 2>&1; then
+    export DEBIAN_FRONTEND=noninteractive
+    apt-get update && apt-get -y upgrade
+elif command -v dnf >/dev/null 2>&1; then
+    dnf -y upgrade --refresh
+elif command -v dnf5 >/dev/null 2>&1; then
+    dnf5 -y upgrade --refresh
+elif command -v zypper >/dev/null 2>&1; then
+    # Rolling openSUSE releases upgrade with dup, the rest with up
+    verb=up
+    if grep -qE "^ID=.?opensuse-(tumbleweed|slowroll)" /etc/os-release; then
+        verb=dup
+    fi
+    zypper --non-interactive refresh && zypper --non-interactive "$verb"
+else
+    echo "no supported package manager found" >&2
+    exit 1
+fi

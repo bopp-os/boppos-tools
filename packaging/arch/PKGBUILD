@@ -1,7 +1,7 @@
 # Maintainer: BoppOS Team
 pkgbase=boppos-tools
 pkgname=('boppos-tools' 'boppos-artwork')
-pkgver=1.0.10
+pkgver=1.1.0
 pkgrel=1
 arch=('any')
 url="https://github.com/bopp-os/boppos-tools"
@@ -18,6 +18,8 @@ build() {
 package_boppos-tools() {
   pkgdesc="Custom tools and utilities for BoppOS"
   depends=('bash' 'python' 'boppos-artwork' 'jq' 'cosign' 'pacman' 'bootc' 'python-pystray' 'python-pillow' 'python-gobject' 'libappindicator' 'libnotify' 'polkit' 'ostree' 'curl' 'flatpak' 'skopeo' 'fwupd' 'distrobox' 'podman' 'docker')
+  optdepends=('litterbox-sandbox: update Litterbox containers with boppos-update --litterbox'
+              'litterbox-sandbox-addons: per-distro Litterbox updates via litterbox-update')
 
   cd "${srcdir}/${pkgbase}-${pkgver}"
   make DESTDIR="${pkgdir}" PREFIX=/usr SYSCONFDIR=/etc install-tools
