@@ -68,8 +68,9 @@ update_flatpak() {
 update_brew() {
     echo -e "\n${GREEN}==> Updating Homebrew...${NC}"
     if command -v brew &> /dev/null; then
-        run_cmd brew update
-        run_cmd brew upgrade
+        { run_cmd brew update && run_cmd brew upgrade; } || {
+            echo -e "${BLUE}Warning: Homebrew update encountered an error.${NC}"
+        }
     else
         echo "Homebrew not found, skipping."
     fi
@@ -95,6 +96,58 @@ update_distrobox() {
     done
 }
 
+# Package update script sent into each Litterbox when litterbox-update is not installed
+find_litterbox_pkg_update() {
+    local f
+    for f in /usr/lib/boppos/litterbox-pkg-update "$(dirname "$0")/../lib/boppos/litterbox-pkg-update"; do
+        [ -f "$f" ] && { echo "$f"; return 0; }
+    done
+    return 1
+}
+
+update_litterbox() {
+    echo -e "\n${GREEN}==> Updating Litterboxes...${NC}"
+    if ! command -v litterbox-update &> /dev/null && ! command -v litterbox &> /dev/null; then
+        echo "litterbox not found, skipping."
+        return
+    fi
+    local defs
+    mapfile -t defs < <(compgen -G "${LITTERBOX_ROOT:-$HOME/Litterbox}/definitions/*.Dockerfile" || true)
+    if [ "${#defs[@]}" -eq 0 ]; then
+        echo "No Litterboxes found, skipping."
+        return
+    fi
+
+    if command -v litterbox-update &> /dev/null; then
+        run_cmd litterbox-update --all || true
+        return
+    fi
+
+    echo "litterbox-update not found, falling back to 'litterbox enter --root'."
+    local script_file script def name
+    if ! script_file=$(find_litterbox_pkg_update); then
+        echo -e "${BLUE}Warning: litterbox-pkg-update not found, skipping Litterboxes.${NC}"
+        return
+    fi
+    script=$(<"$script_file")
+    # The script is sent as sh -c '<script>' and parsed by the container's login shell
+    if [[ "$script" == *"'"* || "$script" == *\\* ]]; then
+        echo -e "${BLUE}Warning: $script_file contains a single quote or backslash, skipping Litterboxes.${NC}"
+        return
+    fi
+    for def in "${defs[@]}"; do
+        name=$(basename "$def" .Dockerfile)
+        # Same name rule as litterbox-update: the name is passed to litterbox as an argument
+        if [[ ! "$name" =~ ^[A-Za-z0-9_-][A-Za-z0-9._-]*$ ]]; then
+            echo "Skipping invalid Litterbox name '$name'."
+            continue
+        fi
+        echo "Updating $name..."
+        run_cmd litterbox enter "$name" --root -- "sh -c '$script'" \
+            || echo -e "${BLUE}Warning: update failed in Litterbox '$name'.${NC}"
+    done
+}
+
 show_help() {
     echo "Usage: boppos-update [OPTIONS]"
     echo "Options:"
@@ -103,12 +156,14 @@ show_help() {
     echo "  -f, --flatpak    Update Flatpaks"
     echo "  -b, --brew       Update Homebrew"
     echo "  -d, --distrobox  Update all Distroboxes"
+    echo "  -l, --litterbox  Update all Litterboxes"
     echo "  -v, --verbose    Show full output for package managers"
-    echo "  -a, --all        Run default updates (OS, FW, Flatpak, Brew)"
-    echo "                   Note: Distrobox updates must be called explicitly."
+    echo "  -a, --all        Update everything (OS, FW, Flatpak, Brew, Distroboxes, Litterboxes)"
     echo "  -y, --yes        Auto-confirm updates and skip interactive prompts (e.g. diffs)"
     echo "  -F, --force      Alias for --yes"
     echo "  -h, --help       Show this help message"
+    echo ""
+    echo "With no options, runs the default updates: OS, FW, Flatpak, Brew."
 }
 
 # Parse arguments
@@ -117,6 +172,7 @@ RUN_FW=false
 RUN_FLATPAK=false
 RUN_BREW=false
 RUN_DISTROBOX=false
+RUN_LITTERBOX=false
 AUTO_YES=false
 VERBOSE=false
 
@@ -130,7 +186,8 @@ else
             --flatpak) RUN_FLATPAK=true ;;
             --brew) RUN_BREW=true ;;
             --distrobox) RUN_DISTROBOX=true ;;
-            --all) RUN_OS=true; RUN_FW=true; RUN_FLATPAK=true; RUN_BREW=true ;;
+            --litterbox) RUN_LITTERBOX=true ;;
+            --all) RUN_OS=true; RUN_FW=true; RUN_FLATPAK=true; RUN_BREW=true; RUN_DISTROBOX=true; RUN_LITTERBOX=true ;;
             --yes|-y|--force|-F) AUTO_YES=true ;;
             --verbose|-v) VERBOSE=true ;;
             --help) show_help; exit 0 ;;
@@ -143,7 +200,8 @@ else
                         f) RUN_FLATPAK=true ;;
                         b) RUN_BREW=true ;;
                         d) RUN_DISTROBOX=true ;;
-                        a) RUN_OS=true; RUN_FW=true; RUN_FLATPAK=true; RUN_BREW=true ;;
+                        l) RUN_LITTERBOX=true ;;
+                        a) RUN_OS=true; RUN_FW=true; RUN_FLATPAK=true; RUN_BREW=true; RUN_DISTROBOX=true; RUN_LITTERBOX=true ;;
                         y|F) AUTO_YES=true ;;
                         v) VERBOSE=true ;;
                         h) show_help; exit 0 ;;
@@ -169,6 +227,7 @@ fi
 [ "$RUN_FLATPAK" = true ] && update_flatpak
 [ "$RUN_BREW" = true ] && update_brew
 [ "$RUN_DISTROBOX" = true ] && update_distrobox
+[ "$RUN_LITTERBOX" = true ] && update_litterbox
 
 echo -e "\n${BLUE}CachyOS BoppOS update complete!${NC}"
 if [ "$RUN_OS" = true ]; then

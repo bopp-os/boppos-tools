@@ -34,6 +34,7 @@ image system.
 │        – Check now            → pkexec systemctl start ...      │
 │        – View changes         → opens bopp-diff in terminal     │
 │        – Apply update & reboot → opens boppos-update in term    │
+│        – Update containers    → boppos-update -dl in term       │
 │        – Last checked: HH:MM  (disabled label)                  │
 │        – Quit                                                   │
 └─────────────────────────────────────────────────────────────────┘

@@ -55,7 +55,7 @@ bopp-dev-setup [OPTIONS]
 
 ### `boppos-update` (Update Manager)
 
-A comprehensive update manager that updates your OS (`bootc`), firmware, Flatpaks, Homebrew, and all active Distrobox containers. If an OS update is available, it displays a package diff preview to show you exactly what is changing.
+A comprehensive update manager that updates your OS (`bootc`), firmware, Flatpaks, Homebrew, and all Distrobox and Litterbox containers. If an OS update is available, it displays a package diff preview to show you exactly what is changing.
 
 ```bash
 boppos-update [OPTIONS]
@@ -69,7 +69,8 @@ boppos-update [OPTIONS]
 | `-f, --flatpak` | Update user and system Flatpaks. |
 | `-b, --brew` | Update Homebrew package databases and formulae. |
 | `-d, --distrobox` | Upgrade packages inside all Distrobox containers. |
-| `-a, --all` | Run default updates (OS, Firmware, Flatpak, Brew). *Note: Distroboxes must be updated explicitly via `-d`.* |
+| `-l, --litterbox` | Upgrade packages inside all Litterbox containers (via `litterbox-update --all` from `litterbox-sandbox-addons`, falling back to `litterbox enter <name> --root` with the box's package manager). |
+| `-a, --all` | Update everything: OS, Firmware, Flatpak, Brew, Distroboxes and Litterboxes. *Running with no options does the defaults only (OS, Firmware, Flatpak, Brew).* |
 | `-v, --verbose` | Show verbose output logs for sub-package managers. |
 | `-y, --yes`, `-F, --force` | Auto-confirm updates and skip interactive prompts (useful for automated update hooks). |
 | `-h, --help` | Show the help menu. |
@@ -96,7 +97,7 @@ sudo bopp-diff [OPTIONS] [TARGET_IMAGE | TAG]
 
 ### `bopp-tray` (Update Notifier)
 
-A background system-tray application that reads system update states, alerts you via desktop notifications when a new OS image is staged, and provides right-click shortcut options to check, view changes (`bopp-diff`), or apply updates.
+A background system-tray application that reads system update states, alerts you via desktop notifications when a new OS image is staged, and provides right-click shortcut options to check, view changes (`bopp-diff`), apply updates, or update Distrobox and Litterbox containers.
 
 ```bash
 # Enable the tray monitor to start with your user session

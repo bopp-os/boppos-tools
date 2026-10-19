@@ -12,6 +12,7 @@ Right-click menu
   • Check for updates now   — triggers an immediate systemd run via polkit
   • View changes            — shows bopp-diff output in a terminal/dialog
   • Apply update & reboot   — launches boppos-update in a terminal (requires auth)
+  • Update containers       — runs boppos-update -dl (Distrobox + Litterbox) in a terminal
   • ──────────────────────
   • Last checked: <time>
   • Quit
@@ -247,6 +248,8 @@ class BoppTray:
                              enabled=self._has_diff),
             pystray.MenuItem("Apply update & reboot", self._on_apply_update,
                              enabled=self._has_update),
+            pystray.MenuItem("Update containers (Distrobox + Litterbox)",
+                             self._on_update_containers),
             pystray.Menu.SEPARATOR,
             pystray.MenuItem(self._last_checked_label, None, enabled=False),
             pystray.Menu.SEPARATOR,
@@ -296,8 +299,14 @@ class BoppTray:
 
     def _on_apply_update(self, _icon, _item) -> None:
         open_in_terminal(
-            ["bash", "-c", "boppos-update --os --flatpak --verbose; echo; read -p 'Update complete. Reboot now? [y/N] ' -r reply; echo; if [[ $reply =~ ^[Yy]$ ]]; then systemctl reboot; else echo 'Press Enter to close...'; read; fi"],
+            ["bash", "-c", "boppos-update --os --flatpak --brew --verbose; echo; read -p 'Update complete. Reboot now? [y/N] ' -r reply; echo; if [[ $reply =~ ^[Yy]$ ]]; then systemctl reboot; else echo 'Press Enter to close...'; read; fi"],
             title="BoppOS Update",
+        )
+
+    def _on_update_containers(self, _icon, _item) -> None:
+        open_in_terminal(
+            ["bash", "-c", "boppos-update --distrobox --litterbox --verbose; echo; read -p 'Press Enter to close...' -r"],
+            title="BoppOS Container Update",
         )
 
     def _on_quit(self, icon, _item) -> None:

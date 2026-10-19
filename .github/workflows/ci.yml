@@ -34,6 +34,14 @@ jobs:
             fi
           done
 
+      - name: Check litterbox-pkg-update has no single quotes or backslashes
+        run: |
+          # boppos-update sends this file as sh -c '<file>', so these would break the quoting
+          if grep -n -E "['\\\\]" lib/boppos/litterbox-pkg-update; then
+            echo "::error file=lib/boppos/litterbox-pkg-update::contains a single quote or backslash"
+            exit 1
+          fi
+
       - name: Validate Python script syntax
         run: |
           echo "Checking Python scripts for syntax errors..."
