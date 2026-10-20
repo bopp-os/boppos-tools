@@ -9,7 +9,13 @@
 # boppos-update refuses to send it if it does.
 
 if command -v pacman >/dev/null 2>&1; then
-    pacman -Syu --noconfirm
+    # pacman 7.1+ refuses to run hooks and install scripts when it cannot isolate their network,
+    # which a running rootless container does not allow; let them run with the network instead
+    if pacman -S --help 2>&1 | grep -qE -- "--disable-sandbox-network( |$)"; then
+        pacman -Syu --noconfirm --disable-sandbox-network
+    else
+        pacman -Syu --noconfirm
+    fi
 elif command -v apt-get >/dev/null 2>&1; then
     export DEBIAN_FRONTEND=noninteractive
     apt-get update && apt-get -y upgrade
