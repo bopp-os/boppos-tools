@@ -23,7 +23,8 @@ DEFAULT_TARGETS = ("os", "flatpak", "brew")  # same default as boppos-update
 
 def helper_cmd(name: str, args: list[str], euid: int | None = None) -> list[str]:
     """Command that runs a root helper: directly as root, otherwise through pkexec."""
-    path = f"{HELPER_DIR}/{name}"
+    # BOPPOS_HELPER_DIR: run the helpers from a checkout (use with sudo; polkit only knows the /usr path)
+    path = f"{os.environ.get('BOPPOS_HELPER_DIR') or HELPER_DIR}/{name}"
     return [path, *args] if (os.geteuid() if euid is None else euid) == 0 else ["pkexec", path, *args]
 
 

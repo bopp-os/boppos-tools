@@ -64,6 +64,11 @@ def test_cli_uses_helper_when_not_root(monkeypatch, capsys):
     monkeypatch.setattr("subprocess.run", lambda argv, **kw: calls.append(argv) or P())
     assert kargs_cli.main(["enable", "deck"]) == 0
     assert calls == [["pkexec", kargs_cli.HELPER, "enable", "deck"]]
+    monkeypatch.setenv("BOPPOS_HELPER_DIR", "/work/libexec/boppos")
+    monkeypatch.setattr("os.path.exists", lambda p: p == "/work/libexec/boppos/kargs-helper")
+    calls.clear()
+    assert kargs_cli.main(["disable", "deck"]) == 0
+    assert calls == [["pkexec", "/work/libexec/boppos/kargs-helper", "disable", "deck"]]
     assert "+ a" in capsys.readouterr().out
 
 

@@ -18,6 +18,12 @@ from .kargs import KargError
 
 MUTATING = {"add", "remove", "apply", "enable", "disable", "edit"}
 HELPER = "/usr/libexec/boppos/kargs-helper"
+
+
+def helper_path() -> str:
+    """BOPPOS_HELPER_DIR runs the helper from a checkout (polkit then asks for a password)."""
+    override = os.environ.get("BOPPOS_HELPER_DIR")
+    return f"{override}/kargs-helper" if override else HELPER
 VIA_HELPER = {"status", "apply", "enable", "disable"}  # what the polkit-gated helper exposes
 
 
@@ -99,7 +105,7 @@ def _via_helper(args: argparse.Namespace) -> int:
     if getattr(args, "dry_run", False):
         raise KargError("--dry-run needs root; run it with sudo", "not-root")
     argv = [args.cmd, *([args.name] if hasattr(args, "name") else [])]
-    proc = subprocess.run(["pkexec", HELPER, *argv], capture_output=True, text=True, check=False)
+    proc = subprocess.run(["pkexec", helper_path(), *argv], capture_output=True, text=True, check=False)
     try:
         data = json.loads(proc.stdout)
     except json.JSONDecodeError:
@@ -115,7 +121,7 @@ def _via_helper(args: argparse.Namespace) -> int:
 
 def run(args: argparse.Namespace) -> int:
     root = args.root
-    if root == "/" and os.geteuid() != 0 and args.cmd in VIA_HELPER and os.path.exists(HELPER):
+    if root == "/" and os.geteuid() != 0 and args.cmd in VIA_HELPER and os.path.exists(helper_path()):
         return _via_helper(args)
     if args.cmd in MUTATING and root == "/" and os.geteuid() != 0:
         raise KargError(f"'{args.cmd}' needs root; run it with sudo", "not-root")

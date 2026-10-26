@@ -4,8 +4,10 @@
 import os
 import subprocess
 import sys
+from pathlib import Path
 
-sys.path.insert(0, "/usr/lib/boppos/py")
+# libexec/boppos/<helper> -> ../../lib/boppos/py: /usr/lib/boppos/py when installed, the repo's lib/ in a checkout
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "lib/boppos/py"))
 
 from boppos.privileged import UsageError, system_command  # noqa: E402
 

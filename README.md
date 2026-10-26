@@ -255,3 +255,19 @@ sudo bopp-migrate
    * **Total Reset Mode**: Relocates all hidden config folders into the backup vault directory, retaining raw user data folders and container files.
    * **Protected Files**: Important data such as Flatpak settings (`.var`), Steam games (`.steam`), browser profiles (`.mozilla`, `.config/google-chrome`), SSH/GPG keys, and game launchers are kept safe from removal.
 5. **TPM Encryption Setup**: Optionally re-registers TPM2 decryption bindings.
+
+---
+
+## Running from a checkout (development)
+
+The root helpers normally live in `/usr/libexec/boppos/`. To try the tools from a git checkout without installing:
+
+```bash
+export BOPPOS_HELPER_DIR="$PWD/libexec/boppos"     # use the helpers from this checkout
+sudo -E bin/bopp-system --json status               # as root the helper runs directly
+bin/bopp-system --json status                       # as a user: pkexec asks for a password (the polkit rule only knows /usr)
+bin/boppos-deck                                     # the app; privileged pages will prompt for a password
+sudo -E bin/bopp-kargs --dry-run add foo=1          # read-only/--dry-run first on a real system
+```
+
+The tests need no root and touch nothing real: `pytest`.
