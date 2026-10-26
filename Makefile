@@ -24,6 +24,9 @@ install-tools:
 	install -d $(DESTDIR)$(PREFIX)/lib/systemd/user
 	install -m 644 systemd/user/* $(DESTDIR)$(PREFIX)/lib/systemd/user/
 	
+	install -d $(DESTDIR)$(PREFIX)/lib/systemd/user-preset
+	install -m 644 systemd/user-preset/* $(DESTDIR)$(PREFIX)/lib/systemd/user-preset/
+	
 	install -d $(DESTDIR)$(PREFIX)/libexec/boppos
 	install -m 755 libexec/boppos/* $(DESTDIR)$(PREFIX)/libexec/boppos/
 	
