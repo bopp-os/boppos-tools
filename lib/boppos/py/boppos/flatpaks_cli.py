@@ -43,7 +43,11 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps({"error": str(exc)}) if args.json else f"error: {exc}", file=sys.stderr)
         return 1
     if args.status:
-        rows = [{"id": a.id, "ref": a.ref, "kind": a.kind, "installed": a.id in installed} for a in apps]
+        rows = [
+            {"id": a.id, "name": flatpaks.display_name(a.id), "ref": a.ref, "kind": a.kind,
+             "installed": a.id in installed}
+            for a in apps
+        ]
         print(json.dumps(rows, indent=2) if args.json else
               "\n".join(f"{'[x]' if r['installed'] else '[ ]'} {r['id']}" for r in rows))
         return 0

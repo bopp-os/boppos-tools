@@ -11,6 +11,24 @@ REMOTE_URL = "https://flathub.org/repo/flathub.flatpakrepo"
 _REF = re.compile(r"^(runtime/)?[A-Za-z0-9_][A-Za-z0-9_.-]*(/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)?$")
 
 
+NAMES = {
+    "it.mijorus.gearlever": "Gear Lever",
+    "io.github.kolunmi.Bazaar": "Bazaar",
+    "com.vysp3r.ProtonPlus": "ProtonPlus",
+    "com.github.tchx84.Flatseal": "Flatseal",
+    "org.gimp.GIMP": "GIMP",
+    "org.kde.kdenlive": "Kdenlive",
+    "org.qbittorrent.qBittorrent": "qBittorrent",
+    "io.github.dvlv.boxbuddyrs": "BoxBuddy",
+    "org.localsend.localsend_app": "LocalSend",
+}
+
+
+def display_name(app_id: str) -> str:
+    """Readable name for the UI: curated override, else the last id segment with underscores spaced."""
+    return NAMES.get(app_id) or app_id.rsplit(".", 1)[-1].replace("_", " ").replace("-", " ")
+
+
 class ListError(Exception):
     pass
 

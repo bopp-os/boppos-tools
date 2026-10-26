@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=BoppOS Settings
+GenericName=System Settings
+Comment=Updates, kernel arguments, apps and Decky for BoppOS (controller friendly)
+Exec=boppos-deck
+Icon=boppos-icon
+Terminal=false
+Categories=Settings;
+Keywords=boppos;update;kernel;flatpak;decky;gamepad;steam;
+StartupNotify=true

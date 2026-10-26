@@ -1,16 +1,16 @@
 pkgbase = boppos-tools
-	pkgver = 1.1.1
+	pkgver = 1.2.0
 	pkgrel = 1
 	url = https://github.com/bopp-os/boppos-tools
 	arch = any
 	license = GPL3
 	makedepends = git
 	makedepends = make
-	source = boppos-tools-1.1.1.tar.gz::https://github.com/bopp-os/boppos-tools/archive/refs/tags/v1.1.1.tar.gz
+	source = boppos-tools-1.2.0.tar.gz::https://github.com/bopp-os/boppos-tools/archive/refs/tags/v1.2.0.tar.gz
 	sha256sums = SKIP
 
 pkgname = boppos-tools
-	pkgdesc = Custom tools and utilities for BoppOS
+	pkgdesc = Custom tools and utilities for BoppOS (incl. boppos-deck, a controller-friendly settings app)
 	depends = bash
 	depends = python
 	depends = boppos-artwork
@@ -32,6 +32,8 @@ pkgname = boppos-tools
 	depends = distrobox
 	depends = podman
 	depends = docker
+	depends = libadwaita
+	depends = sdl3
 	optdepends = litterbox-sandbox: update Litterbox containers with boppos-update --litterbox
 	optdepends = litterbox-sandbox-addons: per-distro Litterbox updates via litterbox-update
 

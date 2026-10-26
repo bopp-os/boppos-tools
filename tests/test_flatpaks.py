@@ -65,3 +65,8 @@ def test_status_errors_cleanly_without_flatpak(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr("subprocess.run", lambda *a, **k: (_ for _ in ()).throw(FileNotFoundError("flatpak")))
     assert flatpaks_cli.main(["--list", str(f), "--status"]) == 1
     assert "cannot run flatpak" in capsys.readouterr().err
+
+
+def test_display_names():
+    assert flatpaks.display_name("it.mijorus.gearlever") == "Gear Lever"
+    assert flatpaks.display_name("org.virt_manager.virt-manager") == "virt manager"

@@ -13,6 +13,11 @@ install-tools:
 	
 	install -d $(DESTDIR)$(PREFIX)/lib/boppos/py/boppos
 	install -m 644 lib/boppos/py/boppos/*.py $(DESTDIR)$(PREFIX)/lib/boppos/py/boppos/
+	install -d $(DESTDIR)$(PREFIX)/lib/boppos/py/boppos/ui
+	install -m 644 lib/boppos/py/boppos/ui/*.py lib/boppos/py/boppos/ui/*.css $(DESTDIR)$(PREFIX)/lib/boppos/py/boppos/ui/
+	
+	install -d $(DESTDIR)$(PREFIX)/share/applications
+	install -m 644 share/applications/* $(DESTDIR)$(PREFIX)/share/applications/
 	
 	install -d $(DESTDIR)$(PREFIX)/share/boppos
 	install -m 644 share/boppos/* $(DESTDIR)$(PREFIX)/share/boppos/
