@@ -9,7 +9,10 @@ install-tools:
 	install -m 755 bin/* $(DESTDIR)$(PREFIX)/bin/
 	
 	install -d $(DESTDIR)$(PREFIX)/lib/boppos
-	install -m 755 lib/boppos/* $(DESTDIR)$(PREFIX)/lib/boppos/
+	find lib/boppos -maxdepth 1 -type f -exec install -m 755 {} $(DESTDIR)$(PREFIX)/lib/boppos/ \;
+	
+	install -d $(DESTDIR)$(PREFIX)/lib/boppos/py/boppos
+	install -m 644 lib/boppos/py/boppos/*.py $(DESTDIR)$(PREFIX)/lib/boppos/py/boppos/
 	
 	install -d $(DESTDIR)$(PREFIX)/share/boppos
 	install -m 644 share/boppos/* $(DESTDIR)$(PREFIX)/share/boppos/

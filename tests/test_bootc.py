@@ -1,0 +1,35 @@
+from pathlib import Path
+
+from boppos.bootc import parse_status
+from boppos.dmi import device_label, read_dmi
+
+FIX = Path(__file__).parent / "fixtures"
+
+
+def test_parse_full_status():
+    st = parse_status((FIX / "bootc-status.json").read_text())
+    assert st["booted"]["digest"] == "sha256:aaa"
+    assert st["staged"]["version"] == "43.2"
+    assert st["rollback"]["pinned"] is True
+    assert st["update_available"] and st["reboot_required"]
+
+
+def test_no_staged_means_no_update():
+    st = parse_status('{"status":{"booted":{"image":{"imageDigest":"sha256:a"}}}}')
+    assert st["staged"] is None
+    assert not st["update_available"] and not st["reboot_required"]
+
+
+def test_bad_json_reports_error():
+    assert "error" in parse_status("not json")
+
+
+def test_dmi_reads_fake_sysfs(tmp_path):
+    d = tmp_path / "sys/class/dmi/id"
+    d.mkdir(parents=True)
+    (d / "sys_vendor").write_text("Valve\n")
+    (d / "product_name").write_text("Jupiter\n")
+    dmi = read_dmi(tmp_path)
+    assert dmi == {"sys_vendor": "Valve", "product_name": "Jupiter"}
+    assert device_label(dmi) == "Valve Jupiter"
+    assert device_label({}) == "Unknown device"
