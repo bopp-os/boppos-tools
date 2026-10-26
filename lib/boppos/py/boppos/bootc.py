@@ -25,7 +25,8 @@ def _image(entry: dict[str, Any] | None) -> dict[str, Any] | None:
 
 
 def parse_status(raw: str) -> dict[str, Any]:
-    """Return {booted, staged, rollback, update_available, reboot_required} or {error}."""
+    """Return {booted, staged, rollback, update_available, rollback_queued, reboot_required}
+    or {error}."""
     try:
         data = json.loads(raw)
     except (json.JSONDecodeError, TypeError) as exc:
@@ -39,5 +40,6 @@ def parse_status(raw: str) -> dict[str, Any]:
         "staged": staged,
         "rollback": rollback,
         "update_available": bool(staged and (not booted or staged["digest"] != booted["digest"])),
-        "reboot_required": staged is not None,
+        "rollback_queued": bool(status.get("rollbackQueued")),
+        "reboot_required": staged is not None or bool(status.get("rollbackQueued")),
     }
