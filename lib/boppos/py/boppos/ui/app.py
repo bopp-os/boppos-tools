@@ -61,6 +61,9 @@ class DeckWindow(Adw.ApplicationWindow):
         self.toasts.set_child(self.stack)
 
         view = Adw.ToolbarView()
+        if not gaming:
+            # Desktop Mode: a normal title bar so the window can be moved and closed.
+            view.add_top_bar(Adw.HeaderBar())
         view.set_content(self.toasts)
         view.add_bottom_bar(self.build_hints())
         self.set_content(view)
