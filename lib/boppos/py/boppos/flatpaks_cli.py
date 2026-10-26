@@ -1,0 +1,73 @@
+"""Non-interactive mode of install-optional-flatpaks (system scope; polkit allows active wheel)."""
+
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+from pathlib import Path
+
+from . import flatpaks
+from .runner import make_emitter, open_log, run_stream
+
+
+def build_parser() -> argparse.ArgumentParser:
+    p = argparse.ArgumentParser(
+        prog="install-optional-flatpaks",
+        description="Install or remove the curated BoppOS Flatpaks without prompting (system scope).",
+    )
+    p.add_argument("--list", default=flatpaks.DEFAULT_LIST, metavar="FILE", help="Flatpak list file")
+    p.add_argument("--yes", action="store_true", help="do not prompt (required to change anything)")
+    p.add_argument("--only", metavar="ID[,ID...]", help="restrict to these entries of the list")
+    p.add_argument("--remove", action="store_true", help="uninstall instead of install")
+    p.add_argument("--status", action="store_true", help="show installed state and exit")
+    p.add_argument("--json", action="store_true", help="machine-readable output")
+    return p
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = build_parser().parse_args(argv)
+    try:
+        apps = flatpaks.parse_list(Path(args.list).read_text())
+        apps = flatpaks.select(apps, args.only.split(",") if args.only else None)
+    except (OSError, flatpaks.ListError) as exc:
+        print(json.dumps({"error": str(exc)}) if args.json else f"error: {exc}", file=sys.stderr)
+        return 1
+    if not apps:
+        print("error: the Flatpak list is empty", file=sys.stderr)
+        return 1
+
+    try:
+        installed = flatpaks.installed_ids()
+    except flatpaks.ListError as exc:
+        print(json.dumps({"error": str(exc)}) if args.json else f"error: {exc}", file=sys.stderr)
+        return 1
+    if args.status:
+        rows = [{"id": a.id, "ref": a.ref, "kind": a.kind, "installed": a.id in installed} for a in apps]
+        print(json.dumps(rows, indent=2) if args.json else
+              "\n".join(f"{'[x]' if r['installed'] else '[ ]'} {r['id']}" for r in rows))
+        return 0
+    if not args.yes:
+        print("error: refusing to change anything without --yes", file=sys.stderr)
+        return 2
+
+    action = "remove" if args.remove else "install"
+    emit = make_emitter(args.json, open_log(f"flatpak-{action}"))
+    todo = [a for a in apps if (a.id in installed) == args.remove]
+    failed: list[str] = []
+    if todo and not args.remove and run_stream(flatpaks.remote_add_cmd(), emit):
+        failed.append("flathub-remote")
+        todo = []
+    for app in todo:
+        emit({"event": "step", "id": app.id, "status": "start"})
+        cmd = flatpaks.remove_cmd(app) if args.remove else flatpaks.install_cmd(app)
+        ok = run_stream(cmd, emit) == 0
+        emit({"event": "step", "id": app.id, "status": "ok" if ok else "fail"})
+        if not ok:
+            failed.append(app.id)
+    emit({"event": "done", "ok": not failed, "failed": failed, "changed": len(todo) - len(failed)})
+    return 1 if failed else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

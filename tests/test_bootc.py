@@ -33,3 +33,14 @@ def test_dmi_reads_fake_sysfs(tmp_path):
     assert dmi == {"sys_vendor": "Valve", "product_name": "Jupiter"}
     assert device_label(dmi) == "Valve Jupiter"
     assert device_label({}) == "Unknown device"
+
+
+def test_deployment_indexes_follow_boot_order():
+    st = parse_status((FIX / "bootc-status.json").read_text())
+    assert [st[k]["index"] for k in ("staged", "booted", "rollback")] == [0, 1, 2]
+    queued = parse_status(
+        '{"status":{"rollbackQueued":true,"booted":{"image":{"imageDigest":"a"}},'
+        '"rollback":{"image":{"imageDigest":"b"}}}}'
+    )
+    assert queued["rollback"]["index"] == 0 and queued["booted"]["index"] == 1
+    assert queued["reboot_required"]

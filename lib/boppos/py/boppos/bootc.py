@@ -35,6 +35,11 @@ def parse_status(raw: str) -> dict[str, Any]:
     booted = _image(status.get("booted"))
     staged = _image(status.get("staged"))
     rollback = _image(status.get("rollback"))
+    # ostree lists deployments in boot order: staged first; a queued rollback goes before booted.
+    queued = bool(status.get("rollbackQueued"))
+    order = [staged, rollback, booted] if queued else [staged, booted, rollback]
+    for i, entry in enumerate(e for e in order if e):
+        entry["index"] = i
     return {
         "booted": booted,
         "staged": staged,
