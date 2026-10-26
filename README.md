@@ -9,11 +9,12 @@ A collection of custom enhancements, tools, and utilities designed specifically 
 2. [boppos-update](#boppos-update-update-manager)
 3. [bopp-diff](#bopp-diff-package-diff-analyzer)
 4. [bopp-tray](#bopp-tray-update-notifier)
-5. [install-optional-flatpaks](#install-optional-flatpaks-interactive-apps)
+5. [install-optional-flatpaks](#install-optional-flatpaks-curated-apps)
 6. [bopp-setup-howdy](#bopp-setup-howdy-howdy-face-authentication-setup)
-7. [bopp-kargs](#bopp-kargs-kernel-arguments-manager)
-8. [bopp-tpm-refresh](#bopp-tpm-refresh-tpm2-auto-unlock)
-9. [bopp-migrate](#bopp-migrate-migration-tool)
+7. [boppos-deck](#boppos-deck-controller-friendly-settings-app), [bopp-system](#bopp-system-updates-and-deployments-json-friendly), [bopp-decky](#bopp-decky-decky-loader), [bopp-steam-shortcut](#bopp-steam-shortcut-steam-library-entry)
+8. [bopp-kargs](#bopp-kargs-kernel-arguments-manager)
+9. [bopp-tpm-refresh](#bopp-tpm-refresh-tpm2-auto-unlock)
+10. [bopp-migrate](#bopp-migrate-migration-tool)
 
 ---
 
@@ -106,7 +107,7 @@ systemctl --user enable --now bopp-tray.service
 
 ---
 
-### `install-optional-flatpaks` (Interactive Apps)
+### `install-optional-flatpaks` (Curated Apps)
 
 An interactive wizard that prompts you to install optional, recommended Flatpak applications (from the curated BoppOS list in `/usr/share/boppos/boppos-flatpaks.txt`). It provides menu selections for developer tools, multimedia, social apps, gaming tools, and virtualization.
 
@@ -115,6 +116,15 @@ install-optional-flatpaks
 ```
 
 ---
+
+#### Non-interactive mode (system scope, used by boppos-deck)
+
+```bash
+install-optional-flatpaks --list FILE --yes [--only ID[,ID...]] [--remove] [--json]
+install-optional-flatpaks --status [--json]
+```
+
+Any option selects this mode. It needs `--yes` to change anything, only touches entries of the list, and installs with `flatpak --system` (Flatpak's own polkit rules let the active `wheel` user do that without a password). The interactive mode above is unchanged.
 
 ### `bopp-setup-howdy` (Howdy Face Authentication Setup)
 
@@ -131,6 +141,42 @@ sudo bopp-setup-howdy
 
 ---
 
+### `boppos-deck` (Controller-friendly settings app)
+
+A full-screen GTK4/libadwaita app for the things you would otherwise do in a terminal: updates and rollback, kernel-argument presets, the curated Flatpak list, Decky Loader, a support report. It works with a controller in Steam Gaming Mode, and with mouse and keyboard on the desktop: same large rows, same pages.
+
+* Keyboard: arrows move, `Enter` selects, `Esc` goes back, `Ctrl+Tab` / `Ctrl+Shift+Tab` switch pages.
+* Controller (SDL3, read directly): D-pad or left stick moves, `A` selects, `B` goes back, `LB`/`RB` switch pages, `Start` asks to exit (Gaming Mode).
+* Risky actions (rollback, pin, switch update tag, Decky uninstall) are hidden until **Advanced options** is switched on in *About*, and always ask first.
+* Everything it does is one of the CLIs below, so scripts and a future Decky plugin can share the same backend. Set `BOPPOS_DECK_BIN_DIR` to point it at other copies of those tools (testing).
+* Privileged actions go through `pkexec` helpers in `/usr/libexec/boppos/` and a polkit rule that lets the **active, local `wheel` user** run them without a password (there is no polkit agent in Gaming Mode). Other users get `auth_admin`, which fails without an agent.
+
+Install adds `libadwaita` (about 5 MiB); `gtk4`, `python-gobject` and `sdl3` (through gamescope) are already in the image.
+
+### `bopp-system` (Updates and deployments, JSON-friendly)
+
+```bash
+bopp-system [--json] status | check | upgrade [--only os,fw,flatpak,brew] | rollback | pin N | unpin N | switch TAG | tags | reboot | about | support-report
+```
+
+`upgrade` defaults to OS, Flatpaks and Homebrew (same as `boppos-update`). With `--json`, actions print one JSON event per line (`log`, `step`, `done`) and keep the last 20 logs in `~/.local/state/boppos-deck/logs/`. `switch` only changes the tag of the booted image, never the registry or repository.
+
+### `bopp-decky` (Decky Loader)
+
+```bash
+bopp-decky [--json] status | install | uninstall
+```
+
+Installs per user into `~/homebrew` from the latest stable GitHub release, like the upstream installer, but verifies the download against the sha256 digest GitHub publishes (a release without one is refused). The root helper writes a fixed `plugin_loader.service` to `/etc/systemd/system` and refuses a binary the user does not own or that others can write to. It also sets Steam's CEF remote-debugging flag. In Gaming Mode it restarts Steam; elsewhere restart Steam yourself. As with upstream Decky, this is a root service that runs a file from your home directory.
+
+### `bopp-steam-shortcut` (Steam library entry)
+
+```bash
+bopp-steam-shortcut add [--force] | status
+```
+
+Adds a "BoppOS" non-Steam shortcut. It only edits `shortcuts.vdf` while Steam is not running (exit 3 otherwise), backs the file up first (last 3 kept), checks the new bytes parse back, and replaces the file atomically. Corrupt files are left alone. It offers the shortcut once per user. `bopp-steam-shortcut.service` retries every minute until Steam is closed and is enabled by the preset in `systemd/user-preset/`; if your image does not apply user presets, enable it with `systemctl --user enable bopp-steam-shortcut.service`.
+
 ## Critical System & Migration Tools
 
 The tools below modify critical system boot, encryption, or overlay structures. Always handle them with appropriate caution.
@@ -139,22 +185,40 @@ The tools below modify critical system boot, encryption, or overlay structures. 
 
 ### `bopp-kargs` (Kernel Arguments Manager)
 
-A manager for Boot Loader Specification (BLS) kernel arguments on atomic deployments. It reads, diffs, and updates boot loader configs.
+Reads and changes the kernel arguments of the deployment that boots next, and applies device-specific presets ("drop-ins"). Every command accepts `--json`.
 
 ```bash
 sudo bopp-kargs COMMAND [ARGS]
 ```
 
 > [!WARNING]
-> **CRITICAL BOOT CONFIGURATION:** Modifying kernel arguments directly edits system bootloader configurations. Incorrect parameters can prevent the operating system from booting successfully. Pinned deployments are preserved as safe recovery fallbacks.
+> **CRITICAL BOOT CONFIGURATION:** Incorrect kernel arguments can prevent the system from booting. `bopp-kargs` refuses to touch `ostree=` and `root=`, matches arguments token-exact (`remove quiet` never changes `rd.quiet`), and refuses to change anything while an update is staged or a rollback is queued, because the staged deployment has no boot entry yet. Reboot first.
 
 #### Commands:
-* **`status`**: List all current boot deployments (including Pinned, Staged, Booted, and Fallback states).
-* **`list [index]`**: Show detailed kernel arguments for a deployment (default index: `0`).
-* **`edit [index]`**: Interactively edit arguments using your configured editor (e.g., `nano` or `vi`).
-* **`add <argument>`**: Append a new kernel argument parameter to the active deployment.
-* **`remove <argument>`**: Delete a specific kernel argument parameter.
-* **`diff [idx1] [idx2]`**: Print colorized kernel parameter diffs between two deployments (defaults to booted vs fallback).
+* **`status`**: boot entries (booted one marked) and whether changes are currently possible.
+* **`list [index]`**: arguments of the next-boot entry, or of entry `index`.
+* **`add <argument>`** / **`remove <argument>`**: change one argument. `add` skips arguments that are already present. Add uses `ostree admin kargs edit-in-place --append-if-missing=`; ostree has no delete option, so `remove` writes the full list back with `ostree admin instutil set-kargs`. Both need root (`sudo`). `--dry-run` shows the plan.
+* **`edit`**: edit the arguments in `$EDITOR`; the difference is applied as add/remove.
+* **`diff [a] [b]`**: arguments that differ between two entries.
+* **`dropins`**: preset files and whether each matches this device.
+* **`apply`**: make the system match the enabled, matching drop-ins. Idempotent. Only arguments listed in `/var/lib/bopp-kargs/managed` (the ones it added itself) are ever removed.
+* **`enable <name>`** / **`disable <name>`**: switch a drop-in on or off (writes an override in `/etc/bopp-kargs.d`) and apply.
+
+`apply`, `enable`, `disable` and `status` also work without `sudo`: they run the polkit-gated helper `/usr/libexec/boppos/kargs-helper`, which only exposes those verbs (never free-form arguments).
+
+#### Drop-in files
+
+`/usr/lib/bopp-kargs.d/*.conf` ships with the image; a file with the same name in `/etc/bopp-kargs.d/` replaces it completely.
+
+```ini
+description = Use the active amd-pstate driver     # shown in boppos-deck
+kargs = amd_pstate=active                          # may repeat
+enabled = true                                     # false = off by default
+match.sys_vendor = Valve                           # DMI field from /sys/class/dmi/id
+match.product_name = Jupiter|Galileo               # fnmatch patterns, any case, '|' = or
+```
+
+Without any `match.*` line a drop-in applies to every device. A drop-in with an invalid line is reported by `dropins` and ignored.
 
 ---
 
