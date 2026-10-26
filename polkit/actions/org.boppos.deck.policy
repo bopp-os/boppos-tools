@@ -31,4 +31,15 @@
     </defaults>
     <annotate key="org.freedesktop.policykit.exec.path">/usr/libexec/boppos/bootc-helper</annotate>
   </action>
+
+  <action id="org.boppos.deck.decky">
+    <description>Install or remove the Decky Loader service</description>
+    <message>Authentication is required to install or remove the Decky Loader service</message>
+    <defaults>
+      <allow_any>auth_admin</allow_any>
+      <allow_inactive>auth_admin</allow_inactive>
+      <allow_active>auth_admin</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/libexec/boppos/decky-helper</annotate>
+  </action>
 </policyconfig>

@@ -1,0 +1,15 @@
+#!/usr/bin/env python3
+"""bopp-decky: install, update, remove and inspect Decky Loader for the current user."""
+
+import sys
+from pathlib import Path
+
+for _p in (Path(__file__).resolve().parent.parent / "lib/boppos/py", Path("/usr/lib/boppos/py")):
+    if (_p / "boppos").is_dir():
+        sys.path.insert(0, str(_p))
+        break
+
+from boppos.decky_cli import main  # noqa: E402
+
+if __name__ == "__main__":
+    sys.exit(main())
