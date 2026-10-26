@@ -1,0 +1,25 @@
+#!/usr/bin/python3 -I
+"""Root helper for boppos-deck: drop-in based kernel arguments only (see privileged.py)."""
+
+import os
+import sys
+
+sys.path.insert(0, "/usr/lib/boppos/py")
+
+from boppos.kargs_cli import main as kargs_main  # noqa: E402
+from boppos.privileged import UsageError, kargs_argv  # noqa: E402
+
+
+def main(argv):
+    os.environ.clear()
+    os.environ.update(PATH="/usr/sbin:/usr/bin", LANG="C.UTF-8")
+    try:
+        args = kargs_argv(argv)
+    except UsageError as exc:
+        print(f"kargs-helper: {exc}", file=sys.stderr)
+        return 2
+    return kargs_main(args)
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

@@ -17,6 +17,8 @@ from .dmi import read_dmi
 from .kargs import KargError
 
 MUTATING = {"add", "remove", "apply", "enable", "disable", "edit"}
+HELPER = "/usr/libexec/boppos/kargs-helper"
+VIA_HELPER = {"status", "apply", "enable", "disable"}  # what the polkit-gated helper exposes
 
 
 def _bootc_status(path: str | None) -> dict:
@@ -92,8 +94,29 @@ def _entry_by_index(root: str, index: int | None, args) -> kargs.Entry:
     return entries[index]
 
 
+def _via_helper(args: argparse.Namespace) -> int:
+    """Run as a normal user: ask the polkit-gated root helper (no password for active wheel)."""
+    if getattr(args, "dry_run", False):
+        raise KargError("--dry-run needs root; run it with sudo", "not-root")
+    argv = [args.cmd, *([args.name] if hasattr(args, "name") else [])]
+    proc = subprocess.run(["pkexec", HELPER, *argv], capture_output=True, text=True, check=False)
+    try:
+        data = json.loads(proc.stdout)
+    except json.JSONDecodeError:
+        raise KargError(proc.stderr.strip() or "privileged helper failed", "helper") from None
+    if args.json:
+        print(json.dumps(data, indent=2))
+    elif "error" in data:
+        raise KargError(data["error"], data.get("code", "error"))
+    else:
+        print(_summary(data) if args.cmd != "status" else json.dumps(data, indent=2))
+    return 1 if "error" in data else 0
+
+
 def run(args: argparse.Namespace) -> int:
     root = args.root
+    if root == "/" and os.geteuid() != 0 and args.cmd in VIA_HELPER and os.path.exists(HELPER):
+        return _via_helper(args)
     if args.cmd in MUTATING and root == "/" and os.geteuid() != 0:
         raise KargError(f"'{args.cmd}' needs root; run it with sudo", "not-root")
     dry = getattr(args, "dry_run", False)

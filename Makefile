@@ -24,8 +24,14 @@ install-tools:
 	install -d $(DESTDIR)$(PREFIX)/lib/systemd/user
 	install -m 644 systemd/user/* $(DESTDIR)$(PREFIX)/lib/systemd/user/
 	
+	install -d $(DESTDIR)$(PREFIX)/libexec/boppos
+	install -m 755 libexec/boppos/* $(DESTDIR)$(PREFIX)/libexec/boppos/
+	
 	install -d $(DESTDIR)$(PREFIX)/share/polkit-1/rules.d
-	install -m 644 polkit/* $(DESTDIR)$(PREFIX)/share/polkit-1/rules.d/
+	install -m 644 polkit/rules.d/* $(DESTDIR)$(PREFIX)/share/polkit-1/rules.d/
+	
+	install -d $(DESTDIR)$(PREFIX)/share/polkit-1/actions
+	install -m 644 polkit/actions/* $(DESTDIR)$(PREFIX)/share/polkit-1/actions/
 	
 	install -d $(DESTDIR)$(SYSCONFDIR)/xdg/autostart
 	install -m 644 autostart/* $(DESTDIR)$(SYSCONFDIR)/xdg/autostart/
