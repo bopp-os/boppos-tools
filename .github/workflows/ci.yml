@@ -54,6 +54,26 @@ jobs:
             fi
           done
 
+      - name: Lint shell scripts (shellcheck)
+        run: |
+          # bopp-diff and update-check.sh predate shellcheck in CI and still have warnings
+          for f in bin/* lib/boppos/* libexec/boppos/* share/boppos/*.sh; do
+            case "$f" in bin/bopp-diff|lib/boppos/update-check.sh) continue ;; esac
+            if [ -f "$f" ] && head -n 1 "$f" | grep -E -q 'bash|/sh'; then
+              shellcheck -S warning "$f"
+            fi
+          done
+
+      - name: Lint and test Python (ruff, pytest)
+        run: |
+          pip install pytest ruff
+          # bopp-tray and parse-bootc-status.py predate ruff in CI
+          py=$(grep -lE '^#!.*python' bin/* libexec/boppos/* lib/boppos/* 2>/dev/null \
+            | grep -v -e bin/bopp-tray -e parse-bootc-status.py || true)
+          # shellcheck disable=SC2086
+          ruff check lib/boppos/py tests $py
+          pytest -q
+
       - name: Test installation with Makefile
         run: |
           echo "Testing Makefile installation targets..."
