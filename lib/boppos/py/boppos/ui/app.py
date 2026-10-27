@@ -175,6 +175,10 @@ class DeckWindow(Adw.ApplicationWindow):
         self.p_log = Gtk.TextView(editable=False, cursor_visible=False, monospace=True,
                                   wrap_mode=Gtk.WrapMode.WORD_CHAR)
         self.p_log.add_css_class("progress-log")
+        buf = self.p_log.get_buffer()
+        buf.create_tag("heading", weight=700, scale=1.15, pixels_above_lines=10, pixels_below_lines=4)
+        buf.create_tag("ok", weight=700, foreground="#2ec27e")
+        buf.create_tag("fail", weight=700, foreground="#e01b24")
         log_scroll = Gtk.ScrolledWindow(vexpand=True, min_content_height=120)
         log_scroll.set_child(self.p_log)
         self.p_log_scroll = log_scroll
@@ -597,6 +601,12 @@ class DeckWindow(Adw.ApplicationWindow):
         self.p_done.grab_focus()
         self._on_done = on_done
 
+        def end_progress_line(buf: Gtk.TextBuffer) -> None:
+            if self.p_prog_mark is not None:  # close the progress line before the next line of text
+                buf.delete_mark(self.p_prog_mark)
+                self.p_prog_mark = None
+                buf.insert(buf.get_end_iter(), "\n")
+
         def on_event(ev: dict) -> None:
             buf = self.p_log.get_buffer()
             if ev["event"] == "progress":
@@ -610,17 +620,28 @@ class DeckWindow(Adw.ApplicationWindow):
                 if pct is not None:
                     self.p_bar.set_visible(True)
                     self.p_bar.set_fraction(pct / 100)
-                    self.p_bar.set_text(f"{pct:.0f}%")
+                    self.p_bar.set_text(ev.get("bar") or f"{pct:.0f}%")
             elif ev["event"] == "log":
-                if self.p_prog_mark is not None:  # close the progress line before the next line of text
-                    buf.delete_mark(self.p_prog_mark)
-                    self.p_prog_mark = None
-                    buf.insert(buf.get_end_iter(), "\n")
+                end_progress_line(buf)
                 buf.insert(buf.get_end_iter(), ev["line"] + "\n")
+            elif ev["event"] == "step":
+                # Each updater gets a heading, and a done/failed line when it finishes
+                end_progress_line(buf)
+                name = ev.get("label") or ev["id"]
+                if ev["status"] == "start":
+                    pos = f" ({ev['index']} of {ev['total']})" if ev.get("total", 1) > 1 else ""
+                    self.p_status.set_label(f"Updating {name}{pos}…")
+                    buf.insert_with_tags_by_name(buf.get_end_iter(), f"{name}\n", "heading")
+                    self.p_bar.set_visible(False)  # the next updater's bar starts fresh
+                elif ev["status"] in ("ok", "fail"):
+                    ok = ev["status"] == "ok"
+                    buf.insert_with_tags_by_name(buf.get_end_iter(), f"{'✓' if ok else '✗'} {name}: "
+                                                 f"{'done' if ok else 'failed'}\n", "ok" if ok else "fail")
+                else:
+                    self.p_status.set_label(f"{name}: {ev['status']}")
+            if ev["event"] in ("log", "step"):
                 adj = self.p_log_scroll.get_vadjustment()
                 adj.set_value(adj.get_upper())
-            elif ev["event"] == "step":
-                self.p_status.set_label(f"{ev['id']}: {ev['status']}")
 
         def on_finish(ok: bool, final: dict) -> None:
             self.p_bar.set_visible(False)
@@ -628,7 +649,9 @@ class DeckWindow(Adw.ApplicationWindow):
             self.p_spinner.set_visible(False)
             self.p_done.set_sensitive(True)
             self.p_done.grab_focus()
-            msg = "Done." if ok else "Something went wrong. Open Details for the log."
+            failed = [system.TARGET_LABELS.get(t, t) for t in final.get("failed") or []]
+            msg = "Done." if ok else (f"Failed: {', '.join(failed)}. See Details for the log." if failed
+                                      else "Something went wrong. Open Details for the log.")
             if final.get("restart_steam") and ok:
                 msg += " Restart Steam to finish."
             self.p_status.set_label(msg)

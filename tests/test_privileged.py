@@ -2,7 +2,7 @@ import json
 
 import pytest
 from boppos import kargs_cli
-from boppos.privileged import UsageError, kargs_argv, system_command, validate_image_ref
+from boppos.privileged import UsageError, kargs_argv, system_command, validate_image_ref, with_progress_fd
 
 FIX = json.dumps(
     {"status": {"booted": {"image": {"image": {"image": "ghcr.io/bopp-os/cachyos-plasma:stable"}}}}}
@@ -155,3 +155,12 @@ def test_escalation_prefix(monkeypatch):
     assert system.escalation(euid=1000) == ["sudo", "-n"] and system.escalation(euid=0) == []
     monkeypatch.setenv("BOPPOS_HELPER_ESCALATE", "anything-else")
     assert system.escalation(euid=1000) == ["pkexec"]
+
+
+def test_progress_fd_only_for_pulls():
+    assert with_progress_fd(system_command(["upgrade"])) == ["/usr/bin/bootc", "upgrade", "--progress-fd", "3"]
+    switch = with_progress_fd(system_command(["switch", "ghcr.io/bopp-os/cachyos-plasma:v4"]))
+    assert switch[:4] == ["/usr/bin/bootc", "switch", "--progress-fd", "3"]
+    assert switch[-1] == "ghcr.io/bopp-os/cachyos-plasma:v4"
+    for verb in (["check"], ["status"], ["rollback"], ["pin", "1"]):
+        assert with_progress_fd(system_command(verb)) == system_command(verb)

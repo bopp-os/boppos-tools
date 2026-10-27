@@ -81,6 +81,49 @@ update_brew() {
     fi
 }
 
+# Path to run an app with: the native binary, else the Flatpak's exported launcher (user install first)
+find_app() {
+    local binary=$1 app_id=$2 c
+    for c in "$binary" "$app_id" "$HOME/.local/share/flatpak/exports/bin/$app_id" "/var/lib/flatpak/exports/bin/$app_id"; do
+        command -v "$c" 2> /dev/null && return 0
+    done
+    return 1
+}
+
+update_appimage() {
+    echo -e "\n${GREEN}==> Updating AppImages (Gear Lever)...${NC}"
+    local gl
+    if ! gl=$(find_app gearlever it.mijorus.gearlever); then
+        echo "Gear Lever not found, skipping."
+        return
+    fi
+    # Only AppImages with an update source; running apps are skipped (no --force)
+    run_cmd "$gl" --update --all --yes || {
+        echo -e "${BLUE}Warning: Gear Lever update encountered an error.${NC}"
+    }
+}
+
+update_proton() {
+    echo -e "\n${GREEN}==> Updating Proton Latest (ProtonPlus)...${NC}"
+    local pp
+    if ! pp=$(find_app protonplus com.vysp3r.ProtonPlus); then
+        echo "ProtonPlus not found, skipping."
+        return
+    fi
+    # Updates only the "<tool> Latest" installs; pinned versions stay as they are
+    run_cmd "$pp" update all || {
+        echo -e "${BLUE}Warning: ProtonPlus update encountered an error.${NC}"
+    }
+}
+
+# Containers whose update failed; reported at the end and in the exit code (bopp-system shows it as failed)
+FAILED_CONTAINERS=()
+
+container_failed() {
+    FAILED_CONTAINERS+=("$1")
+    echo -e "${BLUE}Warning: update failed in $1.${NC}"
+}
+
 update_distrobox() {
     echo -e "\n${GREEN}==> Updating Distroboxes...${NC}"
     if ! command -v distrobox &> /dev/null; then
@@ -93,10 +136,11 @@ update_distrobox() {
         [ -z "$name" ] && continue
         if distrobox enter "$name" -- sh -c 'command -v shelly' &> /dev/null; then
             echo "Updating $name (shelly)..."
-            run_cmd distrobox enter "$name" -- shelly upgrade all --no-flatpak --no-appimage -n || true
+            run_cmd distrobox enter "$name" -- shelly upgrade all --no-flatpak --no-appimage -n \
+                || container_failed "Distrobox '$name'"
         else
             echo "Updating $name..."
-            run_cmd distrobox upgrade "$name" || true
+            run_cmd distrobox upgrade "$name" || container_failed "Distrobox '$name'"
         fi
     done
 }
@@ -124,7 +168,7 @@ update_litterbox() {
     fi
 
     if command -v litterbox-update &> /dev/null; then
-        run_cmd litterbox-update --all || true
+        run_cmd litterbox-update --all || container_failed "Litterboxes (litterbox-update)"
         return
     fi
 
@@ -149,7 +193,7 @@ update_litterbox() {
         fi
         echo "Updating $name..."
         run_cmd litterbox enter "$name" --root -- "sh -c '$script'" \
-            || echo -e "${BLUE}Warning: update failed in Litterbox '$name'.${NC}"
+            || container_failed "Litterbox '$name'"
     done
 }
 
@@ -160,15 +204,17 @@ show_help() {
     echo "  -w, --fw         Update firmware (fwupdmgr)"
     echo "  -f, --flatpak    Update Flatpaks"
     echo "  -b, --brew       Update Homebrew"
+    echo "  -g, --appimage   Update AppImages (Gear Lever)"
+    echo "  -p, --proton     Update Proton Latest installs (ProtonPlus)"
     echo "  -d, --distrobox  Update all Distroboxes"
     echo "  -l, --litterbox  Update all Litterboxes"
     echo "  -v, --verbose    Show full output for package managers"
-    echo "  -a, --all        Update everything (OS, FW, Flatpak, Brew, Distroboxes, Litterboxes)"
+    echo "  -a, --all        Update everything (OS, FW, Flatpak, Brew, AppImages, Proton, Distroboxes, Litterboxes)"
     echo "  -y, --yes        Auto-confirm updates and skip interactive prompts (e.g. diffs)"
     echo "  -F, --force      Alias for --yes"
     echo "  -h, --help       Show this help message"
     echo ""
-    echo "With no options, runs the default updates: OS, FW, Flatpak, Brew."
+    echo "With no options, runs the default updates: OS, FW, Flatpak, Brew, AppImages, Proton."
 }
 
 # Parse arguments
@@ -176,13 +222,15 @@ RUN_OS=false
 RUN_FW=false
 RUN_FLATPAK=false
 RUN_BREW=false
+RUN_APPIMAGE=false
+RUN_PROTON=false
 RUN_DISTROBOX=false
 RUN_LITTERBOX=false
 AUTO_YES=false
 VERBOSE=false
 
 if [ "$#" -eq 0 ]; then
-    RUN_OS=true; RUN_FW=true; RUN_FLATPAK=true; RUN_BREW=true
+    RUN_OS=true; RUN_FW=true; RUN_FLATPAK=true; RUN_BREW=true; RUN_APPIMAGE=true; RUN_PROTON=true
 else
     while [[ "$#" -gt 0 ]]; do
         case $1 in
@@ -190,9 +238,11 @@ else
             --fw) RUN_FW=true ;;
             --flatpak) RUN_FLATPAK=true ;;
             --brew) RUN_BREW=true ;;
+            --appimage) RUN_APPIMAGE=true ;;
+            --proton) RUN_PROTON=true ;;
             --distrobox) RUN_DISTROBOX=true ;;
             --litterbox) RUN_LITTERBOX=true ;;
-            --all) RUN_OS=true; RUN_FW=true; RUN_FLATPAK=true; RUN_BREW=true; RUN_DISTROBOX=true; RUN_LITTERBOX=true ;;
+            --all) RUN_OS=true; RUN_FW=true; RUN_FLATPAK=true; RUN_BREW=true; RUN_APPIMAGE=true; RUN_PROTON=true; RUN_DISTROBOX=true; RUN_LITTERBOX=true ;;
             --yes|-y|--force|-F) AUTO_YES=true ;;
             --verbose|-v) VERBOSE=true ;;
             --help) show_help; exit 0 ;;
@@ -204,9 +254,11 @@ else
                         w) RUN_FW=true ;;
                         f) RUN_FLATPAK=true ;;
                         b) RUN_BREW=true ;;
+                        g) RUN_APPIMAGE=true ;;
+                        p) RUN_PROTON=true ;;
                         d) RUN_DISTROBOX=true ;;
                         l) RUN_LITTERBOX=true ;;
-                        a) RUN_OS=true; RUN_FW=true; RUN_FLATPAK=true; RUN_BREW=true; RUN_DISTROBOX=true; RUN_LITTERBOX=true ;;
+                        a) RUN_OS=true; RUN_FW=true; RUN_FLATPAK=true; RUN_BREW=true; RUN_APPIMAGE=true; RUN_PROTON=true; RUN_DISTROBOX=true; RUN_LITTERBOX=true ;;
                         y|F) AUTO_YES=true ;;
                         v) VERBOSE=true ;;
                         h) show_help; exit 0 ;;
@@ -220,7 +272,8 @@ else
     done
 fi
 
-echo -e "${BLUE}Starting CachyOS BoppOS System Update...${NC}\n"
+# The banners are for a terminal; bopp-system runs this for its container targets and has its own headings
+[ -t 1 ] && echo -e "${BLUE}Starting CachyOS BoppOS System Update...${NC}\n"
 
 # Pre-authenticate sudo if firmware is being updated, or the OS without bopp-system
 if [ "$RUN_FW" = true ] || { [ "$RUN_OS" = true ] && ! command -v bopp-system &> /dev/null; }; then
@@ -231,10 +284,17 @@ fi
 [ "$RUN_FW" = true ] && update_fw
 [ "$RUN_FLATPAK" = true ] && update_flatpak
 [ "$RUN_BREW" = true ] && update_brew
+[ "$RUN_APPIMAGE" = true ] && update_appimage
+[ "$RUN_PROTON" = true ] && update_proton
 [ "$RUN_DISTROBOX" = true ] && update_distrobox
 [ "$RUN_LITTERBOX" = true ] && update_litterbox
 
-echo -e "\n${BLUE}CachyOS BoppOS update complete!${NC}"
+if [ "${#FAILED_CONTAINERS[@]}" -gt 0 ]; then
+    failed_list=$(printf '%s, ' "${FAILED_CONTAINERS[@]}")
+    echo -e "\n${BLUE}Update failed in: ${failed_list%, }${NC}"
+    exit 1
+fi
+[ -t 1 ] && echo -e "\n${BLUE}CachyOS BoppOS update complete!${NC}"
 if [ "$RUN_OS" = true ]; then
     echo -e "\nNote: If the OS was updated via bootc, please reboot to apply the changes."
 fi

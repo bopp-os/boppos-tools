@@ -56,7 +56,7 @@ bopp-dev-setup [OPTIONS]
 
 ### `boppos-update` (Update Manager)
 
-A comprehensive update manager that updates your OS (`bootc`), firmware, Flatpaks, Homebrew, and all Distrobox and Litterbox containers. If an OS update is available, it displays a package diff preview to show you exactly what is changing. The OS step runs through `bopp-system upgrade --only os` (the same polkit-checked helper the settings app uses, so no sudo password) when `bopp-system` is installed, and falls back to `sudo bootc upgrade` otherwise. Firmware still uses sudo.
+A comprehensive update manager that updates your OS (`bootc`), firmware, Flatpaks, Homebrew, AppImages (through Gear Lever), Proton "Latest" installs (through ProtonPlus), and all Distrobox and Litterbox containers. If an OS update is available, it displays a package diff preview to show you exactly what is changing. The OS step runs through `bopp-system upgrade --only os` (the same polkit-checked helper the settings app uses, so no sudo password) when `bopp-system` is installed, and falls back to `sudo bootc upgrade` otherwise. Firmware still uses sudo.
 
 ```bash
 boppos-update [OPTIONS]
@@ -69,9 +69,11 @@ boppos-update [OPTIONS]
 | `-w, --fw` | Update firmware (`fwupdmgr`). |
 | `-f, --flatpak` | Update user and system Flatpaks. |
 | `-b, --brew` | Update Homebrew package databases and formulae. |
+| `-g, --appimage` | Update AppImages that Gear Lever manages and has an update source for (`gearlever --update --all --yes`). Running apps are skipped. |
+| `-p, --proton` | Update the "Latest" compatibility tools installed by ProtonPlus, such as GE-Proton Latest (`protonplus update all`). Pinned versions are left alone. |
 | `-d, --distrobox` | Upgrade packages inside all Distrobox containers. |
 | `-l, --litterbox` | Upgrade packages inside all Litterbox containers (via `litterbox-update --all` from `litterbox-sandbox-addons`, falling back to `litterbox enter <name> --root` with the box's package manager). |
-| `-a, --all` | Update everything: OS, Firmware, Flatpak, Brew, Distroboxes and Litterboxes. *Running with no options does the defaults only (OS, Firmware, Flatpak, Brew).* |
+| `-a, --all` | Update everything: OS, Firmware, Flatpak, Brew, AppImages, Proton, Distroboxes and Litterboxes. *Running with no options does the defaults only (OS, Firmware, Flatpak, Brew, AppImages, Proton).* |
 | `-v, --verbose` | Show verbose output logs for sub-package managers. |
 | `-y, --yes`, `-F, --force` | Auto-confirm updates and skip interactive prompts (useful for automated update hooks). |
 | `-h, --help` | Show the help menu. |
@@ -164,10 +166,10 @@ Install adds `libadwaita` (about 5 MiB); `gtk4`, `python-gobject` and `sdl3` (th
 ### `bopp-system` (Updates and deployments, JSON-friendly)
 
 ```bash
-bopp-system [--json] status | check | upgrade [--only os,fw,flatpak,brew] | rollback | pin N | unpin N | switch IMAGE | reboot | about | support-report
+bopp-system [--json] status | check | upgrade [--only os,fw,flatpak,brew,appimage,proton,distrobox,litterbox] | rollback | pin N | unpin N | switch IMAGE | reboot | about | support-report
 ```
 
-`upgrade` defaults to OS, Flatpaks and Homebrew (same as `boppos-update`). With `--json`, actions print one JSON event per line (`log`, `step`, `done`) and keep the last 20 logs in `~/.local/state/boppos-deck/logs/`. `switch IMAGE` takes the **complete** reference (`ghcr.io/bopp-os/cachyos-plasma:v4`, or `…@sha256:…`) and nothing is filled in for you: a bare tag, a missing registry or tag, or a transport prefix (`oci:`, `docker://`, `containers-storage:`) is refused. It runs `bootc switch --transport registry --enforce-container-sigpolicy`, so images from `ghcr.io/bopp-os` must carry the BoppOS signature. boppos-deck offers it only under Advanced, as three steps (warning, typing the whole reference, a final confirmation that shows from/to). Staying on your channel is what updates do; the only ready-made way back is *Roll back*. App names in the Flatpak list come from a `# name: ...` comment on each line (looked up on Flathub); installed apps show the name they call themselves.
+`upgrade` defaults to everything but firmware: OS, Flatpaks, Homebrew, AppImages, Proton, Distroboxes and Litterboxes (`boppos-update` with no options does firmware but not containers). Gear Lever and ProtonPlus are used as a native binary or as their Flatpaks (`it.mijorus.gearlever`, `com.vysp3r.ProtonPlus`); a target whose tool is missing is skipped. `distrobox` and `litterbox` run `boppos-update --distrobox` / `--litterbox`; a box that fails to update makes that step fail. With `--json`, actions print one JSON event per line (`log`, `step`, `done`) and keep the last 20 logs in `~/.local/state/boppos-deck/logs/`. `switch IMAGE` takes the **complete** reference (`ghcr.io/bopp-os/cachyos-plasma:v4`, or `…@sha256:…`) and nothing is filled in for you: a bare tag, a missing registry or tag, or a transport prefix (`oci:`, `docker://`, `containers-storage:`) is refused. It runs `bootc switch --transport registry --enforce-container-sigpolicy`, so images from `ghcr.io/bopp-os` must carry the BoppOS signature. boppos-deck offers it only under Advanced, as three steps (warning, typing the whole reference, a final confirmation that shows from/to). Staying on your channel is what updates do; the only ready-made way back is *Roll back*. App names in the Flatpak list come from a `# name: ...` comment on each line (looked up on Flathub); installed apps show the name they call themselves.
 
 ### `bopp-decky` (Decky Loader)
 

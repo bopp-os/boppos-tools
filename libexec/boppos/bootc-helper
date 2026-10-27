@@ -2,13 +2,14 @@
 """Root helper for boppos-deck: fixed bootc/ostree verbs, validated arguments (see privileged.py)."""
 
 import os
+import stat
 import sys
 from pathlib import Path
 
 # libexec/boppos/<helper> -> ../../lib/boppos/py: /usr/lib/boppos/py when installed, the repo's lib/ in a checkout
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "lib/boppos/py"))
 
-from boppos.privileged import UsageError, system_command  # noqa: E402
+from boppos.privileged import PROGRESS_FD, UsageError, system_command, with_progress_fd  # noqa: E402
 
 
 def main(argv):
@@ -19,6 +20,10 @@ def main(argv):
     except UsageError as exc:
         print(f"bootc-helper: {exc}", file=sys.stderr)
         return 2
+    # bootc only reports download progress to a terminal or a progress fd; bopp-system reads our stdout pipe
+    if stat.S_ISFIFO(os.fstat(1).st_mode) and (progress := with_progress_fd(cmd)) != cmd:
+        os.dup2(1, PROGRESS_FD)
+        cmd = progress
     os.execv(cmd[0], cmd)
 
 

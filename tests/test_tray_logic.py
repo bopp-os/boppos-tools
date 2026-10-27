@@ -37,7 +37,7 @@ def test_menu_order_and_names():
     assert labels[1:5] == ["Open BoppOS Settings", "Check for Updates", "Install Updates", "Review Changes…"]
     install = [e for e in spec if e and e["id"] == "install"][0]["children"]
     assert [e["label"] for e in install if e] == [
-        "Everything (system, apps, Homebrew)", "Operating System", "Flatpak Apps", "Firmware",
+        "Everything (system, apps, containers)", "Operating System", "Flatpak Apps", "Firmware",
         "Containers (Distrobox & Litterbox)…"]
 
 
