@@ -78,11 +78,13 @@ def _apps(args, home: Path, files) -> int:
     targets = steam_apps.all_targets()
     present = steam_sync.present_keys(home, targets)
     pend = steam_sync.load_pending()
+    categories = steam_apps.categories()
     rows = []
     for key, t in targets.items():
         queued = "add" if key in pend["add"] else "remove" if key in pend["remove"] else ""
         now = (key in present or queued == "add") and queued != "remove"
-        rows.append({"key": key, "name": t.name, "present": now, "queued": queued, "has_icon": bool(t.icon)})
+        rows.append({"key": key, "name": t.name, "present": now, "queued": queued, "has_icon": bool(t.icon),
+                     "category": "BoppOS" if key == steam_apps.BOPPOS_KEY else categories.get(key, "Other apps")})
     data = {"steam_found": bool(files), "steam_running": ss.steam_running(), "gaming": gaming_mode(), "apps": rows}
     print(json.dumps(data, indent=2) if args.json else "\n".join(
         f"[{'x' if r['present'] else ' '}] {r['name']} ({r['key']}){'  queued ' + r['queued'] if r['queued'] else ''}"

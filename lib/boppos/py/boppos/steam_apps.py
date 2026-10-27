@@ -77,6 +77,17 @@ def flatpak_target(app_id: str, name: str, icon: str = "") -> Target:
     return Target(app_id, name, exe, f"run {app_id}", icon)
 
 
+def categories() -> dict[str, str]:
+    """app id -> category of the curated list; anything else is "Other apps" to the caller."""
+    from . import flatpaks
+
+    try:
+        apps = flatpaks.parse_list(Path(flatpaks.DEFAULT_LIST).read_text())
+    except (OSError, flatpaks.ListError):
+        return {}
+    return {a.id: a.category for a in apps}
+
+
 def all_targets(flatpaks: list[tuple[str, str]] | None = None) -> dict[str, Target]:
     """key -> Target, BoppOS first."""
     apps = installed_flatpaks() if flatpaks is None else flatpaks

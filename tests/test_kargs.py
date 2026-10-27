@@ -421,3 +421,23 @@ def test_every_argument_a_shipped_preset_adds_is_described_in_the_argument_catal
             entry = describe(tok)
             assert entry and entry["summary"], f"{tok} (from {path.name}) has no entry in kargs-info.json"
             assert entry.get("risk_level") == d.risk_level, f"{tok}: risk level differs from {path.name}"
+
+
+def test_the_shipped_presets_are_found_on_the_real_root_from_a_checkout():
+    """The bug: from a checkout, nothing lived in /usr/lib/bopp-kargs.d, so the app offered no presets."""
+    found = kargs.load_dropins("/")
+    assert {"10-nvme-no-apst", "20-sleep-deep", "60-usb-mouse-1khz", "80-intel-iommu-on"} <= set(found)
+    assert all(d.error is None and d.source == "usr" for d in found.values() if d.path.parent.name == "kargs.d")
+
+
+def test_catalog_directory_prefers_the_installed_copy_and_honours_the_override(tmp_path, monkeypatch):
+    from boppos import paths
+
+    monkeypatch.setenv("BOPPOS_KARGS_DIR", str(tmp_path))
+    assert paths.kargs_catalog_dir() == tmp_path
+    monkeypatch.delenv("BOPPOS_KARGS_DIR")
+    assert paths.kargs_catalog_dir().name in ("kargs.d", "bopp-kargs.d")
+
+
+def test_a_test_root_does_not_see_the_real_presets(tmp_path):
+    assert kargs.load_dropins(tmp_path) == {}

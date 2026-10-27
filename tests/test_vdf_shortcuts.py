@@ -305,3 +305,14 @@ def test_cli_apply_pending_reopens_steam_after_a_change(tmp_path, monkeypatch):
     monkeypatch.setattr(steam_sync, "start_steam_if_desktop", lambda *a, **k: reopened.append(1))
     assert cli.main(["--json", "apply-pending", "--reopen-steam"]) == 0 and reopened == [1]
     assert cli.main(["--json", "apply-pending", "--reopen-steam"]) == 0 and reopened == [1]  # nothing queued: no reopen
+
+
+def test_apps_json_carries_categories_for_the_steam_page(tmp_path, monkeypatch, capsys):
+    _setup_cli(tmp_path, monkeypatch)
+    monkeypatch.setattr(steam_apps, "installed_flatpaks",
+                        lambda *a, **k: [("org.gimp.GIMP", "GIMP"), ("org.unlisted.App", "Unlisted")])
+    assert cli.main(["--json", "apps"]) == 0
+    rows = {r["key"]: r for r in json.loads(capsys.readouterr().out)["apps"]}
+    assert rows["boppos-deck"]["category"] == "BoppOS"
+    assert rows["org.gimp.GIMP"]["category"] == "Media & Creative"   # from the curated list
+    assert rows["org.unlisted.App"]["category"] == "Other apps"       # anything else that is installed

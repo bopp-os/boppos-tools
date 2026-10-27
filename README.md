@@ -185,7 +185,7 @@ bopp-steam-shortcut sync --add ID[,ID] --remove ID[,ID] [--restart-steam]
 bopp-steam-shortcut apply-pending [--wait SECONDS] [--reopen-steam]
 ```
 
-Adds and removes non-Steam shortcuts so apps can be started from Gaming Mode. Flatpak apps get `flatpak run <id>` as launch options and their exported PNG icon; each shortcut is identified by what it runs, so your own shortcuts are never touched. boppos-deck has a **Steam library** page with one switch per app.
+Adds and removes non-Steam shortcuts so apps can be started from Gaming Mode. Flatpak apps get `flatpak run <id>` as launch options and their exported PNG icon; each shortcut is identified by what it runs, so your own shortcuts are never touched. boppos-deck has a **Steam library** page: what is already in Steam on top, everything else in collapsed categories (the curated list's, plus "Other apps").
 
 Steam only keeps changes to `shortcuts.vdf` when it is closed, and rewrites the file when it exits, so changes are **queued** in `~/.local/state/boppos-deck/steam-pending.json` and applied as soon as Steam is not running:
 * Steam closed: applied right away.

@@ -16,9 +16,13 @@ from pathlib import Path
 
 from .dmi import read_dmi
 from .kargs_info import forbidden_reason, is_critical
+from .paths import kargs_catalog_dir
 
 BLS_DIR = "boot/loader/entries"
-DROPIN_DIRS = (("usr", "usr/lib/bopp-kargs.d"), ("etc", "etc/bopp-kargs.d"))
+def usr_dropin_dir(root: str | Path) -> Path:
+    """Packaged presets. For the real system (root "/") that also finds a checkout; test roots use their own."""
+    root = Path(root)
+    return kargs_catalog_dir() if root == Path("/") else root / "usr/lib/bopp-kargs.d"
 MANAGED_FILE = "var/lib/bopp-kargs/managed"
 PROTECTED_KEYS = frozenset({"ostree", "root"})
 RISK_LEVELS = ("low", "medium", "high")
@@ -243,8 +247,8 @@ def load_dropins(root: str | Path = "/") -> dict[str, Dropin]:
     """Load /usr then /etc drop-ins; a file in /etc replaces the same-named file in /usr."""
     root = Path(root)
     found: dict[str, Dropin] = {}
-    for source, rel in DROPIN_DIRS:
-        for path in sorted((root / rel).glob("*.conf")):
+    for source, directory in (("usr", usr_dropin_dir(root)), ("etc", root / "etc/bopp-kargs.d")):
+        for path in sorted(directory.glob("*.conf")):
             name = path.stem
             if _NAME_RE.match(name):
                 found[name] = parse_dropin(name, source, path)
@@ -274,7 +278,7 @@ def set_enabled(root: str | Path, name: str, enabled: bool) -> Dropin:
     if cur.error:
         raise KargError(f"drop-in {name} is invalid: {cur.error}", "invalid-dropin")
     etc = root / "etc/bopp-kargs.d" / f"{name}.conf"
-    usr = root / "usr/lib/bopp-kargs.d" / f"{name}.conf"
+    usr = usr_dropin_dir(root) / f"{name}.conf"
     lines = [
         ln
         for ln in cur.path.read_text().splitlines()

@@ -171,7 +171,9 @@ class SystemPage(Page):
         booted = st.get("booted") or {}
         g = group("Image", "Advanced. Updates keep following this image. Moving to a different image or version is "
                   "not an update, so it is deliberately not a menu: to go back one version use Roll back above.")
-        g.add(info_row("Following", booted.get("ref", "unknown"), system.channel_note(st.get("tag"))))
+        note = system.channel_note(st.get("tag"))
+        # the reference goes in the subtitle, which spans the row, instead of a right-hand value that wraps
+        g.add(info_row("Following", "", "\n".join(x for x in (booted.get("ref", "unknown"), note) if x)))
         g.add(button_row("Use a different image…", "You type the whole reference yourself, registry, name and tag",
                          "Start…", lambda: self.switch_image(booted.get("ref", "")), destructive=True))
         self.box.append(g)
@@ -293,7 +295,8 @@ class KargsPage(Page):
             categories.setdefault(d.get("category") or "Other", []).append(d)
         if not categories:
             g = group("Presets")
-            g.add(message_row("No presets are available for this device."))
+            g.add(message_row("No presets are installed on this system." if not items else
+                              "No presets are available for this device."))
             self.box.append(g)
         for cat, group_items in categories.items():
             g = group(cat, "Each preset changes kernel arguments. Changes take effect after a reboot."
@@ -577,6 +580,7 @@ class SteamPage(Page):
         super().__init__(win)
         self.base: dict[str, bool] = {}
         self.want: dict[str, bool] = {}
+        self.expanded: set[str] = set()
 
     def fetch(self):
         return run_json([tool("bopp-steam-shortcut"), "--json", "apps"], timeout=60)
@@ -596,12 +600,37 @@ class SteamPage(Page):
         previous = self.want
         self.base = {a["key"]: a["present"] for a in data["apps"]}
         self.want = {k: previous.get(k, v) for k, v in self.base.items()}
-        g = group("Steam library", "Switch an app on to add it to Steam as a non-Steam game, so you can start it "
-                  "from Gaming Mode. Off removes the shortcut. Apps you install later show up here.")
-        for a in data["apps"]:
+
+        def row(a: dict):
             sub = a["key"] + (f"  ·  queued: {a['queued']} when Steam closes" if a["queued"] else "")
-            g.add(switch_row(a["name"], sub, self.want[a["key"]], lambda on, k=a["key"]: self.set_want(k, on)))
+            return switch_row(a["name"], sub, self.want[a["key"]], lambda on, k=a["key"]: self.set_want(k, on))
+
+        # What is already in Steam stays short and visible; everything else hides in collapsed categories.
+        inside = [a for a in data["apps"] if self.base[a["key"]]]
+        g = group("In your Steam library", "Switch one off to remove its shortcut." if inside else None)
+        if inside:
+            for a in inside:
+                g.add(row(a))
+        else:
+            g.add(message_row("Nothing yet. Open a category below and switch apps on."))
         self.box.append(g)
+
+        categories: dict[str, list[dict]] = {}
+        for a in data["apps"]:
+            if not self.base[a["key"]]:
+                categories.setdefault(a.get("category") or "Other apps", []).append(a)
+        if categories:
+            g = group("Add to Steam", "Switch an app on to add it as a non-Steam game, so you can start it from "
+                      "Gaming Mode. Apps you install later show up here.")
+            for cat, apps in sorted(categories.items(), key=lambda kv: (kv[0] == "Other apps", kv[0])):
+                exp = expander_row(cat, f"{len(apps)} available")
+                exp.set_expanded(cat in self.expanded)
+                exp.connect("notify::expanded", lambda e, _p, c=cat: self.remember(c, e.get_expanded()))
+                for a in apps:
+                    exp.add_row(row(a))
+                g.add(exp)
+            self.box.append(g)
+
         g = group()
         self.apply_row = button_row("Apply changes", "No changes yet", "Apply", self.apply, suggested=True)
         g.add(self.apply_row)
@@ -610,6 +639,9 @@ class SteamPage(Page):
                           if data["steam_running"] else "Steam is not running, so changes apply right away."))
         self.box.append(g)
         self.update_apply_row()
+
+    def remember(self, cat: str, open_: bool) -> None:
+        (self.expanded.add if open_ else self.expanded.discard)(cat)
 
     def diff(self) -> tuple[list[str], list[str]]:
         add = [k for k, on in self.want.items() if on and not self.base.get(k)]
