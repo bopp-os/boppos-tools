@@ -23,7 +23,9 @@ except (ValueError, ImportError):  # typelibs not installed
     AVAILABLE = False
 
 OBJECT_PATH = "/org/boppos/deck/PolkitAgent"
-MAX_ATTEMPTS = 3
+# Two, not three: pam_faillock locks the whole account (sudo and login too) after 3 failures in a row, so a
+# third attempt from here could lock someone out. Fewer tries and a clean stop are better than that.
+MAX_ATTEMPTS = 2
 
 # ask(message, prompt, echo, user, error, answer, cancel): show the prompt and call answer(text) or cancel()
 AskFn = Callable[[str, str, bool, str, str, Callable[[str], None], Callable[[], None]], None]

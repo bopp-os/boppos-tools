@@ -103,7 +103,7 @@ Add the app via `bopp-steam-shortcut add` with Steam closed, then start Steam.
    - Do **not** set `BOPPOS_HELPER_ESCALATE` in either: it replaces polkit with sudo.
    - From a checkout the read-only calls are not waived either (the polkit rule only knows `/usr`), so the first page already asks
      for your password: that is the keyboard test. Then try an Advanced action (a preset switch). Type your real password with
-     the controller. A wrong one should say "Wrong password. Try again."; B cancels and the action reports it was not authorised.
+     the controller. A wrong one should say "Wrong password. Try again." once; a second failure stops (so the account is not locked by `pam_faillock`, which locks after 3 failures in a row, `sudo` included; `faillock --user $USER` shows the count and `sudo faillock --user $USER --reset` clears it); B cancels and the action reports it was not authorised.
    - If it never prompts, look at the first lines the app printed: "polkit agent not registered (...)" means another agent
      already owns that session.
 
