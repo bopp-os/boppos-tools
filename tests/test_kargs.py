@@ -514,3 +514,39 @@ def test_the_onexplayer_panel_fix_applies_only_to_that_device():
     assert kargs.matches_device(d, {"product_name": "ONEXPLAYER F1 EVA-01"})
     assert not kargs.matches_device(d, {"product_name": "ONEXPLAYER 2"})
     assert not kargs.matches_device(d, {})
+
+
+def _shipped_or_user(tmp_path, source_dir, text):
+    path = tmp_path / source_dir / "99-x.conf"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text)
+    return path
+
+
+def test_acpi_and_module_blacklist_are_allowed_in_shipped_presets_only(tmp_path):
+    text = "description = d\ncategory = Device fixes\nrisk = r\nkargs = acpi=strict module_blacklist=hid_sensor_hub\n"
+    shipped = _shipped_or_user(tmp_path, "usr", text)
+    assert kargs.parse_dropin("99-x", "usr", shipped).error is None
+    user = _shipped_or_user(tmp_path, "etc", text)
+    assert "may not set" in kargs.parse_dropin("99-x", "etc", user).error
+    assert kargs.parse_dropin("99-x", "etc", user, {"acpi=strict", "module_blacklist=hid_sensor_hub"}).error is None
+
+
+def test_other_forbidden_keys_stay_refused_in_shipped_presets(tmp_path):
+    path = _shipped_or_user(tmp_path, "usr", "description = d\nrisk = r\nkargs = init=/bin/sh\n")
+    assert kargs.parse_dropin("99-x", "usr", path).error
+    path = _shipped_or_user(tmp_path, "usr", "description = d\nrisk = r\nkargs = acpi=off\n")
+    assert kargs.parse_dropin("99-x", "usr", path).error
+
+
+def test_manual_add_still_refuses_acpi_but_apply_may_add_a_shipped_one():
+    with pytest.raises(kargs.KargError):
+        kargs.add_tokens([], ["acpi=strict"])
+    assert kargs.add_tokens([], ["acpi=strict"], allow={"acpi=strict"}) == ["acpi=strict"]
+
+
+def test_switching_a_shipped_restricted_preset_off_keeps_it_valid(tmp_path):
+    root = make_root(tmp_path)
+    dropin(root, "usr/lib/bopp-kargs.d", "91-fix", "description = d\nrisk = r\nkargs = acpi=strict\nenabled = true\n")
+    d = kargs.set_enabled(root, "91-fix", False)
+    assert d.source == "etc" and d.error is None and d.enabled is False

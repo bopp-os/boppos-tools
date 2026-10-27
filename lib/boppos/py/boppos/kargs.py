@@ -27,6 +27,10 @@ MANAGED_FILE = "var/lib/bopp-kargs/managed"
 PROTECTED_KEYS = frozenset({"ostree", "root"})
 RISK_LEVELS = ("low", "medium", "high")
 
+# Exact arguments from the forbidden list that a preset shipped in /usr may still set: device fixes that
+# BoppOS reviewed and matches to one model. User drop-ins and manual adds stay refused.
+SHIPPED_ONLY_ARGS = frozenset({"acpi=strict", "module_blacklist=hid_sensor_hub"})
+
 _KEY = r"[A-Za-z0-9_.:/-]+"
 _VALUE = r"[A-Za-z0-9_.:/,@%+=;~\[\]-]*"
 _ARG_RE = re.compile(rf"^{_KEY}(={_VALUE})?$")
@@ -74,7 +78,8 @@ def tokenize(options: str) -> list[str]:
     return tokens
 
 
-def add_tokens(tokens: list[str], args: list[str], force: bool = False) -> list[str]:
+def add_tokens(tokens: list[str], args: list[str], force: bool = False,
+               allow: frozenset[str] | set[str] = frozenset()) -> list[str]:
     """Append arguments that are not there yet. Anything on the forbidden list (shell-opening, security
     switches, driver blacklists...) is refused unless `force`, which only the sudo CLI can pass."""
     out = list(tokens)
@@ -82,7 +87,7 @@ def add_tokens(tokens: list[str], args: list[str], force: bool = False) -> list[
         if key_of(arg) in PROTECTED_KEYS:
             raise KargError(f"refusing to add protected argument {key_of(arg)}=", "protected")
         reason = forbidden_reason(arg)
-        if reason and not force:
+        if reason and not force and arg not in allow:
             raise KargError(f"refusing to add {arg}: {reason} (sudo bopp-kargs add --force overrides this)",
                             "forbidden")
         if arg not in out:
@@ -202,7 +207,9 @@ def _strip_comment(line: str) -> str:
     return re.split(r"(?:^|\s)#", line, maxsplit=1)[0].strip()
 
 
-def parse_dropin(name: str, source: str, path: Path) -> Dropin:
+def parse_dropin(name: str, source: str, path: Path, shipped: frozenset[str] | set[str] = frozenset()) -> Dropin:
+    """`shipped` holds the restricted arguments the same-named /usr preset sets, so its /etc override
+    (written when someone switches the preset on or off) may repeat them."""
     d = Dropin(name, source, path)
     try:
         for raw in path.read_text(errors="replace").splitlines():
@@ -236,6 +243,8 @@ def parse_dropin(name: str, source: str, path: Path) -> Dropin:
             else:
                 raise KargError(f"unknown key {key!r}")
         for tok in d.kargs:
+            if tok in SHIPPED_ONLY_ARGS and (source == "usr" or tok in shipped) and not is_critical(tok):
+                continue
             if key_of(tok) in PROTECTED_KEYS or forbidden_reason(tok):
                 raise KargError(f"drop-ins may not set {key_of(tok)}: {forbidden_reason(tok) or 'protected'}")
     except KargError as exc:
@@ -251,7 +260,8 @@ def load_dropins(root: str | Path = "/") -> dict[str, Dropin]:
         for path in sorted(directory.glob("*.conf")):
             name = path.stem
             if _NAME_RE.match(name):
-                found[name] = parse_dropin(name, source, path)
+                shipped = {t for t in found[name].kargs if t in SHIPPED_ONLY_ARGS} if name in found else set()
+                found[name] = parse_dropin(name, source, path, shipped if source == "etc" else frozenset())
     return found
 
 
@@ -390,11 +400,11 @@ def run_cmd(argv: list[str]) -> None:
 
 
 def write_options(current: list[str], to_add: list[str], to_remove: list[str], run: Runner,
-                  force: bool = False) -> None:
+                  force: bool = False, allow: frozenset[str] | set[str] = frozenset()) -> None:
     """Additions go through edit-in-place. ostree has no delete option, so removals rewrite
     the full list with `instutil set-kargs`, which replaces the cmdline of deployment 0."""
     if to_remove:
-        new = add_tokens(remove_tokens(current, to_remove, force), to_add, force)
+        new = add_tokens(remove_tokens(current, to_remove, force), to_add, force, allow)
         if not any(t.startswith("ostree=") for t in new):
             raise KargError("refusing to write a cmdline without ostree=", "protected")
         lost = [t for t in current if is_critical(t) and t not in new]
@@ -437,17 +447,19 @@ def apply_dropins(
 ) -> dict:
     root = Path(root)
     entry = target_entry(load_entries(root), status, cmdline)
-    wanted = wanted_tokens(load_dropins(root), read_dmi(root) if dmi is None else dmi)
+    dropins = load_dropins(root)
+    wanted = wanted_tokens(dropins, read_dmi(root) if dmi is None else dmi)
+    allow = {t for d in dropins.values() if not d.error for t in d.kargs if t in SHIPPED_ONLY_ARGS}
     managed = read_managed(root)
     to_add, to_remove = plan(wanted, managed, entry.options)
     owned = [t for t in managed if t in wanted] + to_add
-    return _commit(root, entry, to_add, to_remove, run, dry_run, managed=owned)
+    return _commit(root, entry, to_add, to_remove, run, dry_run, managed=owned, allow=allow)
 
 
-def _commit(root, entry, to_add, to_remove, run, dry_run, managed, force=False):
+def _commit(root, entry, to_add, to_remove, run, dry_run, managed, force=False, allow=frozenset()):
     changed = bool(to_add or to_remove)
     if changed and not dry_run:
-        write_options(entry.options, to_add, to_remove, run, force)
+        write_options(entry.options, to_add, to_remove, run, force, allow)
     if managed is not None and not dry_run and (changed or set(managed) != set(read_managed(root))):
         write_managed(root, managed)
     return {

@@ -277,5 +277,19 @@
   "risk": "Only matches the ONEXPLAYER F1 and F1 EVA-01. Switching it off turns the boot screen sideways again.",
   "risk_level": "low",
   "preset": "90-onexplayer-f1-panel"
+ },
+ {
+  "match": "acpi=strict",
+  "summary": "Makes the kernel strict about ACPI resource conflicts.",
+  "risk": "Stops random reboots on the AYANEO SLIDE. Only matches that model.",
+  "risk_level": "low",
+  "preset": "91-ayaneo-slide-acpi-strict"
+ },
+ {
+  "match": "module_blacklist=hid_sensor_hub",
+  "summary": "Stops the hid_sensor_hub module from loading, which fixes the keyboard.",
+  "risk": "Screen auto-rotation and ambient light sensors that use that module stop working. Only matches Framework laptops with Intel in the model name.",
+  "risk_level": "low",
+  "preset": "92-framework-intel-keyboard"
  }
 ]

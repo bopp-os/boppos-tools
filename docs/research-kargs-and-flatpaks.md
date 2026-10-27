@@ -45,7 +45,7 @@ Nothing else Bazzite or CachyOS sets statically is missing from the image.
 | Framework laptops with Intel CPUs | `module_blacklist=hid_sensor_hub` | Keyboard fix |
 | Valve and other handhelds | `amdgpu.ppfeaturemask` ORed with `0x4000` | Bazzite ORs it into the module's current value at run time, which a static preset cannot do. The existing static `0xffffffff` is much broader. |
 
-**Status:** only the ONEXPLAYER F1 row is shipped (`kargs.d/90-onexplayer-f1-panel.conf`, on by default, matches `product_name = ONEXPLAYER F1*`). SLIDE (`acpi=strict`) and Framework (`module_blacklist=hid_sensor_hub`) are blocked because `acpi` and `module_blacklist` are on the app's never-add list (`kargs_info.py`). AOKZOE needs its EDID file shipped first.
+**Status:** shipped as `kargs.d/90-onexplayer-f1-panel.conf`, `91-ayaneo-slide-acpi-strict.conf` and `92-framework-intel-keyboard.conf`, all on by default and matched to their device. `acpi=strict` and `module_blacklist=hid_sensor_hub` are on the never-add list, so `kargs.SHIPPED_ONLY_ARGS` lets exactly those two through, and only from `/usr` presets (or their `/etc` on/off override). AOKZOE needs its EDID file shipped first.
 
 On Valve and handhelds Bazzite also removes `amd_iommu=off` if present.
 
