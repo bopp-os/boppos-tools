@@ -1,11 +1,11 @@
 # BoppOS boot artwork (`boppos-boot-theme`)
 
-A black screen, the white BoppOS mark breathing slowly in the middle, and the small horizontal wordmark near
+A black screen, a white wheel of fading dots turning in the middle, and the small horizontal wordmark near
 the bottom. One package, two themes.
 
 | Installed to | What |
 |---|---|
-| `/usr/share/plymouth/themes/boppos/` | Plymouth splash (`boppos.plymouth`, `boppos.script`, `mark.png`, `lockup.png`) |
+| `/usr/share/plymouth/themes/boppos/` | Plymouth splash (`boppos.plymouth`, `boppos.script`, `spinner.png`, `lockup.png`) |
 | `/usr/share/grub/themes/boppos/` | GRUB theme (`theme.txt`, `mark.png`, `lockup.png`) |
 
 The logo SVGs themselves (`boppos-logo-{horizontal,stacked}-{white,black}.svg`) are in `boppos-artwork`. The PNGs
@@ -55,7 +55,7 @@ sudo plymouth --quit
 sudo systemctl isolate graphical.target
 ```
 
-Check: pure black background, the mark centred and gently pulsing, the small wordmark at the bottom, dots appearing
+Check: pure black background, the wheel centred and turning smoothly, the small wordmark at the bottom, dots appearing
 as you type, the message text. If the screen stays black, look at `/tmp/plymouth.log` for a script error.
 To get back to the previous theme: `sudo plymouth-set-default-theme <old theme>`.
 

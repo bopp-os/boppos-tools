@@ -1,8 +1,8 @@
 # BoppOS Plymouth theme.
 #
-# A black screen, the white BoppOS mark breathing slowly in the middle, and the small horizontal
+# A black screen, a white wheel of fading dots turning in the middle, and the small horizontal
 # wordmark near the bottom. Disk passphrase prompts, questions and boot messages are drawn in white
-# below the mark. Images are scaled to the screen, so any resolution works.
+# below the wheel. Images are scaled to the screen, so any resolution works.
 
 Window.SetBackgroundTopColor(0, 0, 0);
 Window.SetBackgroundBottomColor(0, 0, 0);
@@ -13,15 +13,17 @@ screen.h = Window.GetHeight();
 if (screen.w < screen.h) screen.short = screen.w;
 else screen.short = screen.h;
 
-# --- the mark --------------------------------------------------------------------------------
-mark.original = Image("mark.png");
-mark.h = screen.short * 0.24;
-mark.w = mark.original.GetWidth() * mark.h / mark.original.GetHeight();
-mark.image = mark.original.Scale(mark.w, mark.h);
-mark.sprite = Sprite(mark.image);
-mark.sprite.SetX(screen.w / 2 - mark.w / 2);
-mark.sprite.SetY(screen.h * 0.42 - mark.h / 2);
-mark.sprite.SetZ(10);
+# --- the wheel ------------------------------------------------------------------------------
+spinner.original = Image("spinner.png");
+spinner.size = screen.short * 0.09;
+if (spinner.size < 48) spinner.size = 48;
+spinner.image = spinner.original.Scale(spinner.size, spinner.size);
+spinner.sprite = Sprite(spinner.image);
+spinner.cx = screen.w / 2;
+spinner.cy = screen.h * 0.45;
+spinner.sprite.SetX(spinner.cx - spinner.size / 2);
+spinner.sprite.SetY(spinner.cy - spinner.size / 2);
+spinner.sprite.SetZ(10);
 
 # --- the wordmark, small, at the bottom --------------------------------------------------------
 lockup.original = Image("lockup.png");
@@ -35,12 +37,15 @@ lockup.sprite.SetY(screen.h - lockup.h - screen.h * 0.06);
 lockup.sprite.SetZ(10);
 lockup.sprite.SetOpacity(0.85);
 
-# --- breathing -------------------------------------------------------------------------------
-# Called about 50 times a second: one breath every three seconds, between 55% and 100% opacity.
-pulse.angle = 0;
+# --- spinning --------------------------------------------------------------------------------
+# Called about 50 times a second: one turn in about 1.6 seconds, clockwise.
+spinner.angle = 0;
 fun refresh_callback () {
-    pulse.angle += 0.0419;
-    mark.sprite.SetOpacity(0.775 + 0.225 * Math.Sin(pulse.angle));
+    spinner.angle += 0.0785;
+    rotated = spinner.image.Rotate(spinner.angle);
+    spinner.sprite.SetImage(rotated);
+    spinner.sprite.SetX(spinner.cx - rotated.GetWidth() / 2);
+    spinner.sprite.SetY(spinner.cy - rotated.GetHeight() / 2);
 }
 Plymouth.SetRefreshFunction(refresh_callback);
 

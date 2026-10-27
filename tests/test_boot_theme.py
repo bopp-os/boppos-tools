@@ -43,7 +43,7 @@ def test_plymouth_script_is_well_formed_and_only_uses_images_that_exist():
     script = (PLY / "boppos.script").read_text()
     assert balanced(script)
     images = set(re.findall(r'Image\("([^"]+)"\)', script))
-    assert images == {"mark.png", "lockup.png"}
+    assert images == {"spinner.png", "lockup.png"}
     assert all((PLY / name).exists() for name in images)
     assert "[]" not in script  # Plymouth's script language has no array literal
 
@@ -64,7 +64,7 @@ def test_plymouth_background_is_black_and_the_passphrase_prompt_exists():
 
 
 def test_plymouth_art_is_rgba_and_the_lockup_keeps_the_logo_proportions():
-    for name in ("mark.png", "lockup.png"):
+    for name in ("spinner.png", "lockup.png"):
         assert png_info(PLY / name)[2] == 6
     w, h, _ = png_info(PLY / "lockup.png")
     svg = ET.parse(ART / "boppos-logo-horizontal-white.svg").getroot()

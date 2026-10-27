@@ -15,8 +15,18 @@ trap 'rm -rf "$tmp"' EXIT
 sed -E 's/^( +)width="[^"]*"/\1width="323"/; s/^( +)height="[^"]*"/\1height="385"/; s/^( +)viewBox="[^"]*"/\1viewBox="68.5 38 323 385"/' \
     "$art/boppos-white.svg" > "$tmp/mark.svg"
 
+# The Plymouth wheel: a ring of dots fading behind the leading one; the theme script rotates it.
+python3 - > "$tmp/spinner.svg" <<'PY'
+import math
+dots = []
+for i in range(12):
+    a = math.radians(i * 30 - 90)
+    dots.append(f'<circle cx="{128 + 100 * math.cos(a):.2f}" cy="{128 + 100 * math.sin(a):.2f}" r="{9 + 0.5 * i:.1f}"'
+                f' fill="#fff" fill-opacity="{0.08 + 0.92 * i / 11:.2f}"/>')
+print('<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">' + "".join(dots) + "</svg>")
+PY
 # Plymouth scales these at run time, so they are rendered large and crisp.
-rsvg-convert -h 640  "$tmp/mark.svg"                              -o "$root/boot/plymouth/boppos/mark.png"
+rsvg-convert -w 256  "$tmp/spinner.svg"                           -o "$root/boot/plymouth/boppos/spinner.png"
 rsvg-convert -w 1240 "$art/boppos-logo-horizontal-white.svg"      -o "$root/boot/plymouth/boppos/lockup.png"
 # GRUB cannot scale images well, so these are rendered at their final size.
 rsvg-convert -h 192  "$tmp/mark.svg"                              -o "$root/boot/grub/boppos/mark.png"

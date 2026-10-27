@@ -12,8 +12,8 @@ terminal-height: "100%"
 
 + image {
     top = 7%
-    left = 50%-80
-    width = 161
+    left = 50%-81
+    width = 162
     height = 192
     file = "mark.png"
 }
