@@ -302,6 +302,7 @@ class KargsPage(Page):
 
     RISK_LABEL = {"low": "Low risk", "medium": "Medium risk", "high": "High risk"}
     RISK_CLASS = {"low": "success", "medium": "warning", "high": "error"}
+    blocked = False  # set while an update is staged; the switches are then off even in Advanced
 
     def fetch(self):
         from concurrent.futures import ThreadPoolExecutor
@@ -312,8 +313,9 @@ class KargsPage(Page):
             except OSError:
                 return ""
 
-        if not self.win.advanced:  # normal mode only shows what is running: nothing to ask the tools
-            return {"cmdline": cmdline(), "advanced": False}
+        if not self.win.advanced:  # normal mode only looks: the presets are listed, locked, and nothing else is asked
+            return {"dropins": run_json([tool("bopp-kargs"), "--json", "dropins"]), "cmdline": cmdline(),
+                    "advanced": False}
         with ThreadPoolExecutor(max_workers=3) as pool:  # three separate tools: no reason to wait in a queue
             dropins = pool.submit(run_json, [tool("bopp-kargs"), "--json", "dropins"])
             status = pool.submit(run_json, [tool("bopp-kargs"), "--json", "status"])
@@ -324,9 +326,16 @@ class KargsPage(Page):
     def build(self, data) -> None:
         if not self.win.advanced:
             g = group("Kernel arguments")
-            g.add(message_row("Kernel arguments can stop the system from starting, so the presets and any "
-                              "changes live in Advanced options (About). Nothing here can be changed."))
+            g.add(message_row("Kernel arguments can stop the system from starting, so everything here is locked. "
+                              "Turn on Advanced options (About) to change the presets or add arguments."))
             self.box.append(g)
+            dropins = data.get("dropins") or {}
+            if "error" in dropins:
+                g = group("Presets")
+                g.add(message_row(f"Could not read the presets: {dropins['error']}"))
+                self.box.append(g)
+            else:
+                self.build_presets(dropins.get("dropins", []), locked=True)
             g = group("Running kernel")
             g.add(info_row("Command line", "", data.get("cmdline") or "unavailable"))
             self.box.append(g)
@@ -348,7 +357,7 @@ class KargsPage(Page):
             banner.set_revealed(True)
             self.box.append(banner)
         items = dropins.get("dropins", [])
-        self.build_presets(items)
+        self.build_presets(items, locked=False)
 
         self.preset_text = {t: d["description"] for d in items for t in d["kargs"] if d["description"]}
         if self.win.advanced:
@@ -369,8 +378,10 @@ class KargsPage(Page):
         "invalid": ("Invalid presets", "These could not be read and are never applied."),
     }
 
-    def build_presets(self, items: list[dict]) -> None:
-        """Presets by how well they fit this hardware (kargs.fit), not by category. The category is on each row."""
+    def build_presets(self, items: list[dict], locked: bool) -> None:
+        """Presets by how well they fit this hardware (kargs.fit), not by category. The category is on each row.
+
+        locked: every switch is greyed out and cannot be changed (normal mode; only Advanced changes presets)."""
         from .. import kargs
 
         if not items:
@@ -393,10 +404,10 @@ class KargsPage(Page):
                     g.add(info_row(d["description"] or d["name"], "", d.get("fit_reason") or " ".join(d["kargs"]),
                                    tag=("Unsupported", "dim-label")))
                 else:
-                    g.add(self.preset_row(d))
+                    g.add(self.preset_row(d, locked))
             self.box.append(g)
 
-    def preset_row(self, d: dict) -> Adw.SwitchRow:
+    def preset_row(self, d: dict, locked: bool = False) -> Adw.SwitchRow:
         level = d.get("risk_level", "low")
         lines = [d["description"] or d["name"], f"{d.get('category') or 'Other'}  ·  Adds: " + " ".join(d["kargs"])]
         if d.get("risk"):
@@ -410,7 +421,7 @@ class KargsPage(Page):
             row.set_sensitive(False)
             return row
         row.add_suffix(tag_label(self.RISK_LABEL.get(level, level), self.RISK_CLASS.get(level, "dim-label")))
-        row.set_sensitive(not self.blocked)
+        row.set_sensitive(not (locked or self.blocked))
         return row
 
     def build_advanced(self, data: dict, items: list[dict]) -> None:
@@ -461,6 +472,8 @@ class KargsPage(Page):
 
     # actions
     def toggle(self, d: dict, on: bool) -> None:
+        if not self.win.advanced:  # presets only change in Advanced options
+            return
         level = d.get("risk_level", "low")
         if on and level in ("medium", "high"):
             self.win.confirm(f"Turn on “{d['description'] or d['name']}”?",

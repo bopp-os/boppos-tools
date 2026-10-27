@@ -40,7 +40,7 @@ Add the app via `bopp-steam-shortcut add` with Steam closed, then start Steam.
 - [ ] `install-optional-flatpaks` with no arguments still lists only the original 29 entries.
 
 ## 3h. Normal vs Advanced
-- [ ] Normal mode: Kernel arguments shows only the running command line and a note; no switches, no add/remove. Advanced on: the preset switches (by category), custom arguments and the argument list appear; off again: they disappear.
+- [ ] Normal mode: Kernel arguments lists the presets in the same groups but every switch is greyed out and cannot be changed; no add/remove. Advanced on: the switches work, and the custom arguments and the argument list appear; off again: the switches grey out and the extras disappear.
 - [ ] Apps: each app has only its install switch (no Steam switch). Uninstalling an app that has a Steam shortcut removes the shortcut too (Steam is closed and reopened if it is running, with a confirmation; see 3c).
 - [ ] The Steam library page still lists every installed app and says it never installs or removes anything.
 
@@ -76,7 +76,7 @@ Add the app via `bopp-steam-shortcut add` with Steam closed, then start Steam.
 - [ ] A Flatpak app installed after the page was opened shows up after leaving and re-entering the page.
 
 ## 3a. Presets, custom arguments and apps
-- [ ] Kernel arguments lists the presets in categories with a Low/Medium/High risk label and "Adds:" and "Risk:" lines. High-risk presets appear only with Advanced on.
+- [ ] Kernel arguments (Advanced on) opens with the "best left alone" warning, then Switched on, Presets for this hardware, Other presets, Risky presets and Unsupported (locked, with the reason). Each preset has a Low/Medium/High risk label, its category and "Adds:" and "Risk:" lines.
 - [ ] Turning on a medium or high preset shows its risk text with Cancel as default; cancelling puts the switch back; confirming asks for the password and applies.
 - [ ] Advanced: *Add an argument* opens the keyboard with the text visible; `pci=noaer` is accepted; `init=/bin/sh`, `rd.break`, `ostree=x` and `a b` are rejected with a message. *Remove* on a listed argument asks first; arguments set by a preset show "preset" instead of a button.
 - [ ] Current arguments each show a description (or the "no description yet" text); `rw`, `rootflags=`, `rd.luks.uuid=` show *Required to boot* and have no Remove button; image defaults show *Image default*. `sudo bopp-kargs remove rootflags=subvol=root` is refused; `sudo bopp-kargs --dry-run remove --force ...` shows the plan.
