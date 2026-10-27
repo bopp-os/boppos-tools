@@ -53,3 +53,9 @@ window.deck .osk-display {
   border-radius: 12px;
   background-color: alpha(@window_fg_color, 0.10);
 }
+
+/* Controller glyph colours (PlayStation shapes, Xbox letters) */
+window.deck .glyph-cross { color: #7aa2ff; }
+window.deck .glyph-circle { color: #ff7a7a; }
+window.deck .glyph-a { color: #6fd36f; }
+window.deck .glyph-b { color: #ff7a7a; }

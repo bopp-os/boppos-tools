@@ -18,6 +18,7 @@ from gi.repository import Adw, Gdk, GLib, GObject, Gtk  # noqa: E402
 from . import agent as polkit_agent  # noqa: E402
 from . import backend  # noqa: E402
 from .controller import DIRECTIONS, Action, InputMapper, Sdl3Gamepads  # noqa: E402
+from .hints import hint_items  # noqa: E402
 from .osk import PasswordBuffer  # noqa: E402
 from .pages import ALL_PAGES  # noqa: E402
 
@@ -28,14 +29,6 @@ DIRECTION_MAP = {
     Action.LEFT: Gtk.DirectionType.LEFT,
     Action.RIGHT: Gtk.DirectionType.RIGHT,
 }
-HINTS = {
-    "pad": [("A", "Select"), ("B", "Back"), ("LB / RB", "Page")],
-    "kb": [("Enter", "Select"), ("Esc", "Back"), ("Ctrl+Tab", "Page")],
-    "pad-auth": [("A", "Type"), ("B", "Cancel"), ("LB", "Delete"), ("RB", "Shift"), ("Start", "OK")],
-    "kb-auth": [("Enter", "OK"), ("Esc", "Cancel"), ("Backspace", "Delete")],
-}
-
-
 def on_main(fn: Callable[[], None]) -> None:
     GLib.idle_add(lambda: (fn(), GLib.SOURCE_REMOVE)[1])
 
@@ -76,8 +69,12 @@ class DeckWindow(Adw.ApplicationWindow):
         self.add_css_class("deck")
         self.dialog: Adw.AlertDialog | None = None
         self.job: backend.Job | None = None
-        self.input_mode = "pad" if gaming else "kb"
         self.pad, self.mapper = pad, InputMapper()
+        self.pad_family = pad.family() if pad is not None else "generic"
+        # Controller prompts only when a pad is connected or we run in Gaming Mode; otherwise keyboard keys.
+        self.input_mode = "pad" if self.pad_available() else "kb"
+        self._hint_key: tuple | None = None
+        self._used_keyboard = False
         self.pw = PasswordBuffer()
         self.auth_req: dict | None = None
         self.auth_queue: list[dict] = []
@@ -164,6 +161,8 @@ class DeckWindow(Adw.ApplicationWindow):
         self.p_title.add_css_class("progress-title")
         self.p_status = Gtk.Label(xalign=0, wrap=True)
         self.p_spinner = Gtk.Spinner(spinning=True, halign=Gtk.Align.START)
+        self.p_bar = Gtk.ProgressBar(show_text=True, visible=False)
+        self.p_prog_mark: Gtk.TextMark | None = None  # start of the progress line being redrawn
         self.p_log = Gtk.TextView(editable=False, cursor_visible=False, monospace=True,
                                   wrap_mode=Gtk.WrapMode.WORD_CHAR)
         self.p_log.add_css_class("progress-log")
@@ -182,7 +181,7 @@ class DeckWindow(Adw.ApplicationWindow):
         self.p_done.connect("clicked", lambda _b: self.close_progress())
         actions.append(self.p_done)
         actions.append(self.p_reboot)
-        for w in (self.p_title, self.p_status, self.p_spinner, self.p_expander, actions):
+        for w in (self.p_title, self.p_status, self.p_spinner, self.p_bar, self.p_expander, actions):
             box.append(w)
         return box
 
@@ -324,16 +323,26 @@ class DeckWindow(Adw.ApplicationWindow):
         self.render_hints()
         return self.hint_box
 
+    def pad_available(self) -> bool:
+        return self.gaming or bool(self.pad and self.pad.connected)
+
     def render_hints(self) -> None:
+        mode = "pad" if (self.input_mode == "pad" and self.pad_available()) else "kb"
+        auth = self.stack.get_visible_child_name() == "auth"
+        key = (mode, self.pad_family if mode == "pad" else "", auth)
+        if key == self._hint_key:
+            return
+        self._hint_key = key
         child = self.hint_box.get_first_child()
         while child:
             nxt = child.get_next_sibling()
             self.hint_box.remove(child)
             child = nxt
-        auth = self.stack.get_visible_child_name() == "auth"
-        for key, label in HINTS[self.input_mode + ("-auth" if auth else "")]:
-            k = Gtk.Label(label=key)
+        for glyph, label, css in hint_items(mode, self.pad_family, auth):
+            k = Gtk.Label(label=glyph)
             k.add_css_class("hint-key")
+            if css:
+                k.add_css_class(css)
             t = Gtk.Label(label=label)
             t.add_css_class("hint-label")
             self.hint_box.append(k)
@@ -439,6 +448,8 @@ class DeckWindow(Adw.ApplicationWindow):
         self.p_title.set_label(title)
         self.p_status.set_label("Working…")
         self.p_log.get_buffer().set_text("")
+        self.p_prog_mark = None
+        self.p_bar.set_visible(False)
         self.p_spinner.set_spinning(True)
         self.p_spinner.set_visible(True)
         self.p_done.set_sensitive(False)
@@ -448,8 +459,24 @@ class DeckWindow(Adw.ApplicationWindow):
         self._on_done = on_done
 
         def on_event(ev: dict) -> None:
-            if ev["event"] == "log":
-                buf = self.p_log.get_buffer()
+            buf = self.p_log.get_buffer()
+            if ev["event"] == "progress":
+                # A redrawn bar replaces its previous line instead of adding one, and drives the bar above.
+                if self.p_prog_mark is None:
+                    self.p_prog_mark = buf.create_mark(None, buf.get_end_iter(), True)
+                else:
+                    buf.delete(buf.get_iter_at_mark(self.p_prog_mark), buf.get_end_iter())
+                buf.insert(buf.get_end_iter(), ev["line"])
+                pct = ev.get("percent")
+                if pct is not None:
+                    self.p_bar.set_visible(True)
+                    self.p_bar.set_fraction(pct / 100)
+                    self.p_bar.set_text(f"{pct:.0f}%")
+            elif ev["event"] == "log":
+                if self.p_prog_mark is not None:  # close the progress line before the next line of text
+                    buf.delete_mark(self.p_prog_mark)
+                    self.p_prog_mark = None
+                    buf.insert(buf.get_end_iter(), "\n")
                 buf.insert(buf.get_end_iter(), ev["line"] + "\n")
                 adj = self.p_log_scroll.get_vadjustment()
                 adj.set_value(adj.get_upper())
@@ -457,6 +484,7 @@ class DeckWindow(Adw.ApplicationWindow):
                 self.p_status.set_label(f"{ev['id']}: {ev['status']}")
 
         def on_finish(ok: bool, final: dict) -> None:
+            self.p_bar.set_visible(False)
             self.p_spinner.set_spinning(False)
             self.p_spinner.set_visible(False)
             self.p_done.set_sensitive(True)
@@ -491,15 +519,26 @@ class DeckWindow(Adw.ApplicationWindow):
     # --- input --------------------------------------------------------------------------------
 
     def set_input_mode(self, mode: str) -> None:
+        if mode == "kb":
+            self._used_keyboard = True
         if mode != self.input_mode:
             self.input_mode = mode
-            self.render_hints()
+        self.render_hints()
 
     def poll_pad(self) -> bool:
         now = time.monotonic()
         actions = []
         for ev in self.pad.poll():
-            actions += self.mapper.feed(ev, now)
+            if ev[0] in ("added", "removed"):
+                self.pad_family = self.pad.family()
+                if ev[0] == "added" and self.input_mode == "kb" and not self._used_keyboard:
+                    self.input_mode = "pad"  # a controller was plugged in before any key was pressed
+                self.render_hints()
+                continue
+            got = self.mapper.feed(ev, now)
+            if got:  # the device that was actually used decides the glyphs
+                self.pad_family = self.pad.family(ev[-1])
+            actions += got
         actions += self.mapper.tick(now)
         if actions:
             self.set_input_mode("pad")

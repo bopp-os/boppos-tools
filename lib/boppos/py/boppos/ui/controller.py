@@ -48,15 +48,18 @@ EVENT_SIZE = 128
 
 
 def decode_event(buf: bytes) -> tuple | None:
-    """SDL_Event bytes -> ("button", id, down) | ("axis", id, value) | ("added"/"removed", joystick_id)."""
+    """SDL_Event bytes -> ("button", id, down, which) | ("axis", id, value, which) | ("added"/"removed", which).
+
+    `which` is the SDL joystick id of the device that produced the event.
+    """
     (etype,) = struct.unpack_from("<I", buf, 0)
     if etype in (EV_BUTTON_DOWN, EV_BUTTON_UP):
-        button = buf[20]
-        return ("button", button, etype == EV_BUTTON_DOWN)
+        (which,) = struct.unpack_from("<I", buf, 16)
+        return ("button", buf[20], etype == EV_BUTTON_DOWN, which)
     if etype == EV_AXIS:
-        axis = buf[20]
+        (which,) = struct.unpack_from("<I", buf, 16)
         (value,) = struct.unpack_from("<h", buf, 24)
-        return ("axis", axis, value)
+        return ("axis", buf[20], value, which)
     if etype in (EV_ADDED, EV_REMOVED):
         (which,) = struct.unpack_from("<I", buf, 16)
         return ("added" if etype == EV_ADDED else "removed", which)
@@ -149,6 +152,15 @@ class Sdl3Gamepads:
         lib.SDL_GetGamepads.argtypes = [ctypes.POINTER(ctypes.c_int)]
         lib.SDL_GetGamepads.restype = ctypes.POINTER(ctypes.c_uint32)
         lib.SDL_free.argtypes = [ctypes.c_void_p]
+        # SDL_GetRealGamepadTypeForID ignores mapping overrides; older SDL3 builds only have the plain one
+        for name in ("SDL_GetRealGamepadTypeForID", "SDL_GetGamepadTypeForID"):
+            fn = getattr(lib, name, None)
+            if fn is not None:
+                fn.argtypes, fn.restype = [ctypes.c_uint32], ctypes.c_int
+                self._type_fn = fn
+                break
+        else:
+            self._type_fn = None
         lib.SDL_SetHint.argtypes, lib.SDL_SetHint.restype = [ctypes.c_char_p, ctypes.c_char_p], ctypes.c_bool
         lib.SDL_Quit.argtypes = []
         lib.SDL_SetHint(b"SDL_JOYSTICK_ALLOW_BACKGROUND_EVENTS", b"1")
@@ -173,6 +185,15 @@ class Sdl3Gamepads:
     def connected(self) -> int:
         return len(self._open)
 
+    def family(self, which: int | None = None) -> str:
+        """playstation, xbox, nintendo or generic for a device id (default: the first connected pad)."""
+        from .hints import family_for_type
+
+        jid = which if which is not None else next(iter(self._open), None)
+        if jid is None or self._type_fn is None:
+            return "generic"
+        return family_for_type(self._type_fn(jid))
+
     def poll(self) -> list[tuple]:
         out = []
         while self.lib.SDL_PollEvent(ctypes.byref(self._buf)):
@@ -185,8 +206,7 @@ class Sdl3Gamepads:
                 handle = self._open.pop(ev[1], None)
                 if handle:
                     self.lib.SDL_CloseGamepad(handle)
-            else:
-                out.append(ev)
+            out.append(ev)  # hotplug events are passed on too, so the UI can update its prompts
         return out
 
     def close(self) -> None:
