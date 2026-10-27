@@ -4,7 +4,7 @@
 # artwork/icons/hicolor/512x512/apps/boppos-icon.png; the logo on it is the white one, as in the icon.
 # The PNGs are committed, so packaging needs no extra tools; run this after changing the logos.
 # Needs rsvg-convert (librsvg). Sizes are the ones Steam asks for: capsule 920x430, portrait 600x900,
-# hero 3840x1240, logo (transparent) 640 wide.
+# hero 3840x1240, logo (transparent) 640 wide, icon 256x256.
 set -euo pipefail
 
 root=$(cd "$(dirname "$0")/.." && pwd)
@@ -37,4 +37,16 @@ canvas capsule  920  430  boppos-logo-horizontal-white.svg 640  193
 canvas portrait 600  900  boppos-logo-stacked-white.svg    360  404
 canvas hero     3840 1240 boppos-logo-horizontal-white.svg 1400 421
 canvas logo     640  193  boppos-logo-horizontal-white.svg 640  193 none
+
+# icon 256x256: the white mark on a rounded tile of the same gradient (Steam's small library icon)
+sed -E 's/^( +)width="[^"]*"/\1width="315"/; s/^( +)height="[^"]*"/\1height="377"/; s/^( +)viewBox="[^"]*"/\1viewBox="72.5 42 315 377"/' \
+    "$art/boppos-white.svg" > "$tmp/mark.svg"
+{
+    printf '<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="256" height="256">'
+    printf '<defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#83ece5"/>'
+    printf '<stop offset="0.5" stop-color="#6bc2ef"/><stop offset="1" stop-color="#669cf1"/></linearGradient></defs>'
+    printf '<rect width="256" height="256" rx="58" fill="url(#g)"/>'
+    printf '<image xlink:href="mark.svg" x="61" y="48" width="134" height="160"/></svg>'
+} > "$tmp/icon.svg"
+rsvg-convert "$tmp/icon.svg" -o "$out/icon.png"
 echo "rendered:"; ls -l "$out" | awk 'NR>1 {print $5, $9}'

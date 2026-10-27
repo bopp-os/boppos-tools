@@ -19,7 +19,7 @@ ICON = "/usr/share/icons/hicolor/256x256/apps/boppos-icon.png"
 BACKUPS_KEEP = 3
 # Steam's library artwork for a shortcut lives in <config>/grid, named after the shortcut's id
 ART_NAMES = {"capsule.png": "{id}.png", "portrait.png": "{id}p.png", "hero.png": "{id}_hero.png",
-             "logo.png": "{id}_logo.png"}
+             "logo.png": "{id}_logo.png", "icon.png": "{id}_icon.png"}
 
 
 class SteamRunning(Exception):

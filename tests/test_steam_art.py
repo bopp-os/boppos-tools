@@ -20,16 +20,17 @@ def app_id():
 
 def test_artwork_is_named_after_the_shortcut_id(tmp_path):
     grid = tmp_path / "config" / "grid"
-    assert ss.install_art(grid, fake_art(tmp_path)) == 4
+    assert ss.install_art(grid, fake_art(tmp_path)) == 5
     i = app_id()
-    assert sorted(p.name for p in grid.iterdir()) == sorted([f"{i}.png", f"{i}p.png", f"{i}_hero.png", f"{i}_logo.png"])
+    want = [f"{i}.png", f"{i}p.png", f"{i}_hero.png", f"{i}_logo.png", f"{i}_icon.png"]
+    assert sorted(p.name for p in grid.iterdir()) == sorted(want)
 
 
 def test_existing_artwork_is_never_replaced(tmp_path):
     grid = tmp_path / "grid"
     grid.mkdir()
     (grid / f"{app_id()}p.png").write_bytes(b"mine")
-    assert ss.install_art(grid, fake_art(tmp_path)) == 3
+    assert ss.install_art(grid, fake_art(tmp_path)) == 4
     assert (grid / f"{app_id()}p.png").read_bytes() == b"mine"
 
 
@@ -37,7 +38,7 @@ def test_removal_only_takes_our_own_files(tmp_path):
     src, grid = fake_art(tmp_path), tmp_path / "grid"
     ss.install_art(grid, src)
     (grid / f"{app_id()}_hero.png").write_bytes(b"replaced by the user")
-    assert ss.remove_art(grid, src) == 3
+    assert ss.remove_art(grid, src) == 4
     assert [p.name for p in grid.iterdir()] == [f"{app_id()}_hero.png"]
 
 
@@ -49,7 +50,7 @@ def test_adding_and_removing_the_shortcut_handles_the_artwork(tmp_path, monkeypa
     cfg.mkdir(parents=True)
     path = cfg / "shortcuts.vdf"
     ss.apply_changes(path, [ss.new_entry()], [])
-    assert len(list((cfg / "grid").iterdir())) == 4
+    assert len(list((cfg / "grid").iterdir())) == 5
     ss.apply_changes(path, [], [(ss.EXE, "")])
     assert list((cfg / "grid").iterdir()) == []
 
@@ -68,7 +69,8 @@ def test_other_shortcuts_get_no_boppos_artwork(tmp_path, monkeypatch):
 
 def test_shipped_artwork_has_the_sizes_steam_asks_for():
     import struct
-    sizes = {"capsule.png": (920, 430), "portrait.png": (600, 900), "hero.png": (3840, 1240), "logo.png": (640, 193)}
+    sizes = {"capsule.png": (920, 430), "portrait.png": (600, 900), "hero.png": (3840, 1240),
+             "logo.png": (640, 193), "icon.png": (256, 256)}
     for name, want in sizes.items():
         head = (ROOT / "share/boppos/steam-art" / name).read_bytes()[16:24]
         assert struct.unpack(">II", head) == want, name

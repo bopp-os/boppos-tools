@@ -126,5 +126,5 @@ Create a test user, log in on a local session (not wheel).
 - [ ] After it finishes, the tray's status refreshes by itself (the app starts `boppos-update-monitor`).
 
 ## 3k. BoppOS Steam artwork
-- [ ] After the BoppOS shortcut is added (Steam closed, or applied on exit), start Steam: the library entry shows the blue icon, the horizontal capsule, and the hero and logo on its page; in Gaming Mode the portrait shows in the grid. If Steam shows no artwork, check `~/.local/share/Steam/userdata/<id>/config/grid/` for four files named `<shortcut id>.png`, `…p.png`, `…_hero.png`, `…_logo.png` and tell me the shortcut id Steam uses (the file names are derived from the same crc32 Steam uses; this has not been run against a real Steam).
-- [ ] Removing the shortcut removes those four files; a file you replaced is kept.
+- [ ] After the BoppOS shortcut is added (Steam closed, or applied on exit), start Steam: the library entry shows the blue list icon, the horizontal capsule, and the hero and logo on its page; in Gaming Mode the portrait shows in the grid. If Steam shows no artwork, check `~/.local/share/Steam/userdata/<id>/config/grid/` for five files named `<shortcut id>.png`, `…p.png`, `…_hero.png`, `…_logo.png`, `…_icon.png` and tell me the shortcut id Steam uses (the file names are derived from the same crc32 Steam uses; this has not been run against a real Steam).
+- [ ] Removing the shortcut removes those five files; a file you replaced is kept.
