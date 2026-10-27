@@ -1,5 +1,7 @@
+import json
 from pathlib import Path
 
+from boppos import bootc
 from boppos.bootc import parse_status
 from boppos.dmi import device_label, read_dmi
 
@@ -44,3 +46,19 @@ def test_deployment_indexes_follow_boot_order():
     )
     assert queued["rollback"]["index"] == 0 and queued["booted"]["index"] == 1
     assert queued["reboot_required"]
+
+
+def test_legacy_lines_match_what_update_check_reads():
+    raw = json.dumps({
+        "spec": {"image": {"image": "r:t", "transport": "registry"}},
+        "status": {
+            "booted": {"image": {"image": {"image": "r:t"}, "imageDigest": "sha256:a"}},
+            "staged": {"image": {"image": {"image": "r:t"}, "imageDigest": "sha256:b"}},
+        },
+    })
+    assert bootc.legacy_lines(raw) == [
+        "UPDATE:True", "CURRENT:sha256:a", "STAGED:sha256:b", "TRANSPORT:registry", "IMAGE_REF:r:t"]
+    assert bootc.legacy_lines(raw, staged_only=True) == ["sha256:b"]
+    assert bootc.legacy_lines("nope")[0].startswith("ERROR:parse:Expecting")
+    assert bootc.legacy_lines("nope", staged_only=True) == []
+    assert bootc.legacy_lines("{}")[:2] == ["UPDATE:False", "CURRENT:unknown"]

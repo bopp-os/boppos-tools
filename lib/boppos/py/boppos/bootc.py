@@ -48,3 +48,24 @@ def parse_status(raw: str) -> dict[str, Any]:
         "rollback_queued": bool(status.get("rollbackQueued")),
         "reboot_required": staged is not None or bool(status.get("rollbackQueued")),
     }
+
+
+def legacy_lines(raw: str, staged_only: bool = False) -> list[str]:
+    """The KEY:value lines update-check.sh reads (what parse-bootc-status.py has always printed)."""
+    parsed = parse_status(raw)
+    if "error" in parsed:
+        return [] if staged_only else [f"ERROR:parse:{parsed['error'].removeprefix('parse: ')}"]
+    staged = parsed["staged"]
+    booted = parsed["booted"]
+    staged_digest = staged["digest"] if staged else ""
+    if staged_only:
+        return [staged_digest]
+    current = (booted["digest"] if booted else "") or "unknown"
+    transport = (((json.loads(raw).get("spec") or {}).get("image") or {}).get("transport")) or "registry"
+    return [
+        f"UPDATE:{bool(staged_digest and staged_digest != current)}",
+        f"CURRENT:{current}",
+        f"STAGED:{staged_digest}",
+        f"TRANSPORT:{transport}",
+        f"IMAGE_REF:{booted['ref'] if booted else ''}",
+    ]
