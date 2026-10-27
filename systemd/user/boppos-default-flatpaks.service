@@ -1,5 +1,5 @@
 [Unit]
-Description=Install the default BoppOS Flatpaks (Bazaar)
+Description=Install the default BoppOS Flatpaks (Bazaar, or the list the setup wizard saved)
 # Once per user: remove the app afterwards and it stays removed.
 ConditionPathExists=!%S/boppos-deck/default-flatpaks-done
 # Installed for this user only: no password, no admin rights needed.

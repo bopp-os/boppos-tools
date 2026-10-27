@@ -216,7 +216,8 @@ def build_plan(choices: Choices, gaming: bool = False) -> list[Action]:
     plan: list[Action] = []
     if choices.flatpaks:
         names = ", ".join(sorted(flatpaks.display_name(r) for r in choices.flatpaks))
-        plan.append(Action("Apps", f"Install {len(choices.flatpaks)} Flatpak(s) for this user: {names}"))
+        plan.append(Action("Apps", f"Save {len(choices.flatpaks)} Flatpak(s) as this user's install list and "
+                           f"run boppos-default-flatpaks: {names}"))
     steam_when = " after your first Steam login" if gaming else ""
     if choices.steam_shortcuts:
         plan.append(Action("Apps", f"Add the BoppOS shortcut to your Steam library{steam_when}"))
@@ -236,6 +237,16 @@ def build_plan(choices: Choices, gaming: bool = False) -> list[Action]:
     if choices.dev_container:
         plan.append(Action("Updates", "Create the dev container (distrobox)"))
     return plan
+
+
+def save_install_list(choices: Choices, env: dict[str, str] | None = None) -> Path | None:
+    """Write the chosen apps as the list boppos-default-flatpaks.service installs from, and let that service
+    run again. The caller starts the service. Not used while the wizard is a dry run."""
+    if not choices.flatpaks:
+        return None
+    path = flatpaks.write_user_defaults(set(choices.flatpaks), env)
+    (state_dir(env) / "default-flatpaks-done").unlink(missing_ok=True)
+    return path
 
 
 def run_plan(plan: list[Action]) -> list[str]:

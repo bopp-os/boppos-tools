@@ -202,3 +202,30 @@ def test_every_app_of_the_curated_list_is_recommended_and_switched_on():
     assert recommended <= welcome.initial_choices(hw).flatpaks
     extra_only = {a.ref for apps in welcome.app_options().values() for a in apps} - recommended
     assert "net.lutris.Lutris" in extra_only  # the opt-in extras stay opt-in
+
+
+def test_the_wizard_saves_its_choice_as_the_list_the_service_installs_from(tmp_path):
+    from boppos import flatpaks
+
+    env = {"XDG_CONFIG_HOME": str(tmp_path / "cfg"), "XDG_STATE_HOME": str(tmp_path / "state")}
+    assert flatpaks.defaults_list(env) == flatpaks.DEFAULTS_LIST  # nothing saved yet: the shipped list
+    done = welcome.state_dir(env) / "default-flatpaks-done"
+    done.parent.mkdir(parents=True)
+    done.touch()
+    choices = welcome.Choices(flatpaks={"it.mijorus.gearlever", "io.github.kolunmi.Bazaar"})
+    path = welcome.save_install_list(choices, env)
+    assert flatpaks.defaults_list(env) == str(path)
+    refs = {a.ref for a in flatpaks.parse_list(path.read_text()) if a.kind == "app"}
+    assert refs == choices.flatpaks
+    assert not done.exists()  # so the service runs again
+
+
+def test_nothing_chosen_leaves_the_list_alone(tmp_path):
+    env = {"XDG_CONFIG_HOME": str(tmp_path), "XDG_STATE_HOME": str(tmp_path)}
+    assert welcome.save_install_list(welcome.Choices(), env) is None
+    assert not list(tmp_path.iterdir())
+
+
+def test_the_plan_says_the_list_is_saved():
+    plan = welcome.build_plan(welcome.Choices(flatpaks={"it.mijorus.gearlever"}))
+    assert "Save 1 Flatpak" in plan[0].text and "Gear Lever" in plan[0].text

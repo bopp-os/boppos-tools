@@ -5,9 +5,11 @@ New installs go to the user scope; the system scope is an explicit choice. Remov
 
 from __future__ import annotations
 
+import os
 import re
 import subprocess
 from dataclasses import dataclass
+from pathlib import Path
 
 from .paths import share_file
 
@@ -72,6 +74,33 @@ def parse_list(text: str) -> list[App]:
             kind = "runtime" if ".Extension." in line else "app"
             apps.append(App(line, line, kind, category, name))
     return apps
+
+
+def user_defaults_path(env: dict[str, str] | None = None) -> Path:
+    """The list this user's boppos-default-flatpaks.service installs from, written by the setup wizard."""
+    env = os.environ if env is None else env
+    base = env.get("XDG_CONFIG_HOME") or str(Path.home() / ".config")
+    return Path(base) / "boppos-deck" / "default-flatpaks.txt"
+
+
+def defaults_list(env: dict[str, str] | None = None) -> str:
+    """The wizard's list when there is one, else the one BoppOS ships."""
+    mine = user_defaults_path(env)
+    return str(mine) if mine.is_file() else DEFAULTS_LIST
+
+
+def write_user_defaults(refs: set[str], env: dict[str, str] | None = None) -> Path:
+    """Replace the list the service installs from. Apps are sorted; the curated runtimes and extensions
+    stay in so a chosen app keeps working."""
+    keep = {a.ref for a in parse_list(Path(DEFAULT_LIST).read_text()) if a.kind != "app"}
+    path = user_defaults_path(env)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    text = "# Written by the BoppOS setup wizard. boppos-default-flatpaks.service installs these.\n"
+    text += "".join(f"{r}\n" for r in sorted(refs) + sorted(keep - refs))
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text(text)
+    tmp.replace(path)
+    return path
 
 
 def load_curated(core: str = DEFAULT_LIST, extra: str | None = EXTRA_LIST) -> list[App]:
