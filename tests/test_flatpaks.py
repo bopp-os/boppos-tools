@@ -198,6 +198,7 @@ def test_defaults_are_still_inside_the_merged_list():
 
 def test_extras_name_the_game_streaming_clients_and_no_end_of_life_apps():
     extra = {a.id: a for a in flatpaks.parse_list((_share() / "boppos-flatpaks-extra.txt").read_text())}
-    assert {"io.github.streetpea.Chiaki4deck", "io.github.unknownskl.greenlight", "dev.lizardbyte.app.Sunshine"} <= set(extra)
+    streaming = {"io.github.streetpea.Chiaki4deck", "io.github.unknownskl.greenlight", "dev.lizardbyte.app.Sunshine"}
+    assert streaming <= set(extra)
     # Flathub marks Jellyfin Media Player end-of-life; Jellyfin Desktop replaced it
     assert "com.github.iwalton3.jellyfin-media-player" not in extra and "org.jellyfin.JellyfinDesktop" in extra
