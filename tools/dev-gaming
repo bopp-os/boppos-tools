@@ -6,6 +6,9 @@
 # NEW login session (via `su -l`, you type your own password once); its window still opens on your screen.
 # Real pkexec requests from that session go to the app's keyboard, not to KDE.
 #
+# This only works where `su -l` really opens a logind session. On some systems (CachyOS/KDE was one) it does not:
+# the script then says so and stops, and the text-console route in docs/boppos-deck-test-plan.md is the way.
+#
 #   tools/dev-gaming            the app, real helpers from this checkout
 #   tools/dev-gaming --check    only prove that the new session has no desktop agent (see below), then stop
 set -euo pipefail
@@ -22,11 +25,20 @@ env_args=(
 )
 [[ -n "${XAUTHORITY:-}" ]] && env_args+=("XAUTHORITY=$XAUTHORITY")
 
+# Everything runs only if the new shell really is in its own login session; otherwise polkit cannot treat it as a
+# local user and any password prompt would misbehave (that is exactly what happened on the first test machine).
+guard='sid=${XDG_SESSION_ID:-}
+if [ -z "$sid" ]; then
+    echo "su -l did not open a login session on this system (XDG_SESSION_ID is empty), so this route cannot work here."
+    echo "Use the text-console route instead: Ctrl+Alt+F3, log in, then run the command from docs/boppos-deck-test-plan.md."
+    exit 3
+fi
+echo "this session: $sid"; '
 if [[ "$mode" == "--check" ]]; then
-    inner='echo "this session: ${XDG_SESSION_ID:-none}"; echo "now asking pkexec for something harmless;"
+    inner="$guard"'echo "now asking pkexec for something harmless;"
 echo "if the password is asked HERE in this terminal, no desktop agent covers this session (good):"; pkexec true && echo OK'
 else
-    inner=$(printf 'cd %q && exec env %s SteamDeck=1 BOPPOS_HELPER_DIR=%q bin/boppos-deck' \
+    inner="$guard"$(printf 'cd %q && exec env %s SteamDeck=1 BOPPOS_HELPER_DIR=%q bin/boppos-deck' \
         "$root" "$(printf '%q ' "${env_args[@]}")" "$root/libexec/boppos")
 fi
 

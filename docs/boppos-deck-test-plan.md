@@ -93,10 +93,10 @@ Add the app via `bopp-steam-shortcut add` with Steam closed, then start Steam.
 3. **The real thing (our polkit agent + `pkexec`)** needs a login session where no desktop agent is running, because only one
    agent can serve a session and KDE's already serves yours (that is why a KDE password window appears when you run the app from
    a terminal inside KDE). Two ways to get such a session:
-   - **From inside KDE, in a window:** `tools/dev-gaming`. It starts the app from a new login session with `su -l` (you type your
-     own password once); the window still opens on your screen, but `pkexec` requests from that session have no desktop agent
-     and go to the app's keyboard. Run `tools/dev-gaming --check` first: it asks `pkexec true` from the new session, and the
-     password must be asked **in the terminal**. If a KDE window appears instead, this route does not work on your system; use the next one.
+   - **From inside KDE, in a window (does not work everywhere):** `tools/dev-gaming`. It starts the app from a new login session
+     with `su -l`; the window still opens on your screen, but `pkexec` requests from that session have no desktop agent and go
+     to the app's keyboard. It needs `su -l` to really open a login session. On the CachyOS/KDE test machine it did **not**
+     (`this session: none`), so the script now says that and stops. Then use the text console below.
    - **From a text console:** Ctrl+Alt+F3, log in, `cd` to the checkout, then
      `SteamDeck=1 BOPPOS_HELPER_DIR="$PWD/libexec/boppos" gamescope -W 1280 -H 800 -f -- bin/boppos-deck`.
      Ctrl+Alt+F1 (or `exit`) returns to the desktop.
