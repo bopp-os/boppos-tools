@@ -77,21 +77,28 @@ def flatpak_target(app_id: str, name: str, icon: str = "") -> Target:
     return Target(app_id, name, exe, f"run {app_id}", icon)
 
 
-def categories() -> dict[str, str]:
-    """app id -> category of the curated list; anything else is "Other apps" to the caller."""
+def curated() -> dict:
+    """app id -> App of the curated list (names and categories); empty when the list is unreadable."""
     from . import flatpaks
 
     try:
-        apps = flatpaks.parse_list(Path(flatpaks.DEFAULT_LIST).read_text())
+        return {a.id: a for a in flatpaks.parse_list(Path(flatpaks.DEFAULT_LIST).read_text())}
     except (OSError, flatpaks.ListError):
         return {}
-    return {a.id: a.category for a in apps}
+
+
+def categories() -> dict[str, str]:
+    """app id -> category of the curated list; anything else is "Other apps" to the caller."""
+    return {k: a.category for k, a in curated().items()}
 
 
 def all_targets(flatpaks: list[tuple[str, str]] | None = None) -> dict[str, Target]:
     """key -> Target, BoppOS first."""
     apps = installed_flatpaks() if flatpaks is None else flatpaks
+    names = curated()
     out = {BOPPOS_KEY: boppos_target()}
     for app_id, name in apps:
-        out[app_id] = flatpak_target(app_id, name, find_icon(app_id))
+        # the curated list's name wins, so an app is called the same on the Apps and Steam library pages
+        out[app_id] = flatpak_target(app_id, (names[app_id].name if app_id in names and names[app_id].name else name),
+                                     find_icon(app_id))
     return out

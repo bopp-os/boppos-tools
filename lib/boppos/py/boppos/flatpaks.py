@@ -90,8 +90,12 @@ def installed_names() -> dict[str, str]:
 
 
 def best_name(app: App, installed: dict[str, str]) -> str:
-    """The installed app's own name, else the name in the list, else a tidied id."""
-    return installed.get(app.id) or app.name or display_name(app.id)
+    """The name chosen in the curated list, else the name the installed app reports, else a tidied id.
+
+    The list wins on purpose: Flatpak reports "GNU Image Manipulation Program" and plain "Bitwarden",
+    and the list is where those are shortened or clarified.
+    """
+    return app.name or installed.get(app.id) or display_name(app.id)
 
 
 def installed_ids() -> set[str]:

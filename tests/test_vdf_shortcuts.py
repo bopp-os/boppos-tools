@@ -316,3 +316,9 @@ def test_apps_json_carries_categories_for_the_steam_page(tmp_path, monkeypatch, 
     assert rows["boppos-deck"]["category"] == "BoppOS"
     assert rows["org.gimp.GIMP"]["category"] == "Media & Creative"   # from the curated list
     assert rows["org.unlisted.App"]["category"] == "Other apps"       # anything else that is installed
+
+
+def test_steam_targets_use_the_curated_name_so_both_pages_agree():
+    t = steam_apps.all_targets([("com.bitwarden.desktop", "Bitwarden"), ("org.unlisted.App", "Unlisted")])
+    assert t["com.bitwarden.desktop"].name == "Bitwarden Desktop"   # as on the Apps page
+    assert t["org.unlisted.App"].name == "Unlisted"                  # not curated: what Flatpak reports

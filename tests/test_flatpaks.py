@@ -108,11 +108,13 @@ def test_defaults_flag_installs_only_missing_default_apps(tmp_path, monkeypatch)
     assert flatpaks_cli.main(["--defaults", "--yes", "--json"]) == 0 and ran == []
 
 
-def test_names_come_from_the_list_comment_and_installed_apps_win():
+def test_names_come_from_the_list_comment_and_the_list_wins_over_what_flatpak_reports():
     apps = flatpaks.parse_list("org.a.A  # name: Proper A\norg.b.B\norg.c.C  # just a comment\n")
     assert [a.name for a in apps] == ["Proper A", "", ""]
     assert flatpaks.best_name(apps[0], {}) == "Proper A"
-    assert flatpaks.best_name(apps[0], {"org.a.A": "Installed A"}) == "Installed A"  # its own metadata wins
+    # Flatpak reports "Bitwarden" / "GNU Image Manipulation Program"; the curated name is the deliberate one
+    assert flatpaks.best_name(apps[0], {"org.a.A": "Installed A"}) == "Proper A"
+    assert flatpaks.best_name(apps[1], {"org.b.B": "Reported B"}) == "Reported B"  # not in the list's names
     assert flatpaks.best_name(apps[1], {}) == "B"  # last resort: tidied id
 
 
