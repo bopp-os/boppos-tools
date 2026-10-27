@@ -36,7 +36,7 @@ Dependencies (all available in CachyOS / AUR):
 
 Signals
 -------
-  SIGUSR1 — re-read status file immediately (sent by update-check.sh)
+  SIGUSR1 — re-read status file immediately (sent by update-check)
 """
 
 import io
