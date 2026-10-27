@@ -266,6 +266,40 @@ def matches_device(dropin: Dropin, dmi: dict[str, str]) -> bool:
     return True
 
 
+GPU_NAMES = {"amd": "AMD", "intel": "Intel", "nvidia": "NVIDIA"}
+
+
+def gpu_of(dropin: Dropin) -> str | None:
+    """Which graphics vendor a preset is about, from its arguments (None: not about graphics)."""
+    for t in dropin.kargs:
+        if t.startswith("amdgpu."):
+            return "amd"
+        if t.startswith(("i915.", "xe.")):
+            return "intel"
+        if t.startswith("nvidia"):
+            return "nvidia"
+    return None
+
+
+def fit(dropin: Dropin, dmi: dict[str, str], gpus: tuple[str, ...]) -> tuple[str, str]:
+    """How a preset relates to this hardware, as (fit, reason). The one rule the wizard and the deck share.
+
+    "fits": it is about this model or this graphics vendor. "optional": it could apply to anything.
+    "unsupported": it is for another model or graphics vendor, or it could apply anywhere but is risky.
+    """
+    gpu = gpu_of(dropin)
+    if dropin.match and not matches_device(dropin, dmi):
+        return "unsupported", "Only for other models than this one."
+    if gpu and gpu not in gpus:
+        return "unsupported", f"Needs {GPU_NAMES[gpu]} graphics, which this hardware does not have."
+    if dropin.match or gpu:
+        return "fits", ""
+    if dropin.risk_level in ("medium", "high"):  # it could apply anywhere, which is exactly why it is not offered
+        return "unsupported", (f"{dropin.risk_level.capitalize()} risk and not specific to this hardware. Only "
+                               "change it from Kernel arguments in boppos-deck, and only if you need it.")
+    return "optional", ""
+
+
 def set_enabled(root: str | Path, name: str, enabled: bool) -> Dropin:
     """Persist enabled/disabled as an /etc override (or drop the override if it equals /usr)."""
     root = Path(root)

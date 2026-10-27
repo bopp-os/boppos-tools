@@ -124,36 +124,9 @@ def app_options() -> dict[str, list[flatpaks.App]]:
 # Presets the wizard shows as a switch of their own instead of in the list of presets.
 AMD_OVERCLOCK = "72-amdgpu-overclock"
 
-GPU_NAMES = {"amd": "AMD", "intel": "Intel", "nvidia": "NVIDIA"}
-
-
-def karg_gpu(tokens: list[str]) -> str | None:
-    """Which graphics vendor a preset is about, from its arguments (None: not about graphics)."""
-    for t in tokens:
-        if t.startswith("amdgpu."):
-            return "amd"
-        if t.startswith(("i915.", "xe.")):
-            return "intel"
-        if t.startswith("nvidia"):
-            return "nvidia"
-    return None
-
-
 def karg_fit(d: kargs.Dropin, hw: hwprofiles.Hardware) -> tuple[str, str]:
-    """(fit, reason) of one preset on this hardware.
-
-    Unsupported: it is for another model or graphics vendor, or it could apply anywhere but is risky."""
-    gpu = karg_gpu(d.kargs)
-    if d.match and not kargs.matches_device(d, hw.dmi):
-        return "unsupported", "Only for other models than this one."
-    if gpu and gpu not in hw.gpus:
-        return "unsupported", f"Needs {GPU_NAMES[gpu]} graphics, which this hardware does not have."
-    if d.match or gpu:
-        return "fits", ""
-    if d.risk_level in ("medium", "high"):  # it could apply anywhere, which is exactly why it is not offered
-        return "unsupported", (f"{d.risk_level.capitalize()} risk, so not offered in the wizard. If you really "
-                               "need it, use Kernel arguments in boppos-deck.")
-    return "optional", ""
+    """(fit, reason) of one preset on this hardware; the rule itself lives in kargs.fit."""
+    return kargs.fit(d, hw.dmi, hw.gpus)
 
 
 def karg_options(hw: hwprofiles.Hardware | None = None) -> list[KargOption]:

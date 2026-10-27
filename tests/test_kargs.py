@@ -441,3 +441,34 @@ def test_catalog_directory_prefers_the_installed_copy_and_honours_the_override(t
 
 def test_a_test_root_does_not_see_the_real_presets(tmp_path):
     assert kargs.load_dropins(tmp_path) == {}
+
+
+def _preset(tmp_path, text):
+    path = tmp_path / "90-x.conf"
+    path.write_text(text)
+    d = kargs.parse_dropin("90-x", "usr", path)
+    assert not d.error
+    return d
+
+
+def test_fit_by_graphics_vendor(tmp_path):
+    d = _preset(tmp_path, "kargs = amdgpu.runpm=0\n")
+    assert kargs.fit(d, {}, ("amd",)) == ("fits", "")
+    assert kargs.fit(d, {}, ("intel", "nvidia"))[0] == "unsupported"
+    assert "AMD" in kargs.fit(d, {}, ())[1]
+    assert kargs.gpu_of(_preset(tmp_path, "kargs = i915.enable_psr=0\n")) == "intel"
+    assert kargs.gpu_of(_preset(tmp_path, "kargs = nvidia-drm.modeset=1\n")) == "nvidia"
+    assert kargs.gpu_of(_preset(tmp_path, "kargs = threadirqs\n")) is None
+
+
+def test_fit_by_model(tmp_path):
+    d = _preset(tmp_path, "kargs = foo=1\nmatch.sys_vendor = Valve\n")
+    assert kargs.fit(d, {"sys_vendor": "Valve"}, ())[0] == "fits"
+    assert kargs.fit(d, {"sys_vendor": "Dell"}, ())[0] == "unsupported"
+
+
+def test_fit_risky_presets_that_apply_anywhere(tmp_path):
+    assert kargs.fit(_preset(tmp_path, "kargs = foo=1\nrisk_level = low\n"), {}, ())[0] == "optional"
+    for level in ("medium", "high"):
+        got = kargs.fit(_preset(tmp_path, f"kargs = foo=1\nrisk_level = {level}\n"), {}, ())
+        assert got[0] == "unsupported" and level.capitalize() in got[1]
