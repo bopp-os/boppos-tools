@@ -27,6 +27,18 @@ plymouth-set-default-theme boppos      # writes Theme=boppos to /etc/plymouth/pl
 
 (`cachyos-plymouth-theme` can stay installed; it just stops being the selected one.)
 
+### Preview in a window, without installing anything
+
+```bash
+tools/plymouth-preview --check      # what is missing, if anything
+tools/plymouth-preview              # opens the theme in a window; keys: b boot, t tick, p password, m message, q quit
+```
+
+It bind-mounts a scratch copy of the themes folder and a scratch `plymouthd.conf`, so nothing is installed, the default
+theme is not changed and no initramfs is built; everything is unmounted again on `q` or Ctrl+C. It uses Plymouth's x11
+renderer (Xwayland is fine) and needs `sudo`. Not yet run against a real Plymouth: if the window does not appear, press
+`l` for the daemon log.
+
 ### Preview without rebooting
 
 From a text console (Ctrl+Alt+F3, log in), with the graphical session stopped so Plymouth can use the display:

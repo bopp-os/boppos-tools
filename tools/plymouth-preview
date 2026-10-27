@@ -1,0 +1,142 @@
+#!/usr/bin/env bash
+# plymouth-preview: try a Plymouth theme in a window on the running desktop, without installing it
+# and without touching the initramfs.
+#
+#   tools/plymouth-preview [--check] [THEME_DIR]      (default THEME_DIR: boot/plymouth/boppos)
+#
+# How it stays temporary (everything is undone when you quit, or on Ctrl+C):
+#   * a scratch copy of /usr/share/plymouth/themes plus THEME_DIR is bind-mounted over the real folder
+#     (a mount, not a write: it also works on a read-only /usr, and a reboot clears it);
+#   * a scratch plymouthd.conf is bind-mounted over /etc/plymouth/plymouthd.conf, so the default theme is
+#     never changed, and plymouth-set-default-theme / -R is never run;
+#   * xhost access for root is added only if it was not already there, and removed again.
+# Plymouth draws into an X11 window through its x11 renderer (Xwayland is fine). Needs: plymouth with the
+# x11 renderer, sudo, and a graphical session. Not verified on every distro; --check says what is missing.
+set -uo pipefail
+
+root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+check_only=false
+if [ "${1:-}" = "--check" ]; then check_only=true; shift; fi
+theme_src=${1:-$root/boot/plymouth/boppos}
+theme_name=$(basename "$theme_src")
+
+say() { printf 'plymouth-preview: %s\n' "$*"; }
+die() { say "$*" >&2; exit 1; }
+
+missing=()
+command -v plymouthd >/dev/null || missing+=("plymouthd (package plymouth)")
+command -v plymouth >/dev/null || missing+=("plymouth")
+x11_plugin=$(find /usr/lib /usr/lib64 -path '*plymouth/renderers/x11.so' 2>/dev/null | head -n1)
+[ -n "$x11_plugin" ] || missing+=("plymouth x11 renderer (renderers/x11.so)")
+[ -d "$theme_src" ] || missing+=("theme folder $theme_src")
+ls "$theme_src"/*.plymouth >/dev/null 2>&1 || missing+=("a .plymouth file in $theme_src")
+[ -n "${DISPLAY:-}" ] || missing+=("DISPLAY (run from a graphical session; Xwayland counts)")
+if [ ${#missing[@]} -gt 0 ]; then
+    say "cannot preview, missing:"
+    printf '  - %s\n' "${missing[@]}"
+    exit 1
+fi
+if $check_only; then
+    say "ready: theme '$theme_name' from $theme_src, renderer $x11_plugin, DISPLAY=$DISPLAY"
+    exit 0
+fi
+
+command -v sudo >/dev/null || die "sudo is needed (plymouthd runs as root)"
+sudo -v || die "sudo failed"
+
+work=$(mktemp -d /tmp/plymouth-preview.XXXXXX)
+log=$work/plymouthd.log
+themes_mounted=false
+conf_mounted=false
+conf_created=false
+xhost_added=false
+daemon_pid=""
+
+cleanup() {
+    trap - EXIT INT TERM
+    say "cleaning up"
+    sudo plymouth quit >/dev/null 2>&1 || true
+    if [ -n "$daemon_pid" ]; then
+        sudo kill "$daemon_pid" >/dev/null 2>&1 || true
+        sleep 0.5
+    fi
+    if $conf_mounted; then sudo umount /etc/plymouth/plymouthd.conf 2>/dev/null || sudo umount -l /etc/plymouth/plymouthd.conf; fi
+    if $conf_created; then sudo rm -f /etc/plymouth/plymouthd.conf; fi
+    if $themes_mounted; then sudo umount /usr/share/plymouth/themes 2>/dev/null || sudo umount -l /usr/share/plymouth/themes; fi
+    if $xhost_added; then xhost -si:localuser:root >/dev/null 2>&1 || true; fi
+    rm -rf "$work"
+    say "done: no install, no initramfs rebuild, default theme untouched (daemon log was $log)"
+}
+trap cleanup EXIT INT TERM
+
+# 1. the theme folder: the system's themes plus ours, mounted over the real one
+mkdir -p "$work/themes"
+cp -a /usr/share/plymouth/themes/. "$work/themes/" 2>/dev/null || true
+rm -rf "${work:?}/themes/$theme_name"
+cp -a "$theme_src" "$work/themes/$theme_name"
+sudo mount --bind "$work/themes" /usr/share/plymouth/themes || die "could not mount over /usr/share/plymouth/themes"
+themes_mounted=true
+
+# 2. a scratch config that selects the theme, mounted over the real one
+printf '[Daemon]\nTheme=%s\nShowDelay=0\nDeviceTimeout=1\n' "$theme_name" > "$work/plymouthd.conf"
+if [ ! -e /etc/plymouth/plymouthd.conf ]; then
+    sudo mkdir -p /etc/plymouth && sudo touch /etc/plymouth/plymouthd.conf && conf_created=true
+fi
+sudo mount --bind "$work/plymouthd.conf" /etc/plymouth/plymouthd.conf || die "could not mount the scratch config"
+conf_mounted=true
+
+# 3. let root draw on this display
+if command -v xhost >/dev/null; then
+    if ! xhost 2>/dev/null | grep -q 'SI:localuser:root'; then
+        xhost +si:localuser:root >/dev/null 2>&1 && xhost_added=true
+    fi
+fi
+
+# 4. start the daemon on the x11 renderer, then show the splash
+sudo env DISPLAY="$DISPLAY" XAUTHORITY="${XAUTHORITY:-}" WAYLAND_DISPLAY="${WAYLAND_DISPLAY:-}" \
+    plymouthd --no-daemon --mode=boot --debug --debug-file="$log" &
+daemon_pid=$!
+sleep 1.5
+kill -0 "$daemon_pid" 2>/dev/null || die "plymouthd exited at once; see $log"
+sudo plymouth show-splash || die "show-splash failed; see $log"
+
+progress=0
+tick() {
+    progress=$((progress + 5)); [ "$progress" -gt 100 ] && progress=100
+    sudo plymouth update --status="preview-$progress" >/dev/null 2>&1
+    sudo plymouth system-update --progress="$progress" >/dev/null 2>&1
+}
+run_boot() {
+    say "simulating a boot (about 12 s)"
+    progress=0
+    for _ in $(seq 1 20); do tick; sleep 0.6; done
+}
+
+cat <<EOF
+
+Theme '$theme_name' is showing in its own window. Keys (in this terminal):
+  b  simulate a boot (progress ticks)      t  one progress tick
+  p  password prompt (type in the window)  m  show a message
+  h  hide the message                      l  show the daemon log tail
+  q  quit and restore everything
+EOF
+
+while true; do
+    IFS= read -r -n1 -p "> " key || break
+    echo
+    case "$key" in
+        b) run_boot ;;
+        t) tick; say "progress $progress%" ;;
+        p) say "asking for a password; type in the preview window, Enter to accept"
+           if sudo plymouth ask-for-password --prompt="Enter disk passphrase" >/dev/null 2>&1; then
+               say "accepted (the text typed is discarded)"
+           else
+               say "cancelled"
+           fi ;;
+        m) sudo plymouth display-message --text="Waiting for the disk" ;;
+        h) sudo plymouth hide-message --text="Waiting for the disk" ;;
+        l) tail -n 25 "$log" ;;
+        q) break ;;
+        *) say "unknown key" ;;
+    esac
+done
