@@ -24,7 +24,7 @@ def helper_path() -> str:
     """BOPPOS_HELPER_DIR runs the helper from a checkout (polkit then asks for a password)."""
     override = os.environ.get("BOPPOS_HELPER_DIR")
     return f"{override}/kargs-helper" if override else HELPER
-VIA_HELPER = {"status", "apply", "enable", "disable"}  # what the polkit-gated helper exposes
+VIA_HELPER = {"status", "list", "apply", "enable", "disable", "add", "remove"}  # polkit-gated helper verbs
 
 
 def _bootc_status(path: str | None) -> dict:
@@ -53,6 +53,9 @@ def _dropin_json(d: kargs.Dropin, dmi: dict[str, str]) -> dict:
         "name": d.name,
         "source": d.source,
         "description": d.description,
+        "category": d.category,
+        "risk_level": d.risk_level,
+        "risk": d.risk,
         "kargs": d.kargs,
         "enabled": d.enabled,
         "matches_device": kargs.matches_device(d, dmi),
@@ -104,7 +107,9 @@ def _via_helper(args: argparse.Namespace) -> int:
     """Run as a normal user: ask the polkit-gated root helper (no password for active wheel)."""
     if getattr(args, "dry_run", False):
         raise KargError("--dry-run needs root; run it with sudo", "not-root")
-    argv = [args.cmd, *([args.name] if hasattr(args, "name") else [])]
+    argv = [args.cmd, *([args.name] if hasattr(args, "name") else []), *([args.arg] if hasattr(args, "arg") else [])]
+    if args.cmd == "list" and args.index is not None:
+        raise KargError("list INDEX needs root; run it with sudo", "not-root")
     proc = subprocess.run(["pkexec", helper_path(), *argv], capture_output=True, text=True, check=False)
     try:
         data = json.loads(proc.stdout)
@@ -115,7 +120,12 @@ def _via_helper(args: argparse.Namespace) -> int:
     elif "error" in data:
         raise KargError(data["error"], data.get("code", "error"))
     else:
-        print(_summary(data) if args.cmd != "status" else json.dumps(data, indent=2))
+        if args.cmd == "status":
+            print(json.dumps(data, indent=2))
+        elif args.cmd == "list":
+            print("\n".join(data["options"]))
+        else:
+            print(_summary(data))
     return 1 if "error" in data else 0
 
 

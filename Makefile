@@ -32,6 +32,9 @@ install-tools:
 	install -d $(DESTDIR)$(PREFIX)/lib/systemd/user-preset
 	install -m 644 systemd/user-preset/* $(DESTDIR)$(PREFIX)/lib/systemd/user-preset/
 	
+	install -d $(DESTDIR)$(PREFIX)/lib/bopp-kargs.d
+	install -m 644 kargs.d/*.conf $(DESTDIR)$(PREFIX)/lib/bopp-kargs.d/
+	
 	install -d $(DESTDIR)$(PREFIX)/libexec/boppos
 	install -m 755 libexec/boppos/* $(DESTDIR)$(PREFIX)/libexec/boppos/
 	

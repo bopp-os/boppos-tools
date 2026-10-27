@@ -10,6 +10,7 @@ from __future__ import annotations
 import re
 
 from .bootc import parse_status
+from .kargs import PROTECTED_KEYS, KargError, key_of, validate_arg
 
 BOOTC = "/usr/bin/bootc"
 OSTREE = "/usr/bin/ostree"
@@ -19,8 +20,27 @@ _TAG = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9._-]{0,127}$")
 _DROPIN = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
 
 
+# Arguments that give a root shell or a different init at boot. Never settable through the helper
+# (the CLI run with sudo is not restricted).
+DENY_KEYS = frozenset({
+    "init", "rdinit", "initrd", "break", "rd.break", "rd.shell", "rd.emergency", "single", "emergency",
+    "rescue", "systemd.unit", "systemd.run", "systemd.debug_shell", "s", "S", "1", "2", "3", "4", "5",
+})
+
+
 class UsageError(Exception):
     pass
+
+
+def checked_karg(arg: str) -> str:
+    try:
+        validate_arg(arg)
+    except KargError as exc:
+        raise UsageError(str(exc)) from exc
+    key = key_of(arg)
+    if key in PROTECTED_KEYS or key in DENY_KEYS:
+        raise UsageError(f"not allowed through the helper: {key}")
+    return arg
 
 
 def _expect(argv: list[str], n: int, usage: str) -> None:
@@ -76,11 +96,12 @@ def system_command(argv: list[str], bootc_status: str | None = None) -> list[str
 
 
 def kargs_argv(argv: list[str]) -> list[str]:
-    """Map `kargs-helper <verb> [name]` to bopp-kargs arguments. Free-form add/remove is not exposed."""
+    """Map `kargs-helper <verb> [arg]` to bopp-kargs arguments."""
+    usage = "usage: kargs-helper status|list|dropins|apply|enable NAME|disable NAME|add ARG|remove ARG"
     if not argv:
-        raise UsageError("usage: kargs-helper status|dropins|apply|enable NAME|disable NAME")
+        raise UsageError(usage)
     verb, rest = argv[0], argv[1:]
-    if verb in ("status", "dropins", "apply"):
+    if verb in ("status", "list", "dropins", "apply"):
         _expect(rest, 0, verb)
         return ["--json", verb]
     if verb in ("enable", "disable"):
@@ -88,7 +109,10 @@ def kargs_argv(argv: list[str]) -> list[str]:
         if not _DROPIN.match(rest[0]):
             raise UsageError(f"invalid drop-in name: {rest[0]!r}")
         return ["--json", verb, rest[0]]
-    raise UsageError(f"unknown verb: {verb!r}")
+    if verb in ("add", "remove"):
+        _expect(rest, 1, f"{verb} ARG")
+        return ["--json", verb, checked_karg(rest[0])]
+    raise UsageError(usage)
 
 
 def tags_from_status(raw: str) -> dict:
@@ -99,4 +123,5 @@ def tags_from_status(raw: str) -> dict:
     return {"ref": ref, "tag": tag if sep and "/" not in tag else None}
 
 
-__all__ = ["UsageError", "kargs_argv", "switch_target", "system_command", "tags_from_status"]
+__all__ = ["DENY_KEYS", "UsageError", "checked_karg", "kargs_argv", "switch_target", "system_command",
+           "tags_from_status"]

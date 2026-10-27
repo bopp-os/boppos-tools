@@ -70,3 +70,18 @@ def test_status_errors_cleanly_without_flatpak(tmp_path, monkeypatch, capsys):
 def test_display_names():
     assert flatpaks.display_name("it.mijorus.gearlever") == "Gear Lever"
     assert flatpaks.display_name("org.virt_manager.virt-manager") == "virt manager"
+
+
+def test_categories_from_double_hash_lines_and_flat_lists_still_work():
+    apps = flatpaks.parse_list("## Gaming\norg.a.A\n# plain comment\norg.b.B\n## Tools\norg.c.C\n")
+    assert [(a.id, a.category) for a in apps] == [("org.a.A", "Gaming"), ("org.b.B", "Gaming"), ("org.c.C", "Tools")]
+    assert flatpaks.parse_list("org.a.A\n")[0].category == "Other"
+
+
+def test_shipped_list_parses_and_every_app_has_a_category():
+    from pathlib import Path
+
+    apps = flatpaks.parse_list((Path(__file__).parent.parent / "share/boppos/boppos-flatpaks.txt").read_text())
+    assert len(apps) == 29 and all(a.category != "Other" for a in apps)
+    assert {"com.vysp3r.ProtonPlus", "it.mijorus.gearlever", "com.github.tchx84.Flatseal",
+            "io.github.kolunmi.Bazaar"} <= {a.id for a in apps}

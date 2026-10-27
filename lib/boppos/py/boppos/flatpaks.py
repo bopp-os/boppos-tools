@@ -38,12 +38,17 @@ class App:
     ref: str  # exactly as written in the list
     id: str  # application / runtime id
     kind: str  # "app" or "runtime"
+    category: str = "Other"
 
 
 def parse_list(text: str) -> list[App]:
     apps: list[App] = []
     seen: set[str] = set()
+    category = "Other"
     for raw in text.splitlines():
+        if raw.lstrip().startswith("##"):  # "## Name" sets the category of the entries below it
+            category = raw.lstrip()[2:].strip() or "Other"
+            continue
         line = raw.split("#", 1)[0].strip()
         if not line or line in seen:
             continue
@@ -51,9 +56,9 @@ def parse_list(text: str) -> list[App]:
             raise ListError(f"invalid Flatpak reference: {line!r}")
         seen.add(line)
         if line.startswith("runtime/"):
-            apps.append(App(line, line.split("/")[1], "runtime"))
+            apps.append(App(line, line.split("/")[1], "runtime", category))
         else:
-            apps.append(App(line, line, "app"))
+            apps.append(App(line, line, "app", category))
     return apps
 
 

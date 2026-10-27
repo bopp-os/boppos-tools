@@ -1,29 +1,43 @@
-net.mullvad.MullvadBrowser
-com.calibre_ebook.calibre
-it.mijorus.gearlever
-org.inkscape.Inkscape
-com.obsproject.Studio
-com.discordapp.Discord
-io.github.flattool.Warehouse
-com.github.tchx84.Flatseal
-com.bitwarden.desktop
+# BoppOS curated Flatpaks (Flathub). One reference per line.
+# '## Name' starts a category (shown in boppos-deck); '#' alone is a comment.
+
+## Gaming & Streaming
 com.vysp3r.ProtonPlus
-io.github.kolunmi.Bazaar
-org.jeffvli.feishin
-org.virt_manager.virt-manager
-org.virt_manager.virt_manager.Extension.Qemu
-org.libreoffice.LibreOffice
-org.gimp.GIMP
-org.kde.kdenlive
-com.github.wwmm.easyeffects
+com.moonlight_stream.Moonlight
+com.obsproject.Studio
+
+## Internet & Communication
+net.mullvad.MullvadBrowser
+com.discordapp.Discord
+org.mozilla.thunderbird
 org.localsend.localsend_app
 org.qbittorrent.qBittorrent
-io.github.dvlv.boxbuddyrs
-runtime/org.gtk.Gtk3theme.adw-gtk3/x86_64/3.22
-runtime/org.gtk.Gtk3theme.adw-gtk3-dark/x86_64/3.22
-org.mozilla.thunderbird
-com.moonlight_stream.Moonlight
+
+## Media & Creative
+org.inkscape.Inkscape
+org.gimp.GIMP
+org.kde.kdenlive
+org.audacityteam.Audacity
+com.github.wwmm.easyeffects
+org.jeffvli.feishin
+
+## Office & Productivity
+com.calibre_ebook.calibre
+org.libreoffice.LibreOffice
+com.bitwarden.desktop
+org.gnome.SimpleScan
+
+## System & Tools
+io.github.kolunmi.Bazaar
+com.github.tchx84.Flatseal
+it.mijorus.gearlever
+io.github.flattool.Warehouse
 io.gitlab.adhami3310.Impression
 org.gnome.World.PikaBackup
-org.gnome.SimpleScan
-org.audacityteam.Audacity
+io.github.dvlv.boxbuddyrs
+org.virt_manager.virt-manager
+org.virt_manager.virt_manager.Extension.Qemu
+
+## Themes
+runtime/org.gtk.Gtk3theme.adw-gtk3/x86_64/3.22
+runtime/org.gtk.Gtk3theme.adw-gtk3-dark/x86_64/3.22

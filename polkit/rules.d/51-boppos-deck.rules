@@ -9,6 +9,7 @@ var READ_ONLY = [
     "/usr/libexec/boppos/bootc-helper status",
     "/usr/libexec/boppos/bootc-helper check",
     "/usr/libexec/boppos/kargs-helper status",
+    "/usr/libexec/boppos/kargs-helper list",
     "/usr/libexec/boppos/kargs-helper dropins"
 ];
 

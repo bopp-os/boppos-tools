@@ -20,6 +20,7 @@ BLS_DIR = "boot/loader/entries"
 DROPIN_DIRS = (("usr", "usr/lib/bopp-kargs.d"), ("etc", "etc/bopp-kargs.d"))
 MANAGED_FILE = "var/lib/bopp-kargs/managed"
 PROTECTED_KEYS = frozenset({"ostree", "root"})
+RISK_LEVELS = ("low", "medium", "high")
 
 _KEY = r"[A-Za-z0-9_.:/-]+"
 _VALUE = r"[A-Za-z0-9_.:/,@%+=;~\[\]-]*"
@@ -172,6 +173,9 @@ class Dropin:
     kargs: list[str] = field(default_factory=list)
     enabled: bool = True
     description: str = ""
+    category: str = "Other"
+    risk_level: str = "low"  # low, medium or high
+    risk: str = ""
     match: dict[str, list[str]] = field(default_factory=dict)
     error: str | None = None
 
@@ -199,6 +203,14 @@ def parse_dropin(name: str, source: str, path: Path) -> Dropin:
                 d.enabled = value.lower() in ("true", "yes", "1")
             elif key == "description":
                 d.description = value
+            elif key == "category":
+                d.category = value or "Other"
+            elif key == "risk":
+                d.risk = value
+            elif key == "risk_level":
+                if value.lower() not in RISK_LEVELS:
+                    raise KargError(f"risk_level must be one of {', '.join(RISK_LEVELS)}, got {value!r}")
+                d.risk_level = value.lower()
             elif key.startswith("match."):
                 d.match.setdefault(key[len("match.") :], []).extend(
                     p.strip() for p in value.split("|") if p.strip()

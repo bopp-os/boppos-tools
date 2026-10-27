@@ -45,7 +45,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.status:
         rows = [
             {"id": a.id, "name": flatpaks.display_name(a.id), "ref": a.ref, "kind": a.kind,
-             "installed": a.id in installed}
+             "category": a.category, "installed": a.id in installed}
             for a in apps
         ]
         print(json.dumps(rows, indent=2) if args.json else

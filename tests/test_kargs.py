@@ -228,3 +228,28 @@ def test_set_enabled_rejects_bad_names(tmp_path):
     for name in ("../x", "A", "nope"):
         with pytest.raises(KargError):
             kargs.set_enabled(root, name, True)
+
+
+def test_risk_fields_and_validation(tmp_path):
+    root = make_root(tmp_path)
+    p = dropin(root, "usr/lib/bopp-kargs.d", "x", "kargs = a\ncategory = Perf\nrisk_level = HIGH\nrisk = bad idea\n")
+    d = kargs.parse_dropin("x", "usr", p)
+    assert (d.category, d.risk_level, d.risk, d.error) == ("Perf", "high", "bad idea", None)
+    p = dropin(root, "usr/lib/bopp-kargs.d", "y", "kargs = a\nrisk_level = scary\n")
+    assert "risk_level" in kargs.parse_dropin("y", "usr", p).error
+
+
+def test_shipped_catalog_is_valid_and_documents_every_risk():
+    from pathlib import Path
+
+    catalog = sorted((Path(__file__).parent.parent / "kargs.d").glob("*.conf"))
+    assert len(catalog) >= 5
+    names = set()
+    for path in catalog:
+        d = kargs.parse_dropin(path.stem, "usr", path)
+        assert d.error is None, (path.name, d.error)
+        assert d.description and d.risk and d.kargs and d.category != "Other", path.name
+        assert d.enabled is False, f"{path.name} must be off by default"
+        assert not d.match, f"{path.name}: catalog presets apply to every device"
+        names.add(path.stem)
+    assert len(names) == len(catalog)
