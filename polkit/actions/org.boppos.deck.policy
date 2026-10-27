@@ -14,6 +14,7 @@
   <action id="org.boppos.deck.kargs">
     <description>Manage BoppOS kernel arguments</description>
     <message>Authentication is required to change kernel arguments</message>
+    <icon_name>boppos-icon</icon_name>
     <defaults>
       <allow_any>auth_admin</allow_any>
       <allow_inactive>auth_admin</allow_inactive>
@@ -25,6 +26,7 @@
   <action id="org.boppos.deck.system">
     <description>Manage BoppOS updates and deployments</description>
     <message>Authentication is required to update or change BoppOS deployments</message>
+    <icon_name>boppos-icon</icon_name>
     <defaults>
       <allow_any>auth_admin</allow_any>
       <allow_inactive>auth_admin</allow_inactive>
@@ -36,6 +38,7 @@
   <action id="org.boppos.deck.decky">
     <description>Install or remove the Decky Loader service</description>
     <message>Authentication is required to install or remove the Decky Loader service</message>
+    <icon_name>boppos-icon</icon_name>
     <defaults>
       <allow_any>auth_admin</allow_any>
       <allow_inactive>auth_admin</allow_inactive>

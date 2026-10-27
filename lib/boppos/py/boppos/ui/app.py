@@ -23,6 +23,7 @@ from .osk import PasswordBuffer  # noqa: E402
 from .pages import ALL_PAGES  # noqa: E402
 
 APP_ID = "org.boppos.Deck"
+ICON_NAME = "boppos-icon"  # installed by boppos-artwork; the desktop file is named after APP_ID
 DIRECTION_MAP = {
     Action.UP: Gtk.DirectionType.UP,
     Action.DOWN: Gtk.DirectionType.DOWN,
@@ -797,6 +798,7 @@ class DeckApp(Adw.Application):
 
     def do_startup(self) -> None:
         Adw.Application.do_startup(self)
+        Gtk.Window.set_default_icon_name(ICON_NAME)  # taskbar, Alt-Tab and the window's own icon
         css = Gtk.CssProvider()
         css.load_from_path(str(Path(__file__).with_name("style.css")))
         Gtk.StyleContext.add_provider_for_display(Gdk.Display.get_default(), css,

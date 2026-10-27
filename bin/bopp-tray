@@ -214,7 +214,7 @@ def open_in_terminal(cmd: list[str], title: str = "BoppOS") -> None:
 
 
 def _notify(summary: str, body: str = "", urgent: bool = False) -> None:
-    cmd = ["notify-send", "--app-name=BoppOS Updater", "--icon=system-software-update"]
+    cmd = ["notify-send", "--app-name=BoppOS Updater", "--icon=boppos-icon"]
     if urgent:
         cmd += ["--urgency=critical"]
     else:
@@ -268,7 +268,7 @@ def ask_restart() -> None:
     def work() -> None:
         try:
             out = subprocess.run(
-                ["notify-send", "--app-name=BoppOS Updater", "--icon=system-reboot", "--wait",
+                ["notify-send", "--app-name=BoppOS Updater", "--icon=boppos-icon", "--wait",
                  "--action=restart=Restart now", "Restart to finish the update",
                  "Save your work first. The update is applied when the system restarts."],
                 capture_output=True, text=True, timeout=600)
