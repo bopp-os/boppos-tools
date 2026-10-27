@@ -15,13 +15,14 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 from gi.repository import Adw, Gdk, Gio, GLib, GObject, Gtk  # noqa: E402
 
-from .. import system  # noqa: E402
+from .. import system, welcome  # noqa: E402
 from . import agent as polkit_agent  # noqa: E402
 from . import backend  # noqa: E402
 from .controller import DIRECTIONS, PAGES, Action, InputMapper, Sdl3Gamepads  # noqa: E402
 from .hints import hint_items  # noqa: E402
 from .osk import PasswordBuffer  # noqa: E402
 from .pages import ALL_PAGES  # noqa: E402
+from .welcome import WelcomeFlow  # noqa: E402
 
 APP_ID = "org.boppos.Deck"
 ICON_NAME = "boppos-icon"  # installed by boppos-artwork; the desktop file is named after APP_ID
@@ -789,6 +790,17 @@ class DeckWindow(Adw.ApplicationWindow):
         elif a == Action.MENU and self.gaming:
             self.confirm_quit()
 
+    def show_welcome(self) -> None:
+        """Replace the settings view with the first-run wizard until it is finished or skipped."""
+        if self.stack.get_child_by_name("welcome") is None:
+            self.stack.add_named(WelcomeFlow(self.gaming, self.end_welcome), "welcome")
+        self.stack.set_visible_child_name("welcome")
+
+    def end_welcome(self, finished: bool) -> None:
+        if finished:
+            welcome.mark_done()
+        self.stack.set_visible_child_name("main")
+
     def on_close_request(self, *_a) -> bool:
         if self.job and self.job.running:
             self.toast("An action is still running")
@@ -802,6 +814,10 @@ class DeckApp(Adw.Application):
         self.add_main_option("update", 0, GLib.OptionFlags.NONE, GLib.OptionArg.STRING,
                              "Open on the update screen and start updating: all, or a list of "
                              + ",".join(system.TARGETS), "TARGETS")
+        self.add_main_option("welcome", 0, GLib.OptionFlags.NONE, GLib.OptionArg.NONE,
+                             "Open the first-run setup wizard", None)
+        self.add_main_option("if-needed", 0, GLib.OptionFlags.NONE, GLib.OptionArg.NONE,
+                             "With --welcome: do nothing when the wizard was already finished", None)
         self.gaming = backend.gaming_mode()
         self.pad: Sdl3Gamepads | None = None
         self.agent = None
@@ -864,11 +880,15 @@ class DeckApp(Adw.Application):
             except ValueError as exc:
                 print(f"boppos-deck: {exc}", file=sys.stderr)
                 return 2
+        if "welcome" in opts and "if-needed" in opts and welcome.is_done():
+            return 0
         self.activate()
-        if "update" in opts:
-            win = self.props.active_window
-            if isinstance(win, DeckWindow):
+        win = self.props.active_window
+        if isinstance(win, DeckWindow):
+            if "update" in opts:
                 win.start_update(targets)
+            if "welcome" in opts:
+                win.show_welcome()
         return 0
 
     def do_shutdown(self) -> None:

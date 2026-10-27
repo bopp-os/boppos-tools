@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=BoppOS Setup
+Comment=First-run setup wizard for BoppOS
+Exec=/usr/bin/boppos-deck --welcome --if-needed
+Icon=boppos-icon
+Categories=System;Settings;
+# Opens once per user: --if-needed exits at once when the wizard has been finished
+X-GNOME-Autostart-enabled=true
+NoDisplay=true
