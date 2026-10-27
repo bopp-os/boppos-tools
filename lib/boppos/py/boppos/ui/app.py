@@ -797,7 +797,7 @@ class DeckWindow(Adw.ApplicationWindow):
         self.stack.set_visible_child_name("welcome")
 
     def end_welcome(self, finished: bool) -> None:
-        if finished:
+        if finished and not welcome.DRY_RUN:  # a dry run applied nothing, so it must not count as set up
             welcome.mark_done()
         self.stack.set_visible_child_name("main")
 
