@@ -11,10 +11,24 @@ from functools import lru_cache
 
 from .paths import share_file
 
-# Never removable or settable through the helper, whatever the data file says.
+# Never removable or settable through the helper, whatever the data file says. Everything the initramfs
+# reads (rd.*) counts: it decides how disks are found, unlocked and assembled.
 CRITICAL_KEYS = frozenset({"ostree", "root", "rootflags", "rootfstype"})
-CRITICAL_PREFIXES = ("rd.luks.", "rd.lvm.", "rd.md.", "rd.dm.", "luks.")
-NOT_CRITICAL = frozenset({"rd.luks.options"})  # only controls TPM auto-unlock; the passphrase still works
+CRITICAL_PREFIXES = ("rd.", "luks.")
+# Harmless or recoverable: the TPM option only costs a passphrase prompt, the rest is diagnostics.
+NOT_CRITICAL = frozenset({"rd.luks.options", "rd.plymouth", "rd.debug", "rd.udev.log_level"})
+
+# Not settable through the app or the helper (add); `sudo bopp-kargs add --force` still can, on purpose.
+DENY_KEYS = frozenset({
+    "init", "rdinit", "initrd", "break", "single", "emergency", "rescue", "s", "S", "1", "2", "3", "4", "5",
+})
+DENY_PREFIXES = ("systemd.",)
+SECURITY_KEYS = frozenset({
+    "selinux", "enforcing", "security", "apparmor", "lsm", "lockdown", "ima", "ima_appraise", "ima_policy",
+    "evm", "audit", "fips",
+})
+DRIVER_KEYS = frozenset({"module_blacklist", "modprobe.blacklist", "initcall_blacklist", "blacklist"})
+HARDWARE_KEYS = frozenset({"acpi", "noacpi", "nosmp", "maxcpus", "nr_cpus", "mem", "memmap"})
 
 
 def _key(token: str) -> str:
@@ -40,6 +54,23 @@ def is_critical(token: str) -> bool:
         return True
     entry = describe(token)
     return bool(entry and entry.get("critical"))
+
+
+def forbidden_reason(token: str) -> str | None:
+    """Why this argument may not be ADDED through the app or helper, or None. Removing is judged by
+    is_critical() alone, so a bad argument that is already there can always be taken out again."""
+    key = _key(token)
+    if is_critical(token):
+        return "it is needed to boot or to unlock the disk"
+    if key in DENY_KEYS or key.startswith(DENY_PREFIXES):
+        return "it can bypass the login or change how the system starts"
+    if key in SECURITY_KEYS:
+        return "it changes or turns off a system security feature"
+    if key in DRIVER_KEYS:
+        return "it can disable a driver the system needs to start"
+    if key in HARDWARE_KEYS:
+        return "it can stop the system from starting"
+    return None
 
 
 def describe(token: str) -> dict | None:
@@ -68,6 +99,7 @@ def details(token: str, managed: set[str] | frozenset[str] = frozenset()) -> dic
         "risk_level": e.get("risk_level", ""),
         "image_default": bool(e.get("image_default")),
         "critical": is_critical(token),
+        "forbidden": forbidden_reason(token),
         "managed": token in managed,
         "known": bool(e),
     }

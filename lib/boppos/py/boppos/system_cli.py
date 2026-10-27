@@ -12,6 +12,7 @@ import time
 from pathlib import Path
 
 from . import system
+from .privileged import UsageError, validate_image_ref
 from .runner import log_dir, make_emitter, open_log, run_stream
 from .support import build_report
 
@@ -28,9 +29,8 @@ def build_parser() -> argparse.ArgumentParser:
     for name in ("pin", "unpin"):
         s = sub.add_parser(name, help=f"{name} a deployment")
         s.add_argument("index", help="deployment index from `status`")
-    sw = sub.add_parser("switch", help="switch the update tag (same image repository)")
-    sw.add_argument("tag")
-    sub.add_parser("tags", help="known tags of the booted image")
+    sw = sub.add_parser("switch", help="switch to a different image; give the whole reference, registry/name:tag")
+    sw.add_argument("image", metavar="IMAGE", help="for example ghcr.io/bopp-os/cachyos-plasma:v4")
     sub.add_parser("reboot", help="reboot now")
     sub.add_parser("about", help="image, flavor, kernel, device")
     sub.add_parser("support-report", help="write ~/boppos-support-<time>.txt")
@@ -152,16 +152,11 @@ def main(argv: list[str] | None = None) -> int:
     if cmd in ("pin", "unpin"):
         return _helper_action(args, cmd, [cmd, args.index])
     if cmd == "switch":
-        return _helper_action(args, cmd, [cmd, args.tag])
-    if cmd == "tags":
-        st = system.get_status()
-        booted = st.get("booted") or {}
-        repo = (booted.get("ref") or "").split("@", 1)[0]
-        repo = repo.rsplit(":", 1)[0] if system.booted_tag(st) else repo
-        data = system.tag_choices(repo, system.booted_tag(st)) if repo else system.classify_tags([], None)
-        lines = [f"{c['tag']}  {c['description']}" for c in data["channels"]]
-        _print(args, data, "\n".join(lines + data["builds"] + data["test"]))
-        return 0
+        try:
+            image = validate_image_ref(args.image)
+        except UsageError as exc:
+            return _fail(args, str(exc), 2)
+        return _helper_action(args, cmd, [cmd, image])
     if cmd == "reboot":
         return subprocess.run(["systemctl", "reboot"], check=False).returncode
     return _support_report(args)

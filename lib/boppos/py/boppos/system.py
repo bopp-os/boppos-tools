@@ -159,56 +159,23 @@ def get_status() -> dict:
     return st
 
 
-CHANNELS = (
-    {"tag": "latest", "label": "v3 (default)", "family": "v3",
-     "description": "Works on most modern x86-64 CPUs. The default and the most compatible."},
-    {"tag": "v4", "label": "v4", "family": "v4",
-     "description": "Built for x86-64-v4 CPUs, which means AVX-512 support."},
-    {"tag": "znver4", "label": "znver4", "family": "znver4",
-     "description": "Built for AMD Zen 4 and newer (Ryzen 7000 and later)."},
-)
-_TAG_PARTS = re.compile(r"^(latest|v3|v4|znver4)(?:-(\d{8}|test))?$")
+CHANNEL_NOTES = {
+    "latest": "v3: works on most modern x86-64 CPUs. The default.",
+    "v3": "v3: works on most modern x86-64 CPUs. The default.",
+    "v4": "v4: built for x86-64-v4 CPUs (AVX-512).",
+    "znver4": "znver4: built for AMD Zen 4 and newer (Ryzen 7000 and later).",
+}
+_DATED = re.compile(r"^(latest|v3|v4|znver4)-(\d{8}|test)$")
 
 
-def tag_family(tag: str | None) -> str | None:
-    """v3, v4 or znver4 for a channel tag, a dated build (v4-20260409) or a test build (v4-test)."""
-    m = _TAG_PARTS.match(tag or "")
-    if not m:
-        return None
-    return "v3" if m.group(1) in ("latest", "v3") else m.group(1)
-
-
-def classify_tags(all_tags: list[str], current: str | None, limit: int = 14) -> dict:
-    """What the update-channel screen offers: the fixed channels, recent dated builds of the channel in
-    use (newest first), and published test builds. Signature tags and anything else are left out."""
-    family = tag_family(current)
-    dated: list[tuple[str, str]] = []
-    tests: list[str] = []
-    for tag in set(all_tags):
-        m = _TAG_PARTS.match(tag)
-        if not m or not m.group(2):
-            continue
-        if m.group(2) == "test":
-            tests.append(tag)
-        elif family and tag_family(tag) == family:
-            dated.append((m.group(2), tag))
-    return {
-        "current": current,
-        "current_channel": next((c["tag"] for c in CHANNELS if c["family"] == family), None),
-        "channels": [dict(c) for c in CHANNELS],
-        "builds": [t for _, t in sorted(dated, reverse=True)[:limit]],
-        "test": sorted(tests, key=lambda t: (tag_family(t) != family, t)),  # your channel's test build first
-    }
-
-
-def tag_choices(repo: str, current: str | None) -> dict:
-    """classify_tags over the registry's tag list (needs skopeo and network; the channels work without)."""
-    tags: list[str] = []
-    if shutil.which("skopeo"):
-        proc = run_capture(["skopeo", "list-tags", f"docker://{repo}"], timeout=45)
-        if proc.returncode == 0:
-            try:
-                tags = json.loads(proc.stdout).get("Tags", [])
-            except json.JSONDecodeError:
-                tags = []
-    return classify_tags(tags, current)
+def channel_note(tag: str | None) -> str:
+    """One line about the build the system follows (read-only: switching it is a deliberate, typed action)."""
+    if not tag:
+        return ""
+    if tag in CHANNEL_NOTES:
+        return CHANNEL_NOTES[tag]
+    m = _DATED.match(tag)
+    if m:
+        kind = "test build" if m.group(2) == "test" else f"build from {m.group(2)}"
+        return f"{CHANNEL_NOTES[m.group(1)].split(':')[0]}: {kind}."
+    return "A custom tag."

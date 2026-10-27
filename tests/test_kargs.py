@@ -340,3 +340,84 @@ def test_dropins_json_reports_already_active(tmp_path, capsys):
     _, out = run_cli(root, capsys, "--json", "dropins")
     by = {d["name"]: d for d in json.loads(out)["dropins"]}
     assert by["have"]["already_active"] and not by["new"]["already_active"]
+
+
+# --- the forbidden list, for the CLI under sudo as well as the helper ------------------------------
+
+
+@pytest.mark.parametrize("arg", ["init=/bin/sh", "systemd.unit=rescue.target", "selinux=0", "module_blacklist=nvme",
+                                 "acpi=off", "rd.break", "rd.driver.pre=nvme"])
+def test_add_tokens_refuses_forbidden_arguments_unless_forced(arg):
+    with pytest.raises(KargError) as exc:
+        kargs.add_tokens(["quiet"], [arg])
+    assert exc.value.code == "forbidden" and "--force" in str(exc.value)
+    assert arg in kargs.add_tokens(["quiet"], [arg], force=True)
+
+
+def test_ostree_and_root_cannot_be_added_even_with_force():
+    for arg in ("ostree=/x", "root=/dev/sda"):
+        with pytest.raises(KargError):
+            kargs.add_tokens([], [arg], force=True)
+
+
+def test_apply_changes_refuses_forbidden_add_before_running_anything(tmp_path):
+    root = make_root(tmp_path)
+    rec = Recorder()
+    with pytest.raises(KargError):
+        kargs.apply_changes(root, STATUS, CMDLINE, add=["selinux=0"], run=rec)
+    assert rec.calls == []
+    kargs.apply_changes(root, STATUS, CMDLINE, add=["selinux=0"], run=rec, force=True)
+    assert rec.calls  # the explicit override goes through
+
+
+@pytest.mark.parametrize("tok", ["init=/bin/sh", "systemd.debug_shell", "selinux=0", "acpi=off", "rd.driver.pre=x"])
+def test_dropins_cannot_carry_forbidden_arguments(tmp_path, tok):
+    root = make_root(tmp_path)
+    p = dropin(root, "usr/lib/bopp-kargs.d", "bad", f"kargs = {tok}\n")
+    assert kargs.parse_dropin("bad", "usr", p).error
+
+
+def test_removing_a_forbidden_argument_that_is_present_is_allowed(tmp_path):
+    root = make_root(tmp_path, BASE_OPTS + " selinux=0")
+    rec = Recorder()
+    kargs.apply_changes(root, STATUS, CMDLINE + " selinux=0", remove=["selinux=0"], run=rec)
+    assert "selinux=0" not in rec.calls[0] and "quiet" in rec.calls[0]
+
+
+def test_every_early_boot_argument_counts_as_critical_except_the_harmless_ones():
+    from boppos.kargs_info import forbidden_reason, is_critical
+
+    for tok in ("rd.driver.pre=nvme", "rd.driver.blacklist=amdgpu", "rd.luks.uuid=1", "rd.lvm.lv=a/b", "rd.md=0"):
+        assert is_critical(tok), tok
+    for tok in ("rd.luks.options=tpm2-device=auto", "rd.plymouth=0", "rd.debug", "quiet", "threadirqs"):
+        assert not is_critical(tok), tok
+    assert forbidden_reason("quiet") is None and "security" in forbidden_reason("selinux=0")
+
+
+def test_describe_command_reports_known_unknown_and_forbidden(tmp_path, capsys):
+    import json
+
+    from .test_kargs_cli import run_cli
+
+    root = make_root(tmp_path)
+    _, out = run_cli(root, capsys, "--json", "describe", "mitigations=off")
+    known = json.loads(out)
+    assert known["known"] and known["image_default"] and known["forbidden"] is None
+    _, out = run_cli(root, capsys, "--json", "describe", "totally.unknown=1")
+    assert json.loads(out)["known"] is False
+    _, out = run_cli(root, capsys, "--json", "describe", "init=/bin/sh")
+    assert "start" in json.loads(out)["forbidden"]
+
+
+def test_every_argument_a_shipped_preset_adds_is_described_in_the_argument_catalog():
+    """Otherwise the app calls our own presets 'unknown' when someone types them by hand."""
+    from pathlib import Path
+
+    from boppos.kargs_info import describe
+
+    for path in sorted((Path(__file__).parent.parent / "kargs.d").glob("*.conf")):
+        d = kargs.parse_dropin(path.stem, "usr", path)
+        for tok in d.kargs:
+            entry = describe(tok)
+            assert entry and entry["summary"], f"{tok} (from {path.name}) has no entry in kargs-info.json"
+            assert entry.get("risk_level") == d.risk_level, f"{tok}: risk level differs from {path.name}"

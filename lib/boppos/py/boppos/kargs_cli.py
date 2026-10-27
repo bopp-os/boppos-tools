@@ -79,8 +79,10 @@ def build_parser() -> argparse.ArgumentParser:
         s = sub.add_parser(name, help=f"{name} an argument (token-exact)")
         s.add_argument("arg")
         s.add_argument("--dry-run", action="store_true")
-        if name == "remove":
-            s.add_argument("--force", action="store_true", help="allow removing arguments needed to boot")
+        s.add_argument("--force", action="store_true",
+                       help="allow arguments that are normally refused (needed to boot, or dangerous to add)")
+    d = sub.add_parser("describe", help="what an argument does, and whether adding it is allowed")
+    d.add_argument("arg")
     s = sub.add_parser("apply", help="apply enabled drop-ins that match this device")
     s.add_argument("--dry-run", action="store_true")
     sub.add_parser("dropins", help="drop-ins and whether they match this device")
@@ -177,6 +179,12 @@ def run(args: argparse.Namespace) -> int:
         a, b = (_entry_by_index(root, i, args).options for i in (args.a, args.b))
         data = {"only_a": [t for t in a if t not in b], "only_b": [t for t in b if t not in a]}
         _emit(args, data, "\n".join([*(f"- {t}" for t in data["only_a"]), *(f"+ {t}" for t in data["only_b"])]))
+    elif args.cmd == "describe":
+        arg = kargs.validate_arg(args.arg)
+        info = kargs_info.details(arg)
+        text = (info["summary"] or "No description.") + (f"\nNot allowed to add: {info['forbidden']}"
+                                                         if info["forbidden"] else "")
+        _emit(args, info, text)
     elif args.cmd == "dropins":
         dmi = read_dmi(root)
         try:
@@ -195,7 +203,8 @@ def run(args: argparse.Namespace) -> int:
         status = _bootc_status(args.bootc_status)
         cmdline = _cmdline(root)
         if args.cmd == "add":
-            res = kargs.apply_changes(root, status, cmdline, add=[args.arg], dry_run=dry)
+            res = kargs.apply_changes(root, status, cmdline, add=[args.arg], dry_run=dry,
+                                      force=getattr(args, "force", False))
         elif args.cmd == "remove":
             res = kargs.apply_changes(root, status, cmdline, remove=[args.arg], dry_run=dry,
                                       force=getattr(args, "force", False))

@@ -15,7 +15,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from .dmi import read_dmi
-from .kargs_info import is_critical
+from .kargs_info import forbidden_reason, is_critical
 
 BLS_DIR = "boot/loader/entries"
 DROPIN_DIRS = (("usr", "usr/lib/bopp-kargs.d"), ("etc", "etc/bopp-kargs.d"))
@@ -70,11 +70,17 @@ def tokenize(options: str) -> list[str]:
     return tokens
 
 
-def add_tokens(tokens: list[str], args: list[str]) -> list[str]:
+def add_tokens(tokens: list[str], args: list[str], force: bool = False) -> list[str]:
+    """Append arguments that are not there yet. Anything on the forbidden list (shell-opening, security
+    switches, driver blacklists...) is refused unless `force`, which only the sudo CLI can pass."""
     out = list(tokens)
     for arg in map(validate_arg, args):
         if key_of(arg) in PROTECTED_KEYS:
             raise KargError(f"refusing to add protected argument {key_of(arg)}=", "protected")
+        reason = forbidden_reason(arg)
+        if reason and not force:
+            raise KargError(f"refusing to add {arg}: {reason} (sudo bopp-kargs add --force overrides this)",
+                            "forbidden")
         if arg not in out:
             out.append(arg)
     return out
@@ -226,8 +232,8 @@ def parse_dropin(name: str, source: str, path: Path) -> Dropin:
             else:
                 raise KargError(f"unknown key {key!r}")
         for tok in d.kargs:
-            if key_of(tok) in PROTECTED_KEYS or is_critical(tok):
-                raise KargError(f"drop-ins may not set {key_of(tok)}")
+            if key_of(tok) in PROTECTED_KEYS or forbidden_reason(tok):
+                raise KargError(f"drop-ins may not set {key_of(tok)}: {forbidden_reason(tok) or 'protected'}")
     except KargError as exc:
         d.error = str(exc)
     return d
@@ -349,7 +355,7 @@ def write_options(current: list[str], to_add: list[str], to_remove: list[str], r
     """Additions go through edit-in-place. ostree has no delete option, so removals rewrite
     the full list with `instutil set-kargs`, which replaces the cmdline of deployment 0."""
     if to_remove:
-        new = add_tokens(remove_tokens(current, to_remove, force), to_add)
+        new = add_tokens(remove_tokens(current, to_remove, force), to_add, force)
         if not any(t.startswith("ostree=") for t in new):
             raise KargError("refusing to write a cmdline without ostree=", "protected")
         lost = [t for t in current if is_critical(t) and t not in new]
@@ -374,6 +380,7 @@ def apply_changes(
     """Apply explicit add/remove lists to the next-boot deployment (no drop-in logic)."""
     entry = target_entry(load_entries(root), status, cmdline)
     to_add = [a for a in map(validate_arg, add or []) if a not in entry.options]
+    add_tokens([], to_add, force)  # refuses forbidden arguments before anything runs
     to_remove = [a for a in map(validate_arg, remove or []) if a in entry.options]
     if to_remove and not force:
         remove_tokens(entry.options, to_remove)  # raises for boot-critical arguments before anything runs

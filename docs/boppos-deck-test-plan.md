@@ -35,8 +35,11 @@ Add the app via `bopp-steam-shortcut add` with Steam closed, then start Steam.
 - [ ] Decky: Steam restarts, the Decky menu appears; *Uninstall* removes the service. A tampered download (wrong hash) is refused.
 - [ ] Kernel arguments: toggling a preset changes `/proc/cmdline` after a reboot; toggling it back removes only what it added. With an update staged the page shows the *reboot first* banner and the switches are disabled.
 
-## 3d. Update channels and names
-- [ ] Advanced > System: *Channel* offers v3 (default), v4 and znver4 with the current one selected (a system on `v3` or `latest` shows v3). *Earlier build* lists dated builds of your channel, newest first; *Test build* lists the published `-test` tags; *Use another tag…* accepts e.g. `v4-20260301` and rejects spaces or odd characters. Each switch warns before running, and a tag that does not exist fails without changing anything.
+## 3d. Switching image and kernel-argument limits
+- [ ] There is no channel or tag picker anywhere. Advanced > System > Image shows what the system follows and *Use a different image…*: warning, then the keyboard (type the whole `ghcr.io/bopp-os/cachyos-plasma:v4`), then a from/to confirmation, then the password. `v4`, `cachyos-plasma:v4`, `ghcr.io/bopp-os/cachyos-plasma` (no tag), `oci:/tmp/x` and `docker://…` are rejected with a message, and entering the image you already follow says so.
+- [ ] A real switch to another tag of a signed BoppOS image works and the next boot uses it; a ref that does not exist, or a `ghcr.io/bopp-os` image without a valid signature, fails without changing the staged deployment. Roll back returns.
+- [ ] Add an argument: `pci=noaer` goes through one confirmation; `init=/bin/sh`, `selinux=0`, `systemd.mask=x`, `acpi=off`, `module_blacklist=nvme`, `rd.break`, `rootflags=x` are refused with a reason and a pointer to `sudo bopp-kargs add --force`; an argument nobody described (`foo.bar=1`) first shows the "BoppOS does not recognise" warning, then the usual one.
+- [ ] Remove: `selinux=0` (if you had added it by force) can be removed; `rw`, `rootflags=`, `rd.*` entries show *Required to boot* and have no button; `sudo bopp-kargs remove rootflags=… ` is refused without `--force`.
 - [ ] Apps page names are proper names (Bitwarden Desktop, Easy Effects, Virtual Machine Manager...), and installed apps use the name Flatpak reports.
 
 ## 3c. Steam library page

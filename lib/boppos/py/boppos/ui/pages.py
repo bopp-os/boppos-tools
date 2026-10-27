@@ -12,11 +12,12 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 from gi.repository import Adw, Gtk  # noqa: E402
 
+from .. import system  # noqa: E402
+from ..privileged import UsageError, validate_image_ref  # noqa: E402
 from . import backend  # noqa: E402
 from .backend import run_json, tool  # noqa: E402
 from .widgets import (  # noqa: E402
     button_row,
-    combo_row,
     expander_row,
     group,
     info_row,
@@ -98,10 +99,7 @@ class SystemPage(Page):
         self.check: dict | None = None
 
     def fetch(self):
-        return {
-            "status": run_json([tool("bopp-system"), "--json", "status"]),
-            "tags": run_json([tool("bopp-system"), "--json", "tags"], timeout=60) if self.win.advanced else None,
-        }
+        return {"status": run_json([tool("bopp-system"), "--json", "status"])}
 
     def _update_text(self, target: str, st: dict) -> str:
         if self.check is None:
@@ -149,9 +147,9 @@ class SystemPage(Page):
         self.box.append(g)
 
         if self.win.advanced:
-            self.build_advanced(st, data.get("tags") or {})
+            self.build_advanced(st)
 
-    def build_advanced(self, st: dict, tags: dict) -> None:
+    def build_advanced(self, st: dict) -> None:
         g = group("Deployments", "Advanced. Pinned deployments are kept when new ones are installed.")
         for key, label in (("staged", "Staged"), ("booted", "Booted"), ("rollback", "Rollback")):
             d = st.get(key)
@@ -167,42 +165,15 @@ class SystemPage(Page):
                              self.rollback, destructive=True))
         self.box.append(g)
 
-        channels = tags.get("channels") or []
-        if channels:
-            self.build_channels(tags)
+        self.build_image(st)
 
-    def build_channels(self, tags: dict) -> None:
-        channels = tags["channels"]
-        cur = tags.get("current")
-        g = group("Update channel", "Advanced. Which build of BoppOS this system follows. Pick the one made for "
-                  "your CPU; v3 works everywhere.")
-        labels = [c["label"] for c in channels]
-        picked = next((i for i, c in enumerate(channels) if c["tag"] == tags.get("current_channel")), 0)
-        combo = combo_row("Channel", labels, picked)
-        g.add(combo)
-        g.add(info_row("What the channels are", "", "\n".join(f"{c['label']}: {c['description']}" for c in channels)))
-        g.add(info_row("Following now", cur or "unknown",
-                       "" if tags.get("current_channel") else "A custom tag, not one of the channels above."))
-        g.add(button_row("Switch to the selected channel", "Downloads it on the next update", "Switch",
-                         lambda: self.switch(channels[combo.get_selected()]["tag"]), destructive=True))
-        self.box.append(g)
-
-        builds = tags.get("builds") or []
-        test = tags.get("test") or []
-        g = group("Older builds and test builds", "Advanced. Go back to a specific earlier build, or try a test "
-                  "build. Neither is supported: a test build can be broken, and an older one can miss fixes.")
-        if builds:
-            older = combo_row("Earlier build of this channel", builds, 0)
-            g.add(older)
-            g.add(button_row("Switch to the selected build", "Pins this system to that day's image", "Switch",
-                             lambda: self.switch(builds[older.get_selected()], kind="build"), destructive=True))
-        if test:
-            tested = combo_row("Test build", test, 0)
-            g.add(tested)
-            g.add(button_row("Switch to the selected test build", "May be unfinished", "Switch",
-                             lambda: self.switch(test[tested.get_selected()], kind="test"), destructive=True))
-        g.add(button_row("Use another tag…", "Type any tag of this image, for example v4-20260301", "Enter…",
-                         self.custom_tag))
+    def build_image(self, st: dict) -> None:
+        booted = st.get("booted") or {}
+        g = group("Image", "Advanced. Updates keep following this image. Moving to a different image or version is "
+                  "not an update, so it is deliberately not a menu: to go back one version use Roll back above.")
+        g.add(info_row("Following", booted.get("ref", "unknown"), system.channel_note(st.get("tag"))))
+        g.add(button_row("Use a different image…", "You type the whole reference yourself, registry, name and tag",
+                         "Start…", lambda: self.switch_image(booted.get("ref", "")), destructive=True))
         self.box.append(g)
 
     # actions
@@ -240,31 +211,39 @@ class SystemPage(Page):
                          lambda: self.win.run_job("Rolling back", [[tool("bopp-system"), "--json", "rollback"]],
                                                   lambda ok, final: self.refresh()), destructive=True)
 
-    def custom_tag(self) -> None:
-        import re
-
+    def switch_image(self, current: str) -> None:
+        """Three deliberate steps: read the warning, type the complete reference, confirm the exact change."""
         def typed(text: str) -> None:
-            tag = text.strip()
-            if not re.match(r"^[A-Za-z0-9_][A-Za-z0-9._-]{0,127}$", tag):
-                self.win.toast("Not a valid tag: use letters, digits, dot, dash and underscore")
+            try:
+                ref = validate_image_ref(text)
+            except UsageError as exc:
+                self.win.toast(str(exc))
                 return
-            self.switch(tag, kind="test" if tag.endswith("-test") else "build")
+            if ref.split("@", 1)[0] == current.split("@", 1)[0]:
+                self.win.toast("The system already follows that image")
+                return
+            signed = ref.startswith("ghcr.io/bopp-os/")
+            note = ("Its signature is checked against the BoppOS key." if signed else
+                    "This image is not from BoppOS. It is checked only as far as the system's signature policy "
+                    "demands, and it can replace everything.")
+            self.win.confirm(
+                "Switch to this image?",
+                f"From:  {current or 'unknown'}\nTo:      {ref}\n\n{note}\n\nIt is downloaded now and used after the "
+                "next restart. If it does not start, pick the previous entry in the boot menu.",
+                "Switch to it",
+                lambda: self.win.run_job("Switching image", [[tool("bopp-system"), "--json", "switch", ref]],
+                                         lambda ok, final: self.refresh()),
+                destructive=True)
 
-        self.win.ask_text("Use another tag", "Tag (for example v4-20260301 or v4-test):", typed)
-
-    def switch(self, tag: str, kind: str = "channel") -> None:
-        warning = {
-            "channel": "The next update will download that channel.",
-            "build": "This pins the system to one earlier build. It will not follow new updates until you switch "
-                     "back to a channel, and it can miss security fixes.",
-            "test": "Test builds are not meant for daily use and can be broken. You can switch back to a channel "
-                    "later.",
-        }[kind]
-        self.win.confirm(f"Follow “{tag}”?", f"{warning} Switching to an older tag can downgrade the system.",
-                         "Switch",
-                         lambda: self.win.run_job(f"Switching to {tag}",
-                                                  [[tool("bopp-system"), "--json", "switch", tag]],
-                                                  lambda ok, final: self.refresh()), destructive=True)
+        self.win.confirm(
+            "Switch to a different image?",
+            "This is not an update. It replaces the operating system with another image or version. Do it only "
+            "if you know exactly which image you want and trust it: a wrong or broken image can leave the system "
+            "unable to start, and changes you made outside /etc, /var and your home folder are not carried over.\n\n"
+            "Next you type the whole reference, for example  ghcr.io/bopp-os/cachyos-plasma:v4",
+            "I understand, continue",
+            lambda: self.win.ask_text("Image to switch to", "Full reference, registry/name:tag", typed),
+            destructive=True)
 
 
 # --- Kernel arguments -------------------------------------------------------------------------
@@ -429,12 +408,34 @@ class KargsPage(Page):
         def typed(text: str) -> None:
             arg = text.strip()
             try:
-                checked_karg(arg)
+                checked_karg(arg, "add")
             except UsageError as exc:
-                self.win.toast(str(exc))
+                self.win.toast(f"{exc}. A terminal can still do it: sudo bopp-kargs add --force …")
                 return
-            self.win.confirm(f"Add “{arg}”?", "It is added to the next boot. If the system fails to boot, roll back "
-                             "from the boot menu.", "Add", lambda: self.run_verb("add", arg), destructive=True)
+
+            def described(info) -> None:
+                if not isinstance(info, dict) or "error" in info:
+                    self.win.toast("Could not look the argument up: " + str((info or {}).get("error", "unknown")))
+                    return
+                known = bool(info.get("known"))
+                body = (info.get("summary") or "") + (f"\n\nRisk: {info['risk']}" if info.get("risk") else "")
+                if not known:
+                    body = "BoppOS has no description for this argument, so it cannot say what it does."
+
+                def final() -> None:
+                    self.win.confirm(f"Add “{arg}”?", f"{body}\n\nIt is added to the next boot. If the system fails "
+                                     "to start, pick the previous entry in the boot menu.", "Add",
+                                     lambda: self.run_verb("add", arg), destructive=True)
+
+                if known:
+                    final()
+                else:  # an extra, separate question for anything BoppOS cannot vouch for
+                    self.win.confirm(f"BoppOS does not recognise “{arg}”",
+                                     "Nobody has described this argument here, so there is no way to tell what it "
+                                     "does or whether the system still starts with it. Only go on if you know "
+                                     "exactly what it does.", "I know what it does", final, destructive=True)
+
+            self.win.load(lambda: run_json([tool("bopp-kargs"), "--json", "describe", arg]), described)
 
         self.win.ask_text("Add a kernel argument", "Argument (key or key=value):", typed)
 

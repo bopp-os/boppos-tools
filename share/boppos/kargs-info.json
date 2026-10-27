@@ -185,5 +185,75 @@
  {
   "match": "acpi_enforce_resources=lax",
   "summary": "Lets drivers, for example fan and sensor tools, use hardware that the firmware also claims."
+ },
+ {
+  "match": "nvme_core.default_ps_max_latency_us=0",
+  "summary": "Turn off NVMe power-state switching (APST).",
+  "risk": "Uses a little more power when idle. Helps SSDs that freeze, disappear or throw errors under load, which is a known problem on some laptops.",
+  "risk_level": "low",
+  "preset": "10-nvme-no-apst"
+ },
+ {
+  "match": "mem_sleep_default=deep",
+  "summary": "Use deep sleep (S3) instead of s2idle when suspending.",
+  "risk": "If this machine's firmware has no deep sleep, suspend can fail or the system may not wake up. Many newer laptops and handhelds only support s2idle. Test suspend and resume after enabling.",
+  "risk_level": "medium",
+  "preset": "20-sleep-deep"
+ },
+ {
+  "match": "threadirqs",
+  "summary": "Run interrupt handlers as threads.",
+  "risk": "Can lower audio and input latency under heavy load. May slightly reduce throughput; rarely a driver misbehaves.",
+  "risk_level": "low",
+  "preset": "30-threaded-irqs"
+ },
+ {
+  "match": "amdgpu.sg_display=0",
+  "summary": "Turn off scatter-gather display on AMD graphics.",
+  "risk": "Fixes flickering or a blank screen on some AMD laptops and handhelds. Costs a little memory bandwidth. Only useful with AMD graphics.",
+  "risk_level": "low",
+  "preset": "40-amd-sg-display-off"
+ },
+ {
+  "match": "i915.enable_psr=0",
+  "summary": "Turn off Panel Self Refresh on Intel graphics.",
+  "risk": "Fixes flicker or screen freezes on some Intel laptop panels. Uses a little more power. Only useful with Intel graphics.",
+  "risk_level": "low",
+  "preset": "41-intel-psr-off"
+ },
+ {
+  "match": "pci=noaer",
+  "summary": "Hide PCIe Advanced Error Reporting messages.",
+  "risk": "Stops PCIe error messages from flooding the log. Real hardware problems on the PCIe bus will no longer be reported, which makes them harder to diagnose.",
+  "risk_level": "medium",
+  "preset": "50-pci-noaer"
+ },
+ {
+  "match": "usbhid.mousepoll=1",
+  "summary": "Poll USB mice 1000 times a second.",
+  "risk": "Lowers input latency for gaming mice. Uses slightly more CPU time, and a few very old mice misbehave.",
+  "risk_level": "low",
+  "preset": "60-usb-mouse-1khz"
+ },
+ {
+  "match": "amdgpu.runpm=0",
+  "summary": "Keep an AMD graphics card powered instead of letting it sleep.",
+  "risk": "Fixes black screens and hangs after idle on some desktops and laptops. Uses more power at idle. Only useful with AMD graphics.",
+  "risk_level": "low",
+  "preset": "70-amdgpu-no-runpm"
+ },
+ {
+  "match": "nvidia-drm.modeset=1",
+  "summary": "Turn on Nvidia kernel mode setting.",
+  "risk": "Needed for Wayland and tear-free output on older Nvidia drivers; newer drivers may already enable it. Only useful with the Nvidia driver.",
+  "risk_level": "low",
+  "preset": "71-nvidia-drm-modeset"
+ },
+ {
+  "match": "intel_iommu=on",
+  "summary": "Turn on the Intel IOMMU (for passing devices to virtual machines).",
+  "risk": "Needed to give a graphics card or other device to a virtual machine. Can cause problems with some devices and costs a little speed. Only useful on Intel CPUs.",
+  "risk_level": "medium",
+  "preset": "80-intel-iommu-on"
  }
 ]
