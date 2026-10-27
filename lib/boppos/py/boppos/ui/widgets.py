@@ -26,11 +26,22 @@ def group(title: str | None = None, description: str | None = None) -> Adw.Prefe
     return g
 
 
-def info_row(title: str, value: str = "", subtitle: str = "") -> Adw.ActionRow:
+def tag_label(text: str, style: str = "dim-label") -> Gtk.Label:
+    """Small bold label (css classes: success, warning, error, dim-label) shown at a row's right edge."""
+    label = Gtk.Label(label=text)
+    label.add_css_class(style)
+    label.add_css_class("heading")
+    label.set_valign(Gtk.Align.CENTER)
+    return label
+
+
+def info_row(title: str, value: str = "", subtitle: str = "", tag: tuple[str, str] | None = None) -> Adw.ActionRow:
     row = plain(Adw.ActionRow(title=title, subtitle=subtitle))
     row.set_subtitle_lines(0)
     row.set_focusable(True)
     row.set_activatable(False)
+    if tag:
+        row.add_suffix(tag_label(*tag))
     if value:
         label = Gtk.Label(label=value, xalign=1, wrap=True, selectable=False)
         label.add_css_class("value-label")
@@ -40,7 +51,8 @@ def info_row(title: str, value: str = "", subtitle: str = "") -> Adw.ActionRow:
 
 
 def button_row(title: str, subtitle: str, label: str, on_click: Callable[[], None], *,
-               suggested: bool = False, destructive: bool = False) -> Adw.ActionRow:
+               suggested: bool = False, destructive: bool = False,
+               tag: tuple[str, str] | None = None) -> Adw.ActionRow:
     """A row with a button. The row is the focus stop; the button only draws the affordance."""
     row = plain(Adw.ActionRow(title=title, subtitle=subtitle))
     row.set_title_lines(0)
@@ -53,6 +65,8 @@ def button_row(title: str, subtitle: str, label: str, on_click: Callable[[], Non
     if destructive:
         btn.add_css_class("destructive-action")
     btn.connect("clicked", lambda _b: on_click())
+    if tag:
+        row.add_suffix(tag_label(*tag))
     row.add_suffix(btn)
     row.set_activatable_widget(btn)
     row.button = btn  # type: ignore[attr-defined]

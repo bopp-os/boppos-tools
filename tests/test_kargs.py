@@ -253,3 +253,90 @@ def test_shipped_catalog_is_valid_and_documents_every_risk():
         assert not d.match, f"{path.name}: catalog presets apply to every device"
         names.add(path.stem)
     assert len(names) == len(catalog)
+
+
+# --- boot-critical safeguards and descriptions ------------------------------------------------
+
+
+@pytest.mark.parametrize("tok", [
+    "rootflags=subvol=root", "rootfstype=btrfs", "rd.luks.uuid=abc", "rd.luks.name=x=root", "rd.lvm.lv=vg/root",
+    "rd.md.uuid=1", "luks.uuid=1", "rw",
+])
+def test_remove_refuses_boot_critical_arguments(tok):
+    from boppos.kargs_info import is_critical
+
+    assert is_critical(tok)
+    with pytest.raises(KargError) as exc:
+        kargs.remove_tokens(["quiet", tok], [tok])
+    assert exc.value.code == "critical"
+    assert kargs.remove_tokens(["quiet", tok], [tok], force=True) == ["quiet"]  # explicit override only
+
+
+def test_force_never_removes_ostree_or_root():
+    with pytest.raises(KargError):
+        kargs.remove_tokens(["ostree=/x"], ["ostree=/x"], force=True)
+    with pytest.raises(KargError):
+        kargs.remove_tokens(["root=UUID=1"], ["root=UUID=1"], force=True)
+
+
+def test_tpm_auto_unlock_option_is_removable_but_unlock_settings_are_not():
+    from boppos.kargs_info import is_critical
+
+    assert not is_critical("rd.luks.options=tpm2-device=auto")
+    assert is_critical("rd.luks.uuid=1234")
+    assert not is_critical("quiet") and not is_critical("mitigations=off")
+
+
+def test_apply_changes_refuses_critical_before_running_anything(tmp_path):
+    root = make_root(tmp_path, BASE_OPTS + " rootflags=subvol=root")
+    rec = Recorder()
+    with pytest.raises(KargError):
+        kargs.apply_changes(root, STATUS, CMDLINE + " rootflags=subvol=root", remove=["rootflags=subvol=root"],
+                            run=rec)
+    assert rec.calls == []
+    # an ordinary removal still keeps every critical argument in the rewritten list
+    kargs.apply_changes(root, STATUS, CMDLINE, remove=["quiet"], run=rec)
+    assert "rootflags=subvol=root" in rec.calls[0]
+
+
+def test_dropins_cannot_set_critical_arguments(tmp_path):
+    root = make_root(tmp_path)
+    p = dropin(root, "usr/lib/bopp-kargs.d", "evil", "kargs = rootflags=subvol=x\n")
+    assert kargs.parse_dropin("evil", "usr", p).error
+
+
+def test_descriptions_exact_then_key_then_prefix_and_unknown():
+    from boppos.kargs_info import describe, details
+
+    assert "TPM" in describe("rd.luks.options=tpm2-device=auto")["summary"]
+    assert describe("rootflags=subvol=whatever")["critical"]  # matched by key
+    assert describe("rd.luks.name=abc=root")["critical"]  # matched by prefix
+    assert describe("totally.unknown=1") is None
+    d = details("mitigations=off", set())
+    assert d["image_default"] and d["risk_level"] == "high" and not d["critical"]
+    assert details("nvme_core.default_ps_max_latency_us=0", {"nvme_core.default_ps_max_latency_us=0"})["managed"]
+
+
+def test_every_image_default_from_the_image_repo_is_described():
+    from boppos.kargs_info import describe
+
+    image = ["amd_pstate=active", "amdgpu.ppfeaturemask=0xffffffff", "split_lock_detect=off", "nowatchdog",
+             "nmi_watchdog=0", "mitigations=off", "sysrq_always_enabled=1", "usbcore.autosuspend=-1", "iommu=pt",
+             "preempt=full", "amdgpu.gpu_recovery=1", "transparent_hugepage=madvise",
+             "transparent_hugepage.defrag=defer+madvise", "rd.luks.options=tpm2-device=auto"]
+    for tok in image:
+        e = describe(tok)
+        assert e and e["summary"] and e.get("image_default"), tok
+
+
+def test_dropins_json_reports_already_active(tmp_path, capsys):
+    from .test_kargs_cli import run_cli
+
+    root = make_root(tmp_path)
+    dropin(root, "usr/lib/bopp-kargs.d", "have", "kargs = quiet\ndescription = x\n")
+    dropin(root, "usr/lib/bopp-kargs.d", "new", "kargs = threadirqs\n")
+    import json
+
+    _, out = run_cli(root, capsys, "--json", "dropins")
+    by = {d["name"]: d for d in json.loads(out)["dropins"]}
+    assert by["have"]["already_active"] and not by["new"]["already_active"]

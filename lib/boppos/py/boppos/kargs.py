@@ -15,6 +15,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from .dmi import read_dmi
+from .kargs_info import is_critical
 
 BLS_DIR = "boot/loader/entries"
 DROPIN_DIRS = (("usr", "usr/lib/bopp-kargs.d"), ("etc", "etc/bopp-kargs.d"))
@@ -79,12 +80,19 @@ def add_tokens(tokens: list[str], args: list[str]) -> list[str]:
     return out
 
 
-def remove_tokens(tokens: list[str], args: list[str]) -> list[str]:
-    """Drop tokens equal to one of `args`. `quiet` never touches `rd.quiet` or `quiet=1`."""
+def remove_tokens(tokens: list[str], args: list[str], force: bool = False) -> list[str]:
+    """Drop tokens equal to one of `args`. `quiet` never touches `rd.quiet` or `quiet=1`.
+
+    Arguments the system needs to boot are refused; `force` (the CLI's --force) lifts that for
+    everything except ostree= and root=, which are never removable.
+    """
     drop = set(map(validate_arg, args))
     for arg in drop:
         if key_of(arg) in PROTECTED_KEYS:
             raise KargError(f"refusing to remove protected argument {key_of(arg)}=", "protected")
+        if is_critical(arg) and not force:
+            raise KargError(f"{arg} is needed to boot or unlock the disk; refusing to remove it "
+                            "(sudo bopp-kargs remove --force overrides this)", "critical")
     return [t for t in tokens if t not in drop]
 
 
@@ -218,8 +226,8 @@ def parse_dropin(name: str, source: str, path: Path) -> Dropin:
             else:
                 raise KargError(f"unknown key {key!r}")
         for tok in d.kargs:
-            if key_of(tok) in PROTECTED_KEYS:
-                raise KargError(f"drop-ins may not set {key_of(tok)}=")
+            if key_of(tok) in PROTECTED_KEYS or is_critical(tok):
+                raise KargError(f"drop-ins may not set {key_of(tok)}")
     except KargError as exc:
         d.error = str(exc)
     return d
@@ -336,13 +344,17 @@ def run_cmd(argv: list[str]) -> None:
         raise KargError(f"{' '.join(argv[:4])} failed: {proc.stderr.strip() or proc.returncode}", "ostree")
 
 
-def write_options(current: list[str], to_add: list[str], to_remove: list[str], run: Runner) -> None:
+def write_options(current: list[str], to_add: list[str], to_remove: list[str], run: Runner,
+                  force: bool = False) -> None:
     """Additions go through edit-in-place. ostree has no delete option, so removals rewrite
     the full list with `instutil set-kargs`, which replaces the cmdline of deployment 0."""
     if to_remove:
-        new = add_tokens(remove_tokens(current, to_remove), to_add)
+        new = add_tokens(remove_tokens(current, to_remove, force), to_add)
         if not any(t.startswith("ostree=") for t in new):
             raise KargError("refusing to write a cmdline without ostree=", "protected")
+        lost = [t for t in current if is_critical(t) and t not in new]
+        if lost and not force:  # belt and braces: whatever the caller asked, keep what boot needs
+            raise KargError(f"refusing to drop boot-critical arguments: {' '.join(lost)}", "critical")
         run(["ostree", "admin", "instutil", "set-kargs", *new])
     elif to_add:
         run(["ostree", "admin", "kargs", "edit-in-place", *[f"--append-if-missing={a}" for a in to_add]])
@@ -357,12 +369,15 @@ def apply_changes(
     remove: list[str] | None = None,
     run: Runner = run_cmd,
     dry_run: bool = False,
+    force: bool = False,
 ) -> dict:
     """Apply explicit add/remove lists to the next-boot deployment (no drop-in logic)."""
     entry = target_entry(load_entries(root), status, cmdline)
     to_add = [a for a in map(validate_arg, add or []) if a not in entry.options]
     to_remove = [a for a in map(validate_arg, remove or []) if a in entry.options]
-    return _commit(root, entry, to_add, to_remove, run, dry_run, managed=None)
+    if to_remove and not force:
+        remove_tokens(entry.options, to_remove)  # raises for boot-critical arguments before anything runs
+    return _commit(root, entry, to_add, to_remove, run, dry_run, managed=None, force=force)
 
 
 def apply_dropins(
@@ -383,10 +398,10 @@ def apply_dropins(
     return _commit(root, entry, to_add, to_remove, run, dry_run, managed=owned)
 
 
-def _commit(root, entry, to_add, to_remove, run, dry_run, managed):
+def _commit(root, entry, to_add, to_remove, run, dry_run, managed, force=False):
     changed = bool(to_add or to_remove)
     if changed and not dry_run:
-        write_options(entry.options, to_add, to_remove, run)
+        write_options(entry.options, to_add, to_remove, run, force)
     if managed is not None and not dry_run and (changed or set(managed) != set(read_managed(root))):
         write_managed(root, managed)
     return {

@@ -48,6 +48,18 @@ def activate(widget: Gtk.Widget) -> None:
         widget.activate()
 
 
+def header_expander(widget: Gtk.Widget | None) -> Adw.ExpanderRow | None:
+    """The ExpanderRow whose header row has focus (child rows sit inside a Gtk.Revealer)."""
+    inside_revealer = False
+    while widget is not None:
+        if isinstance(widget, Gtk.Revealer):
+            inside_revealer = True
+        if isinstance(widget, Adw.ExpanderRow):
+            return None if inside_revealer else widget
+        widget = widget.get_parent()
+    return None
+
+
 def bool_value(v: bool) -> GObject.Value:
     val = GObject.Value()
     val.init(GObject.TYPE_BOOLEAN)
@@ -560,7 +572,11 @@ class DeckWindow(Adw.ApplicationWindow):
             elif a in DIRECTIONS:
                 self.child_focus(DIRECTION_MAP[a])
             return
-        if a in DIRECTIONS:
+        exp = None if self.focus_in_sidebar() else header_expander(self.get_focus())
+        if exp is not None and (a == Action.ACCEPT or (a == Action.RIGHT and not exp.get_expanded())
+                                or (a == Action.LEFT and exp.get_expanded())):
+            exp.set_expanded(a == Action.RIGHT or (a == Action.ACCEPT and not exp.get_expanded()))
+        elif a in DIRECTIONS:
             if self.focus_in_sidebar() and a == Action.RIGHT:
                 self.enter_content()
             else:

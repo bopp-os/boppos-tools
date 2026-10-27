@@ -1,1 +1,2 @@
 enable bopp-steam-shortcut.service
+enable boppos-default-flatpaks.service

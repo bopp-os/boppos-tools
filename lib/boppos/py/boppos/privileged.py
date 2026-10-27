@@ -11,6 +11,7 @@ import re
 
 from .bootc import parse_status
 from .kargs import PROTECTED_KEYS, KargError, key_of, validate_arg
+from .kargs_info import is_critical
 
 BOOTC = "/usr/bin/bootc"
 OSTREE = "/usr/bin/ostree"
@@ -40,6 +41,8 @@ def checked_karg(arg: str) -> str:
     key = key_of(arg)
     if key in PROTECTED_KEYS or key in DENY_KEYS:
         raise UsageError(f"not allowed through the helper: {key}")
+    if is_critical(arg):
+        raise UsageError(f"{key} is needed to boot or unlock the disk; the helper never changes it")
     return arg
 
 

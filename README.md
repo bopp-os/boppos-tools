@@ -147,7 +147,7 @@ A full-screen GTK4/libadwaita app for the things you would otherwise do in a ter
 
 * Keyboard: arrows move, `Enter` selects, `Esc` goes back, `Ctrl+Tab` / `Ctrl+Shift+Tab` switch pages.
 * Controller (SDL3, read directly): D-pad or left stick moves, `A` selects, `B` goes back, `LB`/`RB` switch pages, `Start` asks to exit (Gaming Mode).
-* Risky actions (rollback, pin, switch update tag, custom kernel arguments, Decky uninstall, high-risk kernel presets) are hidden until **Advanced options** is switched on in *About*, and always ask first. Apps are grouped in collapsible categories (`## Category` lines in the Flatpak list), with an *Only show installed apps* switch.
+* Risky actions (rollback, pin, switch update tag, custom kernel arguments, Decky uninstall, high-risk kernel presets) are hidden until **Advanced options** is switched on in *About*, and always ask first. Apps are grouped in collapsible categories (`## Category` lines in the Flatpak list), with an *Only show installed apps* switch. Bazaar is installed once for every wheel user by `boppos-default-flatpaks.service` (`install-optional-flatpaks --defaults --yes`) and can be opened from the Apps page in Desktop Mode only; it is made for a mouse and keyboard, so Gaming Mode points to the desktop instead.
 * Everything it does is one of the CLIs below, so scripts and a future Decky plugin can share the same backend. Set `BOPPOS_DECK_BIN_DIR` to point it at other copies of those tools (testing).
 * Privileged actions go through `pkexec` helpers in `/usr/libexec/boppos/`. Changing the system asks for an administrator password (`auth_admin_keep`); only fixed read-only calls (`status`, `check`, `dropins`) are waived by `polkit/rules.d/51-boppos-deck.rules`. Gaming Mode has no polkit agent, so boppos-deck registers its own for the login session and shows a built-in gamepad keyboard: D-pad moves, `A` types, `RB` shift, `LB` delete, `Start` confirms, `B` cancels; a physical or Steam Input keyboard works too. On the desktop the desktop's own agent is used and boppos-deck does not register (set `BOPPOS_DECK_AGENT=1` to force it, with no other agent running).
 
@@ -221,7 +221,9 @@ match.sys_vendor = Valve                           # DMI field from /sys/class/d
 match.product_name = Jupiter|Galileo               # fnmatch patterns, any case, '|' = or
 ```
 
-Without any `match.*` line a drop-in applies to every device. The image ships opt-in presets for every machine in `kargs.d/` (NVMe power states, deep sleep, threaded IRQs, AMD/Intel display flicker fixes, PCIe error reporting, CPU mitigations), each off by default with its risk written out. A drop-in with an invalid line is reported by `dropins` and ignored.
+Without any `match.*` line a drop-in applies to every device. `kargs.d/` ships opt-in presets for any machine (NVMe power states, deep sleep, threaded IRQs, 1000 Hz USB mice, AMD/Intel/Nvidia graphics fixes, PCIe error reporting, Intel IOMMU for VMs), each off by default with its risk written out. Presets whose arguments the running system already has show as *Active* and are not applied twice.
+
+**Descriptions and safeguards.** `share/boppos/kargs-info.json` holds plain-language descriptions of common arguments (including the ones the image sets in `bootc/kargs.d`); it is help text only and easy to extend. What is needed to boot is fixed in code (`boppos/kargs_info.py`): `ostree=`, `root=`, `rootflags=`, `rootfstype=`, `rw`, and the disk-unlock families (`rd.luks.*` except `rd.luks.options`, `rd.lvm.*`, `rd.md.*`, `luks.*`). `bopp-kargs remove` refuses them unless `sudo bopp-kargs remove --force` is used (`ostree=` and `root=` never), drop-ins cannot set them, the helper never touches them, and a rewrite that would drop one is refused. A drop-in with an invalid line is reported by `dropins` and ignored.
 
 ---
 

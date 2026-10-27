@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import subprocess
 import time
 from pathlib import Path
 
@@ -21,7 +22,10 @@ from .widgets import (  # noqa: E402
     info_row,
     message_row,
     switch_row,
+    tag_label,
 )
+
+BAZAAR = "io.github.kolunmi.Bazaar"
 
 
 class Page:
@@ -272,6 +276,7 @@ class KargsPage(Page):
                 g.add(self.preset_row(d))
             self.box.append(g)
 
+        self.preset_text = {t: d["description"] for d in items for t in d["kargs"] if d["description"]}
         if self.win.advanced:
             self.build_advanced(data, items)
 
@@ -286,11 +291,13 @@ class KargsPage(Page):
             lines.append(f"Risk: {d['risk']}")
         row = switch_row(d["description"] or d["name"], "\n".join(lines[1:]), d["enabled"],
                          lambda on, dd=d: self.toggle(dd, on))
-        tag = Gtk.Label(label=self.RISK_LABEL.get(level, level))
-        tag.add_css_class(self.RISK_CLASS.get(level, "dim-label"))
-        tag.add_css_class("heading")
-        tag.set_valign(Gtk.Align.CENTER)
-        row.add_suffix(tag)
+        if d.get("already_active") and not d["enabled"]:
+            row.set_subtitle("Already active on this system, set by the image or by hand.\n"
+                             + "\n".join(lines[1:]))
+            row.add_suffix(tag_label("Active", "success"))
+            row.set_sensitive(False)
+            return row
+        row.add_suffix(tag_label(self.RISK_LABEL.get(level, level), self.RISK_CLASS.get(level, "dim-label")))
         row.set_sensitive(not self.blocked)
         return row
 
@@ -301,20 +308,16 @@ class KargsPage(Page):
                          "Add…", self.add_custom))
         self.box.append(g)
 
-        options = (data.get("list") or {}).get("options") if isinstance(data.get("list"), dict) else None
-        if options:
-            managed = set((data["status"] or {}).get("managed") or [])
-            g = group("Current arguments", "What the next boot uses. Arguments set by a preset are changed with "
-                      "its switch.")
-            for tok in options:
+        listing = data.get("list") if isinstance(data.get("list"), dict) else {}
+        details = listing.get("details") or []
+        if details:
+            g = group("Current arguments", "What the next boot uses, with a short explanation where one is known. "
+                      "Arguments set by a preset are changed with its switch.")
+            for d in details:
+                tok = d["token"]
                 if tok.split("=", 1)[0] in ("ostree", "root"):
                     continue
-                if tok in managed:
-                    g.add(info_row(tok, "preset"))
-                elif self.can_remove(tok):
-                    g.add(button_row(tok, "", "Remove", lambda t=tok: self.remove_custom(t), destructive=True))
-                else:
-                    g.add(info_row(tok, "locked"))
+                g.add(self.argument_row(d))
             self.box.append(g)
 
         others = [d for d in items if not d["matches_device"] or d["error"]]
@@ -324,6 +327,23 @@ class KargsPage(Page):
                 g.add(info_row(d["name"], "invalid" if d["error"] else "other device",
                                d["error"] or " ".join(d["kargs"])))
             self.box.append(g)
+
+    def argument_row(self, d: dict):
+        tok = d["token"]
+        lines = [d["summary"] or self.preset_text.get(tok) if d["managed"] else d["summary"]]
+        if not lines[0]:
+            lines = ["No description yet: this argument is not in BoppOS's built-in list."]
+        if d["risk"]:
+            lines.append(f"Risk: {d['risk']}")
+        sub = "\n".join(lines)
+        if d["critical"]:
+            return info_row(tok, "", sub, tag=("Required to boot", "warning"))
+        if d["managed"]:
+            return info_row(tok, "", sub, tag=("Preset", "dim-label"))
+        tag = ("Image default", "dim-label") if d["image_default"] else None
+        if not self.can_remove(tok):
+            return info_row(tok, "", sub, tag=tag)
+        return button_row(tok, sub, "Remove", lambda t=tok, dd=d: self.remove_custom(t, dd), destructive=True, tag=tag)
 
     @staticmethod
     def can_remove(tok: str) -> bool:
@@ -371,9 +391,13 @@ class KargsPage(Page):
 
         self.win.ask_text("Add a kernel argument", "Argument (key or key=value):", typed)
 
-    def remove_custom(self, tok: str) -> None:
-        self.win.confirm(f"Remove “{tok}”?", "It is removed from the next boot. Some arguments are needed for the "
-                         "system to start; the previous deployment stays available to roll back to.", "Remove",
+    def remove_custom(self, tok: str, d: dict | None = None) -> None:
+        note = (d or {}).get("summary") or "BoppOS has no description for this argument."
+        extra = f"\n\nRisk: {d['risk']}" if d and d.get("risk") else ""
+        image = "\n\nThe image sets this by default; it stays removed until you add it back." \
+            if d and d.get("image_default") else ""
+        self.win.confirm(f"Remove “{tok}”?", f"{note}{extra}{image}\n\nThe previous deployment stays available to "
+                         "roll back to if the system will not boot.", "Remove",
                          lambda: self.run_verb("remove", tok), destructive=True)
 
 
@@ -421,16 +445,34 @@ class AppsPage(Page):
             exp.set_expanded(cat in self.expanded)
             exp.connect("notify::expanded", lambda e, _p, c=cat: self.remember(c, e.get_expanded()))
             for a in visible:
-                exp.add_row(switch_row(a["name"], a["id"] + ("  ·  installed" if a["installed"] else ""),
-                                       self.want[a["id"]], lambda on, i=a["id"]: self.set_want(i, on)))
+                notes = ["installed" if a["installed"] else "", "installed by default" if a.get("default") else ""]
+                sub = a["id"] + "".join(f"  ·  {n}" for n in notes if n)
+                exp.add_row(switch_row(a["name"], sub, self.want[a["id"]],
+                                       lambda on, i=a["id"]: self.set_want(i, on)))
             g.add(exp)
         self.box.append(g)
         g = group()
         self.apply_row = button_row("Apply changes", "No changes yet", "Apply", self.apply, suggested=True)
         g.add(self.apply_row)
-        g.add(message_row("To browse everything else on Flathub, open Bazaar."))
+        bazaar_installed = any(a["id"] == BAZAAR and a["installed"] for a in self.apps)
+        if self.win.gaming:
+            g.add(message_row("To browse all of Flathub, open Bazaar from Desktop Mode. Bazaar is made for a "
+                              "mouse and keyboard, not a controller."))
+        elif bazaar_installed:
+            g.add(button_row("Browse more apps", "Opens Bazaar, the store for everything on Flathub",
+                             "Open Bazaar", self.open_bazaar))
+        else:
+            g.add(message_row("Switch Bazaar on above and press Apply to browse all of Flathub."))
         self.box.append(g)
         self.update_apply_row()
+
+    def open_bazaar(self) -> None:
+        try:
+            subprocess.Popen(["flatpak", "run", BAZAAR], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                             stderr=subprocess.DEVNULL, start_new_session=True)
+            self.win.toast("Opening Bazaar…")
+        except OSError as exc:
+            self.win.toast(f"Could not start Bazaar: {exc}")
 
     def remember(self, cat: str, open_: bool) -> None:
         (self.expanded.add if open_ else self.expanded.discard)(cat)

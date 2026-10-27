@@ -17,6 +17,8 @@ def build_parser() -> argparse.ArgumentParser:
         description="Install or remove the curated BoppOS Flatpaks without prompting (system scope).",
     )
     p.add_argument("--list", default=flatpaks.DEFAULT_LIST, metavar="FILE", help="Flatpak list file")
+    p.add_argument("--defaults", action="store_true",
+                   help="install the apps every BoppOS system should have (the default-apps list)")
     p.add_argument("--yes", action="store_true", help="do not prompt (required to change anything)")
     p.add_argument("--only", metavar="ID[,ID...]", help="restrict to these entries of the list")
     p.add_argument("--remove", action="store_true", help="uninstall instead of install")
@@ -27,6 +29,8 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+    if args.defaults:
+        args.list = flatpaks.DEFAULTS_LIST
     try:
         apps = flatpaks.parse_list(Path(args.list).read_text())
         apps = flatpaks.select(apps, args.only.split(",") if args.only else None)
@@ -43,9 +47,13 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps({"error": str(exc)}) if args.json else f"error: {exc}", file=sys.stderr)
         return 1
     if args.status:
+        try:
+            default_ids = {a.id for a in flatpaks.parse_list(Path(flatpaks.DEFAULTS_LIST).read_text())}
+        except (OSError, flatpaks.ListError):
+            default_ids = set()
         rows = [
             {"id": a.id, "name": flatpaks.display_name(a.id), "ref": a.ref, "kind": a.kind,
-             "category": a.category, "installed": a.id in installed}
+             "category": a.category, "default": a.id in default_ids, "installed": a.id in installed}
             for a in apps
         ]
         print(json.dumps(rows, indent=2) if args.json else

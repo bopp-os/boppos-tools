@@ -11,7 +11,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-from . import kargs
+from . import kargs, kargs_info
 from .bootc import parse_status
 from .dmi import read_dmi
 from .kargs import KargError
@@ -49,8 +49,10 @@ def _cmdline(root: str) -> str:
         raise KargError(f"cannot read /proc/cmdline: {exc}", "no-cmdline") from exc
 
 
-def _dropin_json(d: kargs.Dropin, dmi: dict[str, str]) -> dict:
+def _dropin_json(d: kargs.Dropin, dmi: dict[str, str], running: set[str], managed: set[str]) -> dict:
+    present = bool(d.kargs) and all(t in running for t in d.kargs)
     return {
+        "already_active": present and not all(t in managed for t in d.kargs),
         "name": d.name,
         "source": d.source,
         "description": d.description,
@@ -77,6 +79,8 @@ def build_parser() -> argparse.ArgumentParser:
         s = sub.add_parser(name, help=f"{name} an argument (token-exact)")
         s.add_argument("arg")
         s.add_argument("--dry-run", action="store_true")
+        if name == "remove":
+            s.add_argument("--force", action="store_true", help="allow removing arguments needed to boot")
     s = sub.add_parser("apply", help="apply enabled drop-ins that match this device")
     s.add_argument("--dry-run", action="store_true")
     sub.add_parser("dropins", help="drop-ins and whether they match this device")
@@ -166,14 +170,21 @@ def run(args: argparse.Namespace) -> int:
         _emit(args, data, text)
     elif args.cmd == "list":
         entry = _entry_by_index(root, args.index, args)
-        _emit(args, {"options": entry.options}, "\n".join(entry.options))
+        managed = set(kargs.read_managed(root))
+        data = {"options": entry.options, "details": [kargs_info.details(t, managed) for t in entry.options]}
+        _emit(args, data, "\n".join(entry.options))
     elif args.cmd == "diff":
         a, b = (_entry_by_index(root, i, args).options for i in (args.a, args.b))
         data = {"only_a": [t for t in a if t not in b], "only_b": [t for t in b if t not in a]}
         _emit(args, data, "\n".join([*(f"- {t}" for t in data["only_a"]), *(f"+ {t}" for t in data["only_b"])]))
     elif args.cmd == "dropins":
         dmi = read_dmi(root)
-        items = [_dropin_json(d, dmi) for d in kargs.load_dropins(root).values()]
+        try:
+            running = set(kargs.tokenize(_cmdline(root)))
+        except KargError:
+            running = set()
+        managed = set(kargs.read_managed(root))
+        items = [_dropin_json(d, dmi, running, managed) for d in kargs.load_dropins(root).values()]
         text = "\n".join(
             f"{'on ' if i['enabled'] else 'off'} {'match' if i['matches_device'] else 'skip '} "
             f"{i['name']}: {' '.join(i['kargs'])}{'  ERROR: ' + i['error'] if i['error'] else ''}"
@@ -186,7 +197,8 @@ def run(args: argparse.Namespace) -> int:
         if args.cmd == "add":
             res = kargs.apply_changes(root, status, cmdline, add=[args.arg], dry_run=dry)
         elif args.cmd == "remove":
-            res = kargs.apply_changes(root, status, cmdline, remove=[args.arg], dry_run=dry)
+            res = kargs.apply_changes(root, status, cmdline, remove=[args.arg], dry_run=dry,
+                                      force=getattr(args, "force", False))
         elif args.cmd in ("enable", "disable"):
             kargs.set_enabled(root, args.name, args.cmd == "enable")
             res = kargs.apply_dropins(root, status, cmdline, dry_run=dry)

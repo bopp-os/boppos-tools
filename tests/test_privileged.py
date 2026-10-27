@@ -120,3 +120,11 @@ def test_escalation_prefix(monkeypatch):
     assert system.escalation(euid=1000) == ["sudo", "-n"] and system.escalation(euid=0) == []
     monkeypatch.setenv("BOPPOS_HELPER_ESCALATE", "anything-else")
     assert system.escalation(euid=1000) == ["pkexec"]
+
+
+def test_helper_refuses_boot_critical_arguments():
+    for tok in ("rootflags=subvol=root", "rootfstype=btrfs", "rd.luks.uuid=abc", "rw", "rd.lvm.lv=vg/root"):
+        for verb in ("add", "remove"):
+            with pytest.raises(UsageError):
+                kargs_argv([verb, tok])
+    assert kargs_argv(["remove", "rd.luks.options=tpm2-device=auto"])  # only disables TPM auto-unlock

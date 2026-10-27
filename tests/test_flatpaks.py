@@ -85,3 +85,24 @@ def test_shipped_list_parses_and_every_app_has_a_category():
     assert len(apps) == 29 and all(a.category != "Other" for a in apps)
     assert {"com.vysp3r.ProtonPlus", "it.mijorus.gearlever", "com.github.tchx84.Flatseal",
             "io.github.kolunmi.Bazaar"} <= {a.id for a in apps}
+
+
+def test_defaults_list_is_a_subset_of_the_curated_list():
+    from pathlib import Path
+
+    root = Path(__file__).parent.parent / "share/boppos"
+    defaults = {a.id for a in flatpaks.parse_list((root / "boppos-flatpaks-default.txt").read_text())}
+    curated = {a.id for a in flatpaks.parse_list((root / "boppos-flatpaks.txt").read_text())}
+    assert defaults == {"io.github.kolunmi.Bazaar"} and defaults <= curated
+
+
+def test_defaults_flag_installs_only_missing_default_apps(tmp_path, monkeypatch):
+    monkeypatch.setattr(flatpaks, "installed_ids", lambda: set())
+    monkeypatch.setattr("boppos.runner.log_dir", lambda: tmp_path / "logs")
+    ran = []
+    monkeypatch.setattr(flatpaks_cli, "run_stream", lambda cmd, emit: ran.append(cmd) or 0)
+    assert flatpaks_cli.main(["--defaults", "--yes", "--json"]) == 0
+    assert [c[-1] for c in ran] == [flatpaks.REMOTE_URL, "io.github.kolunmi.Bazaar"]
+    monkeypatch.setattr(flatpaks, "installed_ids", lambda: {"io.github.kolunmi.Bazaar"})
+    ran.clear()
+    assert flatpaks_cli.main(["--defaults", "--yes", "--json"]) == 0 and ran == []

@@ -6,7 +6,10 @@ import re
 import subprocess
 from dataclasses import dataclass
 
-DEFAULT_LIST = "/usr/share/boppos/boppos-flatpaks.txt"
+from .paths import share_file
+
+DEFAULT_LIST = str(share_file("boppos-flatpaks.txt"))
+DEFAULTS_LIST = str(share_file("boppos-flatpaks-default.txt"))
 REMOTE_URL = "https://flathub.org/repo/flathub.flatpakrepo"
 _REF = re.compile(r"^(runtime/)?[A-Za-z0-9_][A-Za-z0-9_.-]*(/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)?$")
 
