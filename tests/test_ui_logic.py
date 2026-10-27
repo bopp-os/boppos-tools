@@ -188,3 +188,11 @@ def test_page_jumps_repeat_steadily_while_directions_speed_up():
 
 def test_page_actions_are_not_directions():
     assert not set(PAGES) & {Action.UP, Action.DOWN, Action.LEFT, Action.RIGHT}
+
+
+def test_fingerprint_detects_changes_in_data_and_in_layout_settings():
+    same = backend.fingerprint({"a": [1, 2], "b": {"x": 1}}, (False, "{}"))
+    assert same == backend.fingerprint({"b": {"x": 1}, "a": [1, 2]}, (False, "{}"))  # key order is irrelevant
+    assert same != backend.fingerprint({"a": [1, 3], "b": {"x": 1}}, (False, "{}"))  # the data changed
+    assert same != backend.fingerprint({"a": [1, 2], "b": {"x": 1}}, (True, "{}"))   # advanced was switched
+    assert backend.fingerprint(object()) is not None  # odd values are stringified, not fatal

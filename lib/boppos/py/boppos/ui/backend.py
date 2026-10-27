@@ -108,3 +108,12 @@ def save_settings(data: dict) -> None:
     tmp = path.with_suffix(".tmp")
     tmp.write_text(json.dumps(data, indent=2))
     os.replace(tmp, path)
+
+
+def fingerprint(data: object, view: object = None) -> str | None:
+    """A comparable summary of what a page would show: its data plus the settings that change its layout.
+    None means "cannot be compared", which always counts as changed."""
+    try:
+        return json.dumps([data, view], sort_keys=True, default=str)
+    except (TypeError, ValueError):
+        return None

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import subprocess
 import time
 from pathlib import Path
@@ -15,7 +16,7 @@ from gi.repository import Adw, Gtk  # noqa: E402
 from .. import system  # noqa: E402
 from ..privileged import UsageError, validate_image_ref  # noqa: E402
 from . import backend  # noqa: E402
-from .backend import run_json, tool  # noqa: E402
+from .backend import fingerprint, run_json, tool  # noqa: E402
 from .widgets import (  # noqa: E402
     button_row,
     expander_row,
@@ -30,7 +31,12 @@ BAZAAR = "io.github.kolunmi.Bazaar"
 
 
 class Page:
-    """Base class: a scrolling column that is rebuilt from fresh data by refresh()."""
+    """A scrolling column built from data that is fetched on a worker thread.
+
+    Switching to a page that was built before keeps showing it while fresh data loads, and rebuilds only
+    when the data really changed and the user is not in the middle of using it. Only a page that was never
+    built shows "Loading…". A failure shows an error with a retry instead of leaving a blank page.
+    """
 
     title = ""
     icon = "emblem-system-symbolic"
@@ -40,7 +46,10 @@ class Page:
         self.win = win
         self._gen = 0
         self.stale = True
+        self.built = False
+        self.loading = False
         self.loaded_at = 0.0
+        self._shown: str | None = None
         self.box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=24)
         self.box.set_margin_top(24)
         self.box.set_margin_bottom(24)
@@ -61,25 +70,57 @@ class Page:
     def needs_refresh(self) -> bool:
         return self.stale or time.monotonic() - self.loaded_at > 30
 
-    def refresh(self, refocus: bool = False) -> None:
-        """Show a placeholder, load data on a thread, then call build(data) on the main thread."""
+    def view_state(self):
+        """Settings that change how the same data is laid out (part of the rebuild decision)."""
+        return (self.win.advanced, json.dumps(self.win.settings, sort_keys=True, default=str))
+
+    def has_focus(self) -> bool:
+        f = self.win.get_focus()
+        return bool(f and f.is_ancestor(self.widget))
+
+    def refresh(self, refocus: bool = False, quiet: bool = False) -> None:
+        """Load fresh data. quiet=True keeps the current content on screen until the data is in."""
         self.stale = False
+        self.loading = True
         self.loaded_at = time.monotonic()
         self._gen += 1
         gen = self._gen
-        self.clear()
-        g = group()
-        g.add(message_row("Loading…"))
-        self.box.append(g)
+        quiet = quiet and self.built
+        if not quiet:
+            self.clear()
+            g = group()
+            g.add(message_row("Loading…"))
+            self.box.append(g)
 
         def done(data):
-            if gen == self._gen:
+            if gen != self._gen:
+                return
+            self.loading = False
+            shown = fingerprint(data, self.view_state())
+            if quiet and shown is not None and shown == self._shown:
+                return  # nothing changed: leave the page exactly as it is
+            if quiet and self.has_focus():
+                self.stale = True  # do not pull rows from under someone who is using them
+                return
+            try:
                 self.clear()
                 self.build(data)
-                if refocus:
-                    self.widget.child_focus(Gtk.DirectionType.TAB_FORWARD)
+                self.built, self._shown = True, shown
+            except Exception as exc:  # a broken page must say so and offer a retry, not stay blank
+                self.show_error(exc)
+                return
+            if refocus:
+                self.widget.child_focus(Gtk.DirectionType.TAB_FORWARD)
 
         self.win.load(self.fetch, done)
+
+    def show_error(self, exc: BaseException) -> None:
+        self.clear()
+        self.built, self._shown = False, None
+        g = group("Something went wrong")
+        g.add(message_row(f"This page could not be loaded: {exc}"))
+        g.add(button_row("Try again", "", "Retry", self.refresh, suggested=True))
+        self.box.append(g)
 
     def fetch(self):  # runs on a worker thread
         return None
@@ -258,16 +299,20 @@ class KargsPage(Page):
     RISK_CLASS = {"low": "success", "medium": "warning", "high": "error"}
 
     def fetch(self):
-        try:
-            cmdline = Path("/proc/cmdline").read_text().strip()
-        except OSError:
-            cmdline = ""
-        return {
-            "dropins": run_json([tool("bopp-kargs"), "--json", "dropins"]),
-            "status": run_json([tool("bopp-kargs"), "--json", "status"]),
-            "list": run_json([tool("bopp-kargs"), "--json", "list"]) if self.win.advanced else None,
-            "cmdline": cmdline,
-        }
+        from concurrent.futures import ThreadPoolExecutor
+
+        def cmdline():
+            try:
+                return Path("/proc/cmdline").read_text().strip()
+            except OSError:
+                return ""
+
+        with ThreadPoolExecutor(max_workers=3) as pool:  # three separate tools: no reason to wait in a queue
+            dropins = pool.submit(run_json, [tool("bopp-kargs"), "--json", "dropins"])
+            status = pool.submit(run_json, [tool("bopp-kargs"), "--json", "status"])
+            listing = pool.submit(run_json, [tool("bopp-kargs"), "--json", "list"]) if self.win.advanced else None
+            return {"dropins": dropins.result(), "status": status.result(),
+                    "list": listing.result() if listing else None, "cmdline": cmdline()}
 
     def build(self, data) -> None:
         dropins = data["dropins"]

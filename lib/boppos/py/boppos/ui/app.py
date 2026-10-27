@@ -79,6 +79,7 @@ class DeckWindow(Adw.ApplicationWindow):
         # wrapper dies as soon as Python drops the wrapper, although the row itself is still there.
         self._last_focus: dict[str, Gtk.Widget] = {}
         self._probing = False  # true while a focus move is being tried (sidebar rows must not react)
+        self._refresh_timer = 0
         self.pw = PasswordBuffer()
         self.auth_req: dict | None = None
         self.auth_queue: list[dict] = []
@@ -106,6 +107,7 @@ class DeckWindow(Adw.ApplicationWindow):
         self.connect("close-request", self.on_close_request)
         self.connect("notify::focus-widget", self.on_focus_changed)
 
+        GLib.timeout_add(1500, self.prefetch)
         if gaming:
             self.fullscreen()
         if pad is not None:
@@ -377,10 +379,40 @@ class DeckWindow(Adw.ApplicationWindow):
         if self.content_stack.get_visible_child_name() != page.key:
             self.content_stack.set_visible_child_name(page.key)
             self.content_page.set_title(page.title)
-        if page.needs_refresh():
-            page.refresh()
+        if not page.built and not page.loading:
+            page.refresh()  # first visit: nothing to show yet, so start now
+        elif page.needs_refresh():
+            self.schedule_refresh(page)  # revisit: show what we have, refresh once you have stopped here
         if move_focus:
             self.sidebar_rows[idx].grab_focus()
+
+    def schedule_refresh(self, page, delay_ms: int = 150) -> None:
+        """Refresh only the page you settle on, not every tab you pass on the way."""
+        if self._refresh_timer:
+            GLib.source_remove(self._refresh_timer)
+
+        def run() -> bool:
+            self._refresh_timer = 0
+            if self.pages[self.current_index] is page and page.needs_refresh() and not page.loading:
+                page.refresh(quiet=True)
+            return GLib.SOURCE_REMOVE
+
+        self._refresh_timer = GLib.timeout_add(delay_ms, run)
+
+    def prefetch(self) -> bool:
+        """After start-up, quietly build the other pages one at a time so tabs are ready when you get there.
+        (Not while developing with pkexec from a checkout: every read would ask for a password.)"""
+        dev_polkit = os.environ.get("BOPPOS_HELPER_DIR") and os.environ.get("BOPPOS_HELPER_ESCALATE") != "sudo"
+        if dev_polkit or (self.job and self.job.running):
+            return GLib.SOURCE_REMOVE
+        if any(p.loading for p in self.pages):
+            return GLib.SOURCE_CONTINUE
+        nxt = next((p for p in self.pages if not p.built and not p.loading
+                    and p is not self.pages[self.current_index]), None)
+        if nxt is None:
+            return GLib.SOURCE_REMOVE
+        nxt.refresh()
+        return GLib.SOURCE_CONTINUE
 
     def on_focus_changed(self, *_args) -> None:
         f = self.get_focus()
@@ -489,7 +521,10 @@ class DeckWindow(Adw.ApplicationWindow):
 
     def load(self, fn: Callable[[], object], cb: Callable[[object], None]) -> None:
         def work():
-            res = fn()
+            try:
+                res = fn()
+            except Exception as exc:  # a dead worker would leave its page on "Loading…" for good
+                res = {"error": f"{type(exc).__name__}: {exc}"}
             on_main(lambda: cb(res))
 
         threading.Thread(target=work, daemon=True).start()

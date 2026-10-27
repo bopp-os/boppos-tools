@@ -35,6 +35,12 @@ Add the app via `bopp-steam-shortcut add` with Steam closed, then start Steam.
 - [ ] Decky: Steam restarts, the Decky menu appears; *Uninstall* removes the service. A tampered download (wrong hash) is refused.
 - [ ] Kernel arguments: toggling a preset changes `/proc/cmdline` after a reboot; toggling it back removes only what it added. With an update staged the page shows the *reboot first* banner and the switches are disabled.
 
+## 3g. Switching tabs
+- [ ] Switch between tabs with LB/RB and with the D-pad in the sidebar: the new tab appears at once. A tab you have seen before shows its content immediately (no blank "Loading…") and updates in place only if something actually changed, never while you are using a row on it.
+- [ ] Moving quickly down the sidebar does not start loads for every tab you pass, only the one you stop on.
+- [ ] After start-up the other tabs fill in by themselves, so a first visit is usually instant too. (Not when running from a checkout with polkit prompts: there every read would ask for a password.)
+- [ ] A tab whose tool fails shows the error, and one that breaks while being drawn shows "Something went wrong" with a Retry button; neither stays on "Loading…".
+
 ## 3f. Moving through long pages
 - [ ] On a long page (Kernel arguments with Advanced on, Apps with a category open): right stick down/up and `LT`/`RT` jump roughly a screen; keep it flicked and it repeats steadily. `PgUp`/`PgDn`/`Home`/`End` do the same on a keyboard.
 - [ ] Holding the D-pad or left stick moves one row at first, then speeds up the longer it is held.
