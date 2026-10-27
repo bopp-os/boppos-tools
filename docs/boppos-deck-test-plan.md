@@ -129,3 +129,10 @@ Create a test user, log in on a local session (not wheel).
 ## 3k. BoppOS Steam artwork
 - [ ] After the BoppOS shortcut is added (Steam closed, or applied on exit), start Steam: the library entry shows the blue list icon in the sidebar (a JPEG; a PNG stayed blank in testing), the horizontal capsule, and the hero and logo on its page; in Gaming Mode the portrait shows in the grid. If Steam shows no artwork, check `~/.local/share/Steam/userdata/<id>/config/grid/` for five files named `<shortcut id>.png`, `…p.png`, `…_hero.png`, `…_logo.png`, `…_icon.jpg` and tell me the shortcut id Steam uses (the file names are derived from the same crc32 Steam uses; this has not been run against a real Steam).
 - [ ] Removing the shortcut removes those five files; a file you replaced is kept.
+
+## First-boot setup (`boppos-deck --oobe`, dry run)
+
+- [ ] `boppos-deck --oobe` opens the setup with a "Dry run" banner: Welcome, Language, Network, Time zone, Account, Start in, Review, Done.
+- [ ] Next is greyed out with the reason shown below the page until the step is valid. On Account that means a user name (lowercase, not `root`, `steam` and similar), a password of at least 8 characters, and a valid computer name if one is given.
+- [ ] Review lists what would happen and never shows the password. Finish prints `[dry run] would: …` lines in the terminal and returns to the settings view; no account is created.
+- [ ] Not yet covered: the on-screen keyboard and controller input in the entry fields, Wi-Fi setup, the root helper that really creates the user.

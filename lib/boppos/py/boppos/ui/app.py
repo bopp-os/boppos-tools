@@ -20,6 +20,7 @@ from . import agent as polkit_agent  # noqa: E402
 from . import backend  # noqa: E402
 from .controller import DIRECTIONS, PAGES, Action, InputMapper, Sdl3Gamepads  # noqa: E402
 from .hints import hint_items  # noqa: E402
+from .oobe import OobeFlow  # noqa: E402
 from .osk import PasswordBuffer  # noqa: E402
 from .pages import ALL_PAGES  # noqa: E402
 from .welcome import WelcomeFlow  # noqa: E402
@@ -798,6 +799,15 @@ class DeckWindow(Adw.ApplicationWindow):
             self.stack.add_named(WelcomeFlow(self.gaming, self.end_welcome, hw), "welcome")
         self.stack.set_visible_child_name("welcome")
 
+    def show_oobe(self) -> None:
+        """Replace the settings view with the first-boot setup (language, time zone, account)."""
+        if self.stack.get_child_by_name("oobe") is None:
+            self.stack.add_named(OobeFlow(self.end_oobe), "oobe")
+        self.stack.set_visible_child_name("oobe")
+
+    def end_oobe(self, finished: bool) -> None:
+        self.stack.set_visible_child_name("main")
+
     def end_welcome(self, finished: bool) -> None:
         if finished and not welcome.DRY_RUN:  # a dry run applied nothing, so it must not count as set up
             welcome.mark_done()
@@ -818,6 +828,8 @@ class DeckApp(Adw.Application):
                              + ",".join(system.TARGETS), "TARGETS")
         self.add_main_option("welcome", 0, GLib.OptionFlags.NONE, GLib.OptionArg.NONE,
                              "Open the first-run setup wizard", None)
+        self.add_main_option("oobe", 0, GLib.OptionFlags.NONE, GLib.OptionArg.NONE,
+                             "Open the first-boot setup (language, time zone, account); a dry run for now", None)
         self.add_main_option("hardware", 0, GLib.OptionFlags.NONE, GLib.OptionArg.STRING,
                              "With --welcome: preview the wizard on other hardware (" + ", ".join(hwprofiles.PROFILES)
                              + ")", "KEY")
@@ -899,7 +911,9 @@ class DeckApp(Adw.Application):
         if isinstance(win, DeckWindow):
             if "update" in opts:
                 win.start_update(targets)
-            if "welcome" in opts or hw is not None:  # --hardware alone opens the wizard preview too
+            if "oobe" in opts:
+                win.show_oobe()
+            elif "welcome" in opts or hw is not None:  # --hardware alone opens the wizard preview too
                 win.show_welcome(hw)
         return 0
 
