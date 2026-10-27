@@ -73,4 +73,3 @@ window.deck .glyph-b { color: #ff7a7a; }
 }
 
 /* the separate Steam shortcut switch under an app's install switch */
-window.deck row.steam-row { background-color: alpha(@window_fg_color, 0.045); }

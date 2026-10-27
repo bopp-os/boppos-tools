@@ -518,8 +518,7 @@ class AppsPage(Page):
         super().__init__(win)
         self.expanded: set[str] = set()
         self.want: dict[str, bool] = {}  # install switch per app id
-        self.steam_want: dict[str, bool] = {}  # Steam shortcut switch per installed app id
-        self.steam_base: dict[str, bool] = {}
+        self.steam_base: dict[str, bool] = {}  # which apps have a Steam shortcut (removed with the app)
         self.steam_running = False
 
     def fetch(self):
@@ -542,9 +541,8 @@ class AppsPage(Page):
         self.steam_running = bool(steam_ok and steam.get("steam_running"))
         self.steam_base = {r["key"]: r["present"] for r in steam["apps"]} if steam_ok else {}
         self.apps = [a for a in listing if a.get("kind") == "app"]
-        previous, previous_steam = self.want, self.steam_want
+        previous = self.want
         self.want = {a["id"]: previous.get(a["id"], a["installed"]) for a in self.apps}
-        self.steam_want = {k: previous_steam.get(k, v) for k, v in self.steam_base.items()}
         only_installed = bool(self.win.settings.get("apps_installed_only"))
 
         g = group()
@@ -555,8 +553,8 @@ class AppsPage(Page):
         categories: dict[str, list[dict]] = {}
         for a in self.apps:
             categories.setdefault(a.get("category") or "Other", []).append(a)
-        g = group("BoppOS apps", "Open a category. The first switch of an app installs or removes it. An installed "
-                  "app also has a separate Steam shortcut switch. Then press Apply.")
+        g = group("BoppOS apps", "Open a category, switch apps on to install them or off to remove them, then press "
+                  "Apply. Steam shortcuts are on the Steam library page.")
         for cat, apps in categories.items():
             visible = [a for a in apps if a["installed"] or not only_installed]
             if not visible:
@@ -570,13 +568,6 @@ class AppsPage(Page):
                 sub = a["id"] + "".join(f"  ·  {n}" for n in notes if n)
                 exp.add_row(switch_row(a["name"], sub, self.want[a["id"]],
                                        lambda on, i=a["id"]: self.set_want(i, on)))
-                if a["installed"] and a["id"] in self.steam_want:
-                    row = switch_row("Steam shortcut", f"Start {a['name']} from Steam's Gaming Mode. Only adds or "
-                                     "removes the shortcut; the app stays installed.", self.steam_want[a["id"]],
-                                     lambda on, i=a["id"]: self.set_steam(i, on))
-                    row.add_prefix(Gtk.Image.new_from_icon_name("applications-games-symbolic"))
-                    row.add_css_class("steam-row")
-                    exp.add_row(row)
             g.add(exp)
         self.box.append(g)
         g = group()
@@ -622,24 +613,16 @@ class AppsPage(Page):
         rem = [a["id"] for a in self.apps if not self.want[a["id"]] and a["installed"]]
         return add, rem
 
-    def steam_diff(self) -> tuple[list[str], list[str]]:
-        """Shortcut changes. An app that is being uninstalled loses its shortcut too: it would point nowhere."""
+    def steam_removals(self) -> list[str]:
+        """Shortcuts to drop with the apps being uninstalled: they would point nowhere."""
         _, uninstall = self.diff()
-        add = [k for k, on in self.steam_want.items() if on and not self.steam_base.get(k) and k not in uninstall]
-        rem = [k for k, on in self.steam_want.items() if not on and self.steam_base.get(k)]
-        rem += [k for k in uninstall if self.steam_base.get(k) and k not in rem]
-        return add, rem
+        return [k for k in uninstall if self.steam_base.get(k)]
 
     def update_apply_row(self) -> None:
         add, rem = self.diff()
-        s_add, s_rem = self.steam_diff()
-        parts = []
-        if add or rem:
-            parts.append(f"{len(add)} to install, {len(rem)} to remove")
-        if s_add or s_rem:
-            parts.append(f"Steam: {len(s_add)} shortcut(s) to add, {len(s_rem)} to remove")
-        self.apply_row.set_sensitive(bool(parts))
-        self.apply_row.set_subtitle("; ".join(parts) if parts else "No changes yet")
+        changed = bool(add or rem)
+        self.apply_row.set_sensitive(changed)
+        self.apply_row.set_subtitle(f"{len(add)} to install, {len(rem)} to remove" if changed else "No changes yet")
 
     def set_system(self, on: bool) -> None:
         self.win.settings["apps_system"] = on
@@ -652,15 +635,11 @@ class AppsPage(Page):
         self.want[app_id] = on
         self.update_apply_row()
 
-    def set_steam(self, app_id: str, on: bool) -> None:
-        self.steam_want[app_id] = on
-        self.update_apply_row()
-
     def commands(self) -> list[list[str]]:
-        """Install/remove first, the Steam shortcut change last: it may close Steam, and in Gaming Mode that
-        can restart the session, so nothing may be left to do after it."""
+        """Install/remove first, dropping the shortcuts of removed apps last: it may close Steam, and in Gaming
+        Mode that can restart the session, so nothing may be left to do after it."""
         add, rem = self.diff()
-        s_add, s_rem = self.steam_diff()
+        s_rem = self.steam_removals()
         base = [tool("install-optional-flatpaks"), "--json", "--yes"]
         cmds = []
         if add:
@@ -668,22 +647,22 @@ class AppsPage(Page):
             cmds.append([*base, *system, "--only", ",".join(add)])
         if rem:
             cmds.append([*base, "--remove", "--only", ",".join(rem)])
-        if s_add or s_rem:
-            cmds.append([tool("bopp-steam-shortcut"), "--json", "sync", "--add", ",".join(s_add), "--remove",
-                         ",".join(s_rem), "--restart-steam"])
+        if s_rem:
+            cmds.append([tool("bopp-steam-shortcut"), "--json", "sync", "--remove", ",".join(s_rem),
+                         "--restart-steam"])
         return cmds
 
     def apply(self) -> None:
         _, rem = self.diff()
-        s_add, s_rem = self.steam_diff()
+        s_rem = self.steam_removals()
         cmds = self.commands()
 
         def go():
-            self.want, self.steam_want = {}, {}
+            self.want = {}
             self.win.run_job("Updating apps", cmds, lambda ok, final: self.refresh())
 
         def steam_then_go():
-            if (s_add or s_rem) and self.steam_running:
+            if s_rem and self.steam_running:
                 self.win.confirm("Close and reopen Steam?", "Steam has to be closed to change its library, so any "
                                  "game that is running will be closed. Steam comes back by itself.", "Continue", go,
                                  destructive=True)
