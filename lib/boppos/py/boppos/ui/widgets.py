@@ -11,9 +11,15 @@ gi.require_version("Adw", "1")
 from gi.repository import Adw, GLib, Gtk  # noqa: E402
 
 
-def plain(row):
-    """Show a row's title and subtitle as plain text (libadwaita parses them as Pango markup)."""
+def plain(row_type, **props):
+    """A row that shows its title and subtitle as plain text (libadwaita parses them as Pango markup).
+
+    Markup is switched off before the text is set: setting it in the constructor parses it first, and a bare
+    "&" (a category like "Power & sleep") logs a Gtk warning."""
+    row = row_type()
     row.set_use_markup(False)
+    for name, value in props.items():
+        row.set_property(name, value)
     return row
 
 
@@ -36,7 +42,7 @@ def tag_label(text: str, style: str = "dim-label") -> Gtk.Label:
 
 
 def info_row(title: str, value: str = "", subtitle: str = "", tag: tuple[str, str] | None = None) -> Adw.ActionRow:
-    row = plain(Adw.ActionRow(title=title, subtitle=subtitle))
+    row = plain(Adw.ActionRow, title=title, subtitle=subtitle)
     row.set_subtitle_lines(0)
     row.set_focusable(True)
     row.set_activatable(False)
@@ -54,7 +60,7 @@ def button_row(title: str, subtitle: str, label: str, on_click: Callable[[], Non
                suggested: bool = False, destructive: bool = False,
                tag: tuple[str, str] | None = None) -> Adw.ActionRow:
     """A row with a button. The row is the focus stop; the button only draws the affordance."""
-    row = plain(Adw.ActionRow(title=title, subtitle=subtitle))
+    row = plain(Adw.ActionRow, title=title, subtitle=subtitle)
     row.set_title_lines(0)
     row.set_subtitle_lines(0)
     btn = Gtk.Button(label=label)
@@ -74,7 +80,7 @@ def button_row(title: str, subtitle: str, label: str, on_click: Callable[[], Non
 
 
 def switch_row(title: str, subtitle: str, active: bool, on_toggle: Callable[[bool], None]) -> Adw.SwitchRow:
-    row = plain(Adw.SwitchRow(title=title, subtitle=subtitle))
+    row = plain(Adw.SwitchRow, title=title, subtitle=subtitle)
     row.set_title_lines(0)
     row.set_subtitle_lines(0)
     row.set_active(active)
@@ -83,14 +89,14 @@ def switch_row(title: str, subtitle: str, active: bool, on_toggle: Callable[[boo
 
 
 def combo_row(title: str, options: list[str], selected: int = 0) -> Adw.ComboRow:
-    row = plain(Adw.ComboRow(title=title))
+    row = plain(Adw.ComboRow, title=title)
     row.set_model(Gtk.StringList.new(options))
     row.set_selected(selected)
     return row
 
 
 def message_row(text: str) -> Adw.ActionRow:
-    row = plain(Adw.ActionRow(title=text))
+    row = plain(Adw.ActionRow, title=text)
     row.set_title_lines(0)
     row.set_focusable(True)
     row.set_activatable(False)
