@@ -6,6 +6,8 @@
 com.heroicgameslauncher.hgl  # name: Heroic Games Launcher
 net.lutris.Lutris  # name: Lutris
 dev.lizardbyte.app.Sunshine  # name: Sunshine
+io.github.streetpea.Chiaki4deck  # name: chiaki-ng (PlayStation Remote Play)
+io.github.unknownskl.greenlight  # name: Greenlight (Xbox streaming)
 
 ## Emulators
 org.libretro.RetroArch  # name: RetroArch
@@ -22,6 +24,6 @@ org.flycast.Flycast  # name: Flycast
 
 ## Music & Video
 tv.kodi.Kodi  # name: Kodi
-com.github.iwalton3.jellyfin-media-player  # name: Jellyfin Media Player
+org.jellyfin.JellyfinDesktop  # name: Jellyfin Desktop
 tv.plex.PlexHTPC  # name: Plex HTPC
 com.spotify.Client  # name: Spotify
