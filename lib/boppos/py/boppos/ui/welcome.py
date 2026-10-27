@@ -107,14 +107,18 @@ class WelcomeFlow(Gtk.Box):
         here.add(switch_row("Check for firmware updates", "Runs fwupd after setup. Nothing is installed "
                             "without asking.", c.firmware_check, setter(c, "firmware_check")))
         options = welcome.karg_options()
-        suggested = group("Suggested for this device", "Kernel argument presets that name this device. They take "
-                          "effect after a reboot.")
-        others = group("Other presets", "Off unless you need them.")
+        warn = group("Kernel arguments: best left alone", welcome.KARGS_WARNING)
+        warn.add_css_class("warning")
+        suggested = group("Presets that name this device", "Listed because they match this device, not because "
+                          "you need them. They take effect after a reboot.")
+        others = group("Other presets")
         for o in options:
             subtitle = o.description + (f"  {o.risk}" if o.risk else "")
             row = switch_row(o.name, subtitle, o.name in c.kargs, toggle(c.kargs, o.name))
             (suggested if o.suggested else others).add(row)
         groups = [here]
+        if options:
+            groups.append(warn)
         if any(o.suggested for o in options):
             groups.append(suggested)
         if any(not o.suggested for o in options):

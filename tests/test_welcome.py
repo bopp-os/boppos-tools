@@ -92,3 +92,13 @@ def test_run_plan_is_dry(monkeypatch):
 
 def test_dry_run_is_on():
     assert welcome.DRY_RUN is True
+
+
+def test_no_kargs_preset_is_ever_preselected():
+    assert welcome.initial_choices().kargs == set()
+    assert "left alone" in welcome.KARGS_WARNING
+
+
+def test_kargs_plan_line_warns():
+    text = welcome.build_plan(welcome.Choices(kargs={"20-sleep-deep"}))[0].text
+    assert "leave these off unless you need them" in text

@@ -18,6 +18,12 @@ FLAG = "welcome-done"
 # the Finish button does not write the done flag, until the apply step exists and this is turned off.
 DRY_RUN = True
 
+KARGS_WARNING = (
+    "Only switch these on if you have the exact problem a preset fixes. Kernel arguments change how the "
+    "system starts, a wrong one can cause crashes, a black screen or a machine that will not boot, and "
+    "most systems are best left alone. Every preset here is off by default."
+)
+
 
 @dataclass(frozen=True)
 class Step:
@@ -139,12 +145,8 @@ def has_camera(root: str | Path = "/") -> bool:
 
 
 def initial_choices() -> Choices:
-    """What is switched on before the user touches anything: today's defaults plus what fits this device."""
-    return Choices(
-        flatpaks=default_flatpak_ids(),
-        kargs={o.name for o in karg_options() if o.suggested},
-        firmware_check=True,
-    )
+    """What is switched on before the user touches anything: today's defaults. Never any kargs preset."""
+    return Choices(flatpaks=default_flatpak_ids(), firmware_check=True)
 
 
 @dataclass(frozen=True)
@@ -166,7 +168,7 @@ def build_plan(choices: Choices, gaming: bool = False) -> list[Action]:
         plan.append(Action("Apps", f"Install Decky Loader{steam_when}"))
     if choices.kargs:
         plan.append(Action("Hardware", "Switch on kernel argument presets: " + ", ".join(sorted(choices.kargs))
-                           + " (takes effect after a reboot)"))
+                           + " (takes effect after a reboot; leave these off unless you need them)"))
     if choices.firmware_check:
         plan.append(Action("Hardware", "Check for firmware updates (fwupd)"))
     if choices.howdy:
