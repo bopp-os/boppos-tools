@@ -322,3 +322,19 @@ def test_steam_targets_use_the_curated_name_so_both_pages_agree():
     t = steam_apps.all_targets([("com.bitwarden.desktop", "Bitwarden"), ("org.unlisted.App", "Unlisted")])
     assert t["com.bitwarden.desktop"].name == "Bitwarden Desktop"   # as on the Apps page
     assert t["org.unlisted.App"].name == "Unlisted"                  # not curated: what Flatpak reports
+
+
+def test_sync_can_remove_the_shortcut_of_an_app_that_was_just_uninstalled(tmp_path, monkeypatch, capsys):
+    cfg = _setup_cli(tmp_path, monkeypatch)
+    assert cli.main(["--json", "sync", "--add", "org.gimp.GIMP"]) == 0
+    monkeypatch.setattr(steam_apps, "installed_flatpaks", lambda *a, **k: [])  # GIMP is gone now
+    capsys.readouterr()
+    assert cli.main(["--json", "sync", "--remove", "org.gimp.GIMP"]) == 0
+    assert vdf.loads((cfg / "shortcuts.vdf").read_bytes())["shortcuts"] == {}
+    assert cli.main(["--json", "sync", "--add", "org.gimp.GIMP"]) == cli.EXIT_UNKNOWN  # adding still needs it installed
+    assert cli.main(["--json", "sync", "--remove", "not an app id"]) == cli.EXIT_UNKNOWN
+
+
+def test_is_app_id():
+    assert steam_apps.is_app_id("org.gimp.GIMP") and not steam_apps.is_app_id("boppos")
+    assert not steam_apps.is_app_id("a b.c") and not steam_apps.is_app_id("$(id).x")

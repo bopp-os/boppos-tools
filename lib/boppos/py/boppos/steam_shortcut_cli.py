@@ -97,6 +97,9 @@ def _sync(args, home: Path) -> int:
     targets = steam_apps.all_targets()
     add = [k for k in args.add.split(",") if k]
     remove = [k for k in args.remove.split(",") if k]
+    for k in remove:  # an app that was just uninstalled still has a shortcut to take out; its identity is enough
+        if k not in targets and steam_apps.is_app_id(k):
+            targets[k] = steam_apps.flatpak_target(k, k)
     unknown = [k for k in add + remove if k not in targets]
     if unknown:
         emit({"event": "log", "line": f"unknown app(s): {', '.join(unknown)}"})

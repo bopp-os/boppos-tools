@@ -307,14 +307,25 @@ class KargsPage(Page):
             except OSError:
                 return ""
 
+        if not self.win.advanced:  # normal mode only shows what is running: nothing to ask the tools
+            return {"cmdline": cmdline(), "advanced": False}
         with ThreadPoolExecutor(max_workers=3) as pool:  # three separate tools: no reason to wait in a queue
             dropins = pool.submit(run_json, [tool("bopp-kargs"), "--json", "dropins"])
             status = pool.submit(run_json, [tool("bopp-kargs"), "--json", "status"])
-            listing = pool.submit(run_json, [tool("bopp-kargs"), "--json", "list"]) if self.win.advanced else None
-            return {"dropins": dropins.result(), "status": status.result(),
-                    "list": listing.result() if listing else None, "cmdline": cmdline()}
+            listing = pool.submit(run_json, [tool("bopp-kargs"), "--json", "list"])
+            return {"dropins": dropins.result(), "status": status.result(), "list": listing.result(),
+                    "cmdline": cmdline(), "advanced": True}
 
     def build(self, data) -> None:
+        if not self.win.advanced:
+            g = group("Kernel arguments")
+            g.add(message_row("Kernel arguments can stop the system from starting, so the presets and any "
+                              "changes live in Advanced options (About). Nothing here can be changed."))
+            self.box.append(g)
+            g = group("Running kernel")
+            g.add(info_row("Command line", "", data.get("cmdline") or "unavailable"))
+            self.box.append(g)
+            return
         dropins = data["dropins"]
         if "error" in dropins:
             g = group("Kernel arguments")
@@ -506,20 +517,34 @@ class AppsPage(Page):
     def __init__(self, win):
         super().__init__(win)
         self.expanded: set[str] = set()
-        self.want: dict[str, bool] = {}
+        self.want: dict[str, bool] = {}  # install switch per app id
+        self.steam_want: dict[str, bool] = {}  # Steam shortcut switch per installed app id
+        self.steam_base: dict[str, bool] = {}
+        self.steam_running = False
 
     def fetch(self):
-        return run_json([tool("install-optional-flatpaks"), "--json", "--status"], timeout=60)
+        from concurrent.futures import ThreadPoolExecutor
+
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            apps = pool.submit(run_json, [tool("install-optional-flatpaks"), "--json", "--status"], 60)
+            steam = pool.submit(run_json, [tool("bopp-steam-shortcut"), "--json", "apps"], 60)
+            return {"apps": apps.result(), "steam": steam.result()}
 
     def build(self, data) -> None:
-        if isinstance(data, dict) and "error" in data:
+        listing = data["apps"]
+        if isinstance(listing, dict) and "error" in listing:
             g = group("Apps")
-            g.add(message_row(f"Could not read the app list: {data['error']}"))
+            g.add(message_row(f"Could not read the app list: {listing['error']}"))
             self.box.append(g)
             return
-        self.apps = [a for a in data if a.get("kind") == "app"]
-        previous = self.want
+        steam = data.get("steam")
+        steam_ok = isinstance(steam, dict) and "error" not in steam and steam.get("steam_found")
+        self.steam_running = bool(steam_ok and steam.get("steam_running"))
+        self.steam_base = {r["key"]: r["present"] for r in steam["apps"]} if steam_ok else {}
+        self.apps = [a for a in listing if a.get("kind") == "app"]
+        previous, previous_steam = self.want, self.steam_want
         self.want = {a["id"]: previous.get(a["id"], a["installed"]) for a in self.apps}
+        self.steam_want = {k: previous_steam.get(k, v) for k, v in self.steam_base.items()}
         only_installed = bool(self.win.settings.get("apps_installed_only"))
 
         g = group()
@@ -530,8 +555,8 @@ class AppsPage(Page):
         categories: dict[str, list[dict]] = {}
         for a in self.apps:
             categories.setdefault(a.get("category") or "Other", []).append(a)
-        g = group("BoppOS apps", "Open a category, switch an app on to install it or off to remove it, then press "
-                  "Apply.")
+        g = group("BoppOS apps", "Open a category. The first switch of an app installs or removes it. An installed "
+                  "app also has a separate Steam shortcut switch. Then press Apply.")
         for cat, apps in categories.items():
             visible = [a for a in apps if a["installed"] or not only_installed]
             if not visible:
@@ -545,6 +570,13 @@ class AppsPage(Page):
                 sub = a["id"] + "".join(f"  ·  {n}" for n in notes if n)
                 exp.add_row(switch_row(a["name"], sub, self.want[a["id"]],
                                        lambda on, i=a["id"]: self.set_want(i, on)))
+                if a["installed"] and a["id"] in self.steam_want:
+                    row = switch_row("Steam shortcut", f"Start {a['name']} from Steam's Gaming Mode. Only adds or "
+                                     "removes the shortcut; the app stays installed.", self.steam_want[a["id"]],
+                                     lambda on, i=a["id"]: self.set_steam(i, on))
+                    row.add_prefix(Gtk.Image.new_from_icon_name("applications-games-symbolic"))
+                    row.add_css_class("steam-row")
+                    exp.add_row(row)
             g.add(exp)
         self.box.append(g)
         g = group()
@@ -586,33 +618,71 @@ class AppsPage(Page):
         rem = [a["id"] for a in self.apps if not self.want[a["id"]] and a["installed"]]
         return add, rem
 
+    def steam_diff(self) -> tuple[list[str], list[str]]:
+        """Shortcut changes. An app that is being uninstalled loses its shortcut too: it would point nowhere."""
+        _, uninstall = self.diff()
+        add = [k for k, on in self.steam_want.items() if on and not self.steam_base.get(k) and k not in uninstall]
+        rem = [k for k, on in self.steam_want.items() if not on and self.steam_base.get(k)]
+        rem += [k for k in uninstall if self.steam_base.get(k) and k not in rem]
+        return add, rem
+
     def update_apply_row(self) -> None:
         add, rem = self.diff()
-        self.apply_row.set_sensitive(bool(add or rem))
-        self.apply_row.set_subtitle(f"{len(add)} to install, {len(rem)} to remove" if add or rem else "No changes yet")
+        s_add, s_rem = self.steam_diff()
+        parts = []
+        if add or rem:
+            parts.append(f"{len(add)} to install, {len(rem)} to remove")
+        if s_add or s_rem:
+            parts.append(f"Steam: {len(s_add)} shortcut(s) to add, {len(s_rem)} to remove")
+        self.apply_row.set_sensitive(bool(parts))
+        self.apply_row.set_subtitle("; ".join(parts) if parts else "No changes yet")
 
     def set_want(self, app_id: str, on: bool) -> None:
         self.want[app_id] = on
         self.update_apply_row()
 
-    def apply(self) -> None:
+    def set_steam(self, app_id: str, on: bool) -> None:
+        self.steam_want[app_id] = on
+        self.update_apply_row()
+
+    def commands(self) -> list[list[str]]:
+        """Install/remove first, the Steam shortcut change last: it may close Steam, and in Gaming Mode that
+        can restart the session, so nothing may be left to do after it."""
         add, rem = self.diff()
+        s_add, s_rem = self.steam_diff()
         base = [tool("install-optional-flatpaks"), "--json", "--yes"]
         cmds = []
         if add:
             cmds.append([*base, "--only", ",".join(add)])
         if rem:
             cmds.append([*base, "--remove", "--only", ",".join(rem)])
+        if s_add or s_rem:
+            cmds.append([tool("bopp-steam-shortcut"), "--json", "sync", "--add", ",".join(s_add), "--remove",
+                         ",".join(s_rem), "--restart-steam"])
+        return cmds
+
+    def apply(self) -> None:
+        _, rem = self.diff()
+        s_add, s_rem = self.steam_diff()
+        cmds = self.commands()
 
         def go():
-            self.want = {}
-            self.win.run_job("Installing and removing apps", cmds, lambda ok, final: self.refresh())
+            self.want, self.steam_want = {}, {}
+            self.win.run_job("Updating apps", cmds, lambda ok, final: self.refresh())
+
+        def steam_then_go():
+            if (s_add or s_rem) and self.steam_running:
+                self.win.confirm("Close and reopen Steam?", "Steam has to be closed to change its library, so any "
+                                 "game that is running will be closed. Steam comes back by itself.", "Continue", go,
+                                 destructive=True)
+            else:
+                go()
 
         if rem:
             self.win.confirm("Remove apps?", f"{len(rem)} app(s) will be uninstalled. Their data is kept.",
-                             "Apply", go, destructive=True)
+                             "Apply", steam_then_go, destructive=True)
         else:
-            go()
+            steam_then_go()
 
 
 # --- Steam library -------------------------------------------------------------------------------
@@ -666,7 +736,8 @@ class SteamPage(Page):
                 categories.setdefault(a.get("category") or "Other apps", []).append(a)
         if categories:
             g = group("Add to Steam", "Switch an app on to add it as a non-Steam game, so you can start it from "
-                      "Gaming Mode. Apps you install later show up here.")
+                      "Gaming Mode. This page only adds or removes shortcuts; it never installs or removes an app. "
+                      "Apps you install later show up here.")
             for cat, apps in sorted(categories.items(), key=lambda kv: (kv[0] == "Other apps", kv[0])):
                 exp = expander_row(cat, f"{len(apps)} available")
                 exp.set_expanded(cat in self.expanded)

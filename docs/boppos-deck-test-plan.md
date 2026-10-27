@@ -35,6 +35,11 @@ Add the app via `bopp-steam-shortcut add` with Steam closed, then start Steam.
 - [ ] Decky: Steam restarts, the Decky menu appears; *Uninstall* removes the service. A tampered download (wrong hash) is refused.
 - [ ] Kernel arguments: toggling a preset changes `/proc/cmdline` after a reboot; toggling it back removes only what it added. With an update staged the page shows the *reboot first* banner and the switches are disabled.
 
+## 3h. Normal vs Advanced
+- [ ] Normal mode: Kernel arguments shows only the running command line and a note; no switches, no add/remove. Advanced on: the preset switches (by category), custom arguments and the argument list appear; off again: they disappear.
+- [ ] Apps: each installed app has a separate **Steam shortcut** switch under its install switch (not for apps that are not installed). Toggle one, press Apply: the shortcut appears in Steam (see 3c for what Steam does while it is open). Uninstalling an app removes its shortcut. Neither switch changes what the other does.
+- [ ] The Steam library page still lists every installed app and says it never installs or removes anything.
+
 ## 3g. Switching tabs
 - [ ] Switch between tabs with LB/RB and with the D-pad in the sidebar: the new tab appears at once. A tab you have seen before shows its content immediately (no blank "Loading…") and updates in place only if something actually changed, never while you are using a row on it.
 - [ ] Moving quickly down the sidebar does not start loads for every tab you pass, only the one you stop on.

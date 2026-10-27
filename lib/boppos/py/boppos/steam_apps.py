@@ -72,6 +72,10 @@ def boppos_target() -> Target:
     return Target(BOPPOS_KEY, ss.APP_NAME, ss.EXE, "", ss.ICON)
 
 
+def is_app_id(key: str) -> bool:
+    return bool(_APP_ID.match(key)) and "." in key
+
+
 def flatpak_target(app_id: str, name: str, icon: str = "") -> Target:
     exe = shutil.which("flatpak") or "/usr/bin/flatpak"
     return Target(app_id, name, exe, f"run {app_id}", icon)
