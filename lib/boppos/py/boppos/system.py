@@ -149,7 +149,7 @@ def upgrade_steps(
         elif t == "flatpak" and which("flatpak"):
             steps.append((t, [["flatpak", "update", "-y", "--noninteractive"]]))
         elif t == "brew":
-            brew = which("brew") or next((p for p in BREW_PATHS if os.access(p, os.X_OK)), None)
+            brew = which("brew") or next((p for p in BREW_PATHS if which(p)), None)
             if brew:
                 steps.append((t, [[brew, "update"], [brew, "upgrade"]]))
         elif t == "appimage" and (gl := app_command(GEARLEVER, which)):
