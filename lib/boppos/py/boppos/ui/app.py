@@ -13,8 +13,9 @@ import gi
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
-from gi.repository import Adw, Gdk, GLib, GObject, Gtk  # noqa: E402
+from gi.repository import Adw, Gdk, Gio, GLib, GObject, Gtk  # noqa: E402
 
+from .. import system  # noqa: E402
 from . import agent as polkit_agent  # noqa: E402
 from . import backend  # noqa: E402
 from .controller import DIRECTIONS, PAGES, Action, InputMapper, Sdl3Gamepads  # noqa: E402
@@ -573,6 +574,12 @@ class DeckWindow(Adw.ApplicationWindow):
 
     # --- progress view ------------------------------------------------------------------------
 
+    def start_update(self, targets: list[str] | None) -> None:
+        """Open the update progress screen and run the update (what the tray's update entries ask for)."""
+        label = ", ".join(targets) if targets else "everything"
+        page = next(p for p in self.pages if p.key == "system")
+        page.update(targets, label)
+
     def run_job(self, title: str, cmds: list[list[str]], on_done: Callable[[bool, dict], None]) -> None:
         if self.job and self.job.running:
             self.toast("Another action is still running")
@@ -791,7 +798,10 @@ class DeckWindow(Adw.ApplicationWindow):
 
 class DeckApp(Adw.Application):
     def __init__(self) -> None:
-        super().__init__(application_id=APP_ID)
+        super().__init__(application_id=APP_ID, flags=Gio.ApplicationFlags.HANDLES_COMMAND_LINE)
+        self.add_main_option("update", 0, GLib.OptionFlags.NONE, GLib.OptionArg.STRING,
+                             "Open on the update screen and start updating: all, or a list of "
+                             + ",".join(system.TARGETS), "TARGETS")
         self.gaming = backend.gaming_mode()
         self.pad: Sdl3Gamepads | None = None
         self.agent = None
@@ -843,6 +853,23 @@ class DeckApp(Adw.Application):
         # Gaming Mode has no polkit agent of its own; BOPPOS_DECK_AGENT=1 forces it for testing.
         if self.agent is None and (self.gaming or os.environ.get("BOPPOS_DECK_AGENT")):
             self.agent = polkit_agent.start_agent(win.ask_password)
+
+    def do_command_line(self, cmdline: Gio.ApplicationCommandLine) -> int:
+        """boppos-deck [--update TARGETS]. A second launch is handed to the window that is already open."""
+        opts = cmdline.get_options_dict().end().unpack()
+        targets: list[str] | None = None
+        if "update" in opts:
+            try:
+                targets = system.parse_targets(opts["update"])
+            except ValueError as exc:
+                print(f"boppos-deck: {exc}", file=sys.stderr)
+                return 2
+        self.activate()
+        if "update" in opts:
+            win = self.props.active_window
+            if isinstance(win, DeckWindow):
+                win.start_update(targets)
+        return 0
 
     def do_shutdown(self) -> None:
         if self.pad:

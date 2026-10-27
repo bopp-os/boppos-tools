@@ -36,12 +36,12 @@ Add the app via `bopp-steam-shortcut add` with Steam closed, then start Steam.
 - [ ] Kernel arguments: toggling a preset changes `/proc/cmdline` after a reboot; toggling it back removes only what it added. With an update staged the page shows the *reboot first* banner and the switches are disabled.
 
 ## 3i. Extra apps
-- [ ] The Apps page has Emulators and Music & Video categories and the extra launchers under Gaming & Streaming; installing one works (a large emulator takes a while) and it can get its Steam shortcut with the separate switch. RetroDECK and RetroArch started from Steam are the ones worth trying with a controller.
+- [ ] The Apps page has Emulators and Music & Video categories and the extra launchers under Gaming & Streaming; installing one works (a large emulator takes a while) and it can get its Steam shortcut on the Steam library page. RetroDECK and RetroArch started from Steam are the ones worth trying with a controller.
 - [ ] `install-optional-flatpaks` with no arguments still lists only the original 29 entries.
 
 ## 3h. Normal vs Advanced
 - [ ] Normal mode: Kernel arguments shows only the running command line and a note; no switches, no add/remove. Advanced on: the preset switches (by category), custom arguments and the argument list appear; off again: they disappear.
-- [ ] Apps: each installed app has a separate **Steam shortcut** switch under its install switch (not for apps that are not installed). Toggle one, press Apply: the shortcut appears in Steam (see 3c for what Steam does while it is open). Uninstalling an app removes its shortcut. Neither switch changes what the other does.
+- [ ] Apps: each app has only its install switch (no Steam switch). Uninstalling an app that has a Steam shortcut removes the shortcut too (Steam is closed and reopened if it is running, with a confirmation; see 3c).
 - [ ] The Steam library page still lists every installed app and says it never installs or removes anything.
 
 ## 3g. Switching tabs
@@ -119,3 +119,12 @@ Create a test user, log in on a local session (not wheel).
 ## 5. Kernel-argument safety (VM)
 - [ ] `sudo bopp-kargs remove quiet` on a cmdline containing `rd.quiet`: `rd.quiet` survives.
 - [ ] `ostree admin instutil set-kargs` path: after a removal the machine boots and `ostree admin status` shows the booted and rollback deployments. This path could not be tested without a real ostree system; verify it before relying on it.
+
+## 3j. Tray update entries open the app
+- [ ] From the tray menu, *Update* -> *Operating System*: a boppos-deck window opens on the update progress screen (not just a notification), shows the log, asks for the admin password through the desktop's agent, and offers *Reboot* when an update is staged. `boppos-deck --update os` does the same from a terminal; `--update bios` prints an error and exits 2.
+- [ ] With boppos-deck already open, choosing an entry uses that window. Choosing a second one while the first runs shows "Another action is still running".
+- [ ] After it finishes, the tray's status refreshes by itself (the app starts `boppos-update-monitor`).
+
+## 3k. BoppOS Steam artwork
+- [ ] After the BoppOS shortcut is added (Steam closed, or applied on exit), start Steam: the library entry shows the blue list icon in the sidebar (a JPEG; a PNG stayed blank in testing), the horizontal capsule, and the hero and logo on its page; in Gaming Mode the portrait shows in the grid. If Steam shows no artwork, check `~/.local/share/Steam/userdata/<id>/config/grid/` for five files named `<shortcut id>.png`, `…p.png`, `…_hero.png`, `…_logo.png`, `…_icon.jpg` and tell me the shortcut id Steam uses (the file names are derived from the same crc32 Steam uses; this has not been run against a real Steam).
+- [ ] Removing the shortcut removes those five files; a file you replaced is kept.

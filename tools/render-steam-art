@@ -1,0 +1,56 @@
+#!/usr/bin/env bash
+# Render the Steam library artwork for the BoppOS shortcut from the logo SVGs into share/boppos/steam-art/.
+# The backdrop is the icon's blue: a diagonal gradient from aqua (top-left) to blue (bottom-right), sampled from
+# artwork/icons/hicolor/512x512/apps/boppos-icon.png; the logo on it is the white one, as in the icon.
+# The PNGs are committed, so packaging needs no extra tools; run this after changing the logos.
+# Needs rsvg-convert (librsvg) and python3 with Pillow (the list icon is a JPEG: Steam's sidebar does not draw PNG icons). Sizes are the ones Steam asks for: capsule 920x430, portrait 600x900,
+# hero 3840x1240, logo (transparent) 640 wide, icon 256x256.
+set -euo pipefail
+
+root=$(cd "$(dirname "$0")/.." && pwd)
+art="$root/artwork/icons/hicolor/scalable/apps"
+out="$root/share/boppos/steam-art"
+tmp=$(mktemp -d)
+trap 'rm -rf "$tmp"' EXIT
+mkdir -p "$out"
+# librsvg only reads images that sit next to (or below) the SVG that references them
+cp "$art/boppos-logo-horizontal-white.svg" "$art/boppos-logo-stacked-white.svg" "$tmp/"
+
+# canvas <name> <width> <height> <logo-file> <logo-width> <logo-height> [gradient|none]
+canvas() {
+    local bg=${7:-gradient} x y
+    x=$(( ($2 - $5) / 2 )); y=$(( ($3 - $6) / 2 ))
+    {
+        printf '<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="%s" height="%s">' "$2" "$3"
+        if [ "$bg" = gradient ]; then
+            printf '<defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#83ece5"/>'
+            printf '<stop offset="0.5" stop-color="#6bc2ef"/><stop offset="1" stop-color="#669cf1"/></linearGradient></defs>'
+            printf '<rect width="100%%" height="100%%" fill="url(#g)"/>'
+        fi
+        printf '<image xlink:href="%s" x="%s" y="%s" width="%s" height="%s"/></svg>' "$4" "$x" "$y" "$5" "$6"
+    } > "$tmp/$1.svg"
+    rsvg-convert "$tmp/$1.svg" -o "$out/$1.png"
+}
+
+# aspect ratios: horizontal logo 1253:377, stacked 505:566
+canvas capsule  920  430  boppos-logo-horizontal-white.svg 640  193
+canvas portrait 600  900  boppos-logo-stacked-white.svg    360  404
+canvas hero     3840 1240 boppos-logo-horizontal-white.svg 1400 421
+canvas logo     640  193  boppos-logo-horizontal-white.svg 640  193 none
+
+# icon 256x256 JPEG: the white mark on the same gradient, full bleed (Steam's small library icon; opaque, like the
+# JPEGs Heroic uses)
+sed -E 's/^( +)width="[^"]*"/\1width="315"/; s/^( +)height="[^"]*"/\1height="377"/; s/^( +)viewBox="[^"]*"/\1viewBox="72.5 42 315 377"/' \
+    "$art/boppos-white.svg" > "$tmp/mark.svg"
+{
+    printf '<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="256" height="256">'
+    printf '<defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#83ece5"/>'
+    printf '<stop offset="0.5" stop-color="#6bc2ef"/><stop offset="1" stop-color="#669cf1"/></linearGradient></defs>'
+    printf '<rect width="256" height="256" fill="url(#g)"/>'
+    printf '<image xlink:href="mark.svg" x="61" y="48" width="134" height="160"/></svg>'
+} > "$tmp/icon.svg"
+rsvg-convert "$tmp/icon.svg" -o "$tmp/icon.png"
+python3 -c 'import sys; from PIL import Image; Image.open(sys.argv[1]).convert("RGB").save(sys.argv[2], "JPEG", quality=92)' \
+    "$tmp/icon.png" "$out/icon.jpg"
+rm -f "$out/icon.png"
+echo "rendered:"; ls -l "$out" | awk 'NR>1 {print $5, $9}'

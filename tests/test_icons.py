@@ -30,3 +30,19 @@ def test_notifications_and_polkit_prompts_carry_the_icon():
     assert tray.count(f"--icon={ICON}") == 2 and "--icon=system-" not in tray
     policy = (ROOT / "polkit/actions/org.boppos.deck.policy").read_text()
     assert policy.count("<action ") == policy.count(f"<icon_name>{ICON}</icon_name>") >= 3
+
+
+def test_blue_logo_backdrop_covers_the_whole_canvas():
+    # the backdrop must be a direct child of the root: inside the stacked logo's centring group it was shifted
+    # sideways and left a transparent strip
+    import xml.etree.ElementTree as ET
+
+    root = Path(__file__).parent.parent / "artwork/icons/hicolor/scalable/apps"
+    for kind in ("horizontal", "stacked"):
+        svg = ET.parse(root / f"boppos-logo-{kind}-blue.svg").getroot()
+        x, y, w, h = (float(v) for v in svg.get("viewBox").split())
+        rects = [c for c in svg if c.tag.endswith("}rect")]
+        assert len(rects) == 1, kind
+        r = rects[0]
+        got = tuple(float(r.get(k)) for k in ("x", "y", "width", "height"))
+        assert got == (x, y, w, h), kind

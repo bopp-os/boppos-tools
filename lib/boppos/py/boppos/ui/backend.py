@@ -131,3 +131,13 @@ def fingerprint(data: object, view: object = None) -> str | None:
         return json.dumps([data, view], sort_keys=True, default=str)
     except (TypeError, ValueError):
         return None
+
+
+def trigger_update_check() -> None:
+    """Ask the update monitor to look again, so the tray stops showing the update that was just installed.
+    Polkit lets any local user start this unit; failures do not matter."""
+    try:
+        subprocess.run(["systemctl", "start", "boppos-update-monitor.service"], capture_output=True, check=False,
+                       timeout=240)
+    except (OSError, subprocess.TimeoutExpired):
+        pass

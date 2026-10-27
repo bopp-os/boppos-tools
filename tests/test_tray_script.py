@@ -122,7 +122,18 @@ def test_failed_update_notifies_with_the_last_log_lines(tray, monkeypatch, tmp_p
     assert "failed" in summary and "wrong password" in body and kw.get("urgent")
 
 
-def test_second_update_while_busy_is_refused(tray, monkeypatch):
+def test_update_entries_open_the_deck_update_screen(tray, monkeypatch):
+    launched = []
+    monkeypatch.setattr(tray, "launch_detached", lambda cmd: launched.append(cmd) or True)
+    t = tray.BoppTray()
+    t._on_update("os", "the operating system")
+    t._on_update(None, "everything")
+    assert launched == [["boppos-deck", "--update", "os"], ["boppos-deck", "--update", "all"]]
+    assert t._busy is False  # the window runs the update; the tray has no background job
+
+
+def test_second_update_while_busy_is_refused(tray, monkeypatch, tmp_path):
+    (tmp_path / "boppos-deck").unlink()  # the background path is the one that tracks "busy"
     notes = []
     monkeypatch.setattr(tray, "_notify", lambda *a, **k: notes.append(a))
     t = tray.BoppTray()
@@ -132,6 +143,7 @@ def test_second_update_while_busy_is_refused(tray, monkeypatch):
 
 
 def test_without_bopp_system_updates_fall_back_to_a_terminal(tray, monkeypatch, tmp_path):
+    (tmp_path / "boppos-deck").unlink()
     (tmp_path / "bopp-system").unlink()
     ran = []
     monkeypatch.setattr(tray, "open_in_terminal", lambda cmd, title="": ran.append(cmd))

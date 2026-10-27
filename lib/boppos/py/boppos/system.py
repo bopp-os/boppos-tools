@@ -21,6 +21,18 @@ TARGETS = ("os", "fw", "flatpak", "brew")
 DEFAULT_TARGETS = ("os", "flatpak", "brew")  # same default as boppos-update
 
 
+def parse_targets(value: str) -> list[str] | None:
+    """Update targets from a comma list ("os,fw"). "all" or empty means the default set (None). Unknown names
+    raise ValueError."""
+    names = [t.strip() for t in value.split(",") if t.strip()]
+    if not names or names == ["all"]:
+        return None
+    bad = [t for t in names if t not in TARGETS]
+    if bad:
+        raise ValueError(f"unknown update target(s): {', '.join(bad)} (use all, or {', '.join(TARGETS)})")
+    return [t for t in TARGETS if t in names]
+
+
 def escalation(euid: int | None = None) -> list[str]:
     """Prefix that gets a helper running as root: nothing as root, pkexec normally.
 
