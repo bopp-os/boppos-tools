@@ -249,8 +249,11 @@ def test_shipped_catalog_is_valid_and_documents_every_risk():
         d = kargs.parse_dropin(path.stem, "usr", path)
         assert d.error is None, (path.name, d.error)
         assert d.description and d.risk and d.kargs and d.category != "Other", path.name
-        assert d.enabled is False, f"{path.name} must be off by default"
-        assert not d.match, f"{path.name}: catalog presets apply to every device"
+        if d.category == "Device fixes":
+            assert d.enabled and d.match, f"{path.name}: a device fix is on by default and only for its own device"
+        else:
+            assert d.enabled is False, f"{path.name} must be off by default"
+            assert not d.match, f"{path.name}: catalog presets apply to every device"
         names.add(path.stem)
     assert len(names) == len(catalog)
 
@@ -499,3 +502,15 @@ def test_diff_cmdline_is_token_exact_and_empty_when_equal():
     assert kargs.diff_cmdline("quiet rd.quiet", ["rd.quiet"]) == {"added": [], "removed": ["quiet"]}
     assert kargs.diff_cmdline("a b=1", ["a", "b=1"]) == {"added": [], "removed": []}
     assert kargs.diff_cmdline("", []) == {"added": [], "removed": []}
+
+
+def test_the_onexplayer_panel_fix_applies_only_to_that_device():
+    from pathlib import Path
+
+    path = Path(__file__).parent.parent / "kargs.d" / "90-onexplayer-f1-panel.conf"
+    d = kargs.parse_dropin(path.stem, "usr", path)
+    assert d.error is None
+    assert kargs.matches_device(d, {"product_name": "ONEXPLAYER F1"})
+    assert kargs.matches_device(d, {"product_name": "ONEXPLAYER F1 EVA-01"})
+    assert not kargs.matches_device(d, {"product_name": "ONEXPLAYER 2"})
+    assert not kargs.matches_device(d, {})
