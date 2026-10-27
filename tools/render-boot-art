@@ -10,7 +10,9 @@ tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 
 # The icon SVG has a square canvas with margins; the splash wants the mark cropped to its bounds.
-sed -E 's/width="[^"]*"/width="315"/; s/height="[^"]*"/height="377"/; s/viewBox="[^"]*"/viewBox="72.5 42 315 377"/' \
+# Only the root element's own attributes (they sit alone on indented lines): a bare width="..." would also
+# match stroke-width="..." inside the paths and turn the outline into a giant blob.
+sed -E 's/^( +)width="[^"]*"/\1width="323"/; s/^( +)height="[^"]*"/\1height="385"/; s/^( +)viewBox="[^"]*"/\1viewBox="68.5 38 323 385"/' \
     "$art/boppos-white.svg" > "$tmp/mark.svg"
 
 # Plymouth scales these at run time, so they are rendered large and crisp.
