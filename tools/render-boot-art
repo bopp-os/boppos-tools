@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+# Render the PNGs used by the Plymouth and GRUB themes from the artwork SVGs.
+# The PNGs are committed, so packaging needs no extra tools; run this after changing the logos.
+# Needs rsvg-convert (librsvg).
+set -euo pipefail
+
+root=$(cd "$(dirname "$0")/.." && pwd)
+art="$root/artwork/icons/hicolor/scalable/apps"
+tmp=$(mktemp -d)
+trap 'rm -rf "$tmp"' EXIT
+
+# The icon SVG has a square canvas with margins; the splash wants the mark cropped to its bounds.
+sed -E 's/width="[^"]*"/width="315"/; s/height="[^"]*"/height="377"/; s/viewBox="[^"]*"/viewBox="72.5 42 315 377"/' \
+    "$art/boppos-white.svg" > "$tmp/mark.svg"
+
+# Plymouth scales these at run time, so they are rendered large and crisp.
+rsvg-convert -h 640  "$tmp/mark.svg"                              -o "$root/boot/plymouth/boppos/mark.png"
+rsvg-convert -w 1240 "$art/boppos-logo-horizontal-white.svg"      -o "$root/boot/plymouth/boppos/lockup.png"
+# GRUB cannot scale images well, so these are rendered at their final size.
+rsvg-convert -h 192  "$tmp/mark.svg"                              -o "$root/boot/grub/boppos/mark.png"
+rsvg-convert -w 260  "$art/boppos-logo-horizontal-white.svg"      -o "$root/boot/grub/boppos/lockup.png"
+echo "rendered:"; ls -l "$root"/boot/*/boppos/*.png | awk '{print $5, $9}'

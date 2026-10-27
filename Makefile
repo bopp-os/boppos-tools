@@ -53,4 +53,11 @@ install-artwork:
 	find $(DESTDIR)$(PREFIX)/share/icons -type d -exec chmod 755 {} \;
 	find $(DESTDIR)$(PREFIX)/share/icons -type f -exec chmod 644 {} \;
 
-install: install-tools install-artwork
+# Boot artwork: the Plymouth splash and the GRUB theme (activation is up to the image: see docs/boot-theme.md)
+install-boot-theme:
+	install -d $(DESTDIR)$(PREFIX)/share/plymouth/themes/boppos
+	install -m 644 boot/plymouth/boppos/* $(DESTDIR)$(PREFIX)/share/plymouth/themes/boppos/
+	install -d $(DESTDIR)$(PREFIX)/share/grub/themes/boppos
+	install -m 644 boot/grub/boppos/* $(DESTDIR)$(PREFIX)/share/grub/themes/boppos/
+
+install: install-tools install-artwork install-boot-theme

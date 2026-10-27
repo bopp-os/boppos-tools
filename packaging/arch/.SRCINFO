@@ -40,3 +40,8 @@ pkgname = boppos-tools
 pkgname = boppos-artwork
 	pkgdesc = Artwork and icons for BoppOS
 	depends = hicolor-icon-theme
+
+pkgname = boppos-boot-theme
+	pkgdesc = BoppOS boot artwork: Plymouth splash and GRUB theme
+	optdepends = plymouth: boot splash (select it with plymouth-set-default-theme boppos)
+	optdepends = grub: boot menu theme (copy it to /boot, see the documentation)

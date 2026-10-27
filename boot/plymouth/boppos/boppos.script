@@ -1,0 +1,120 @@
+# BoppOS Plymouth theme.
+#
+# A black screen, the white BoppOS mark breathing slowly in the middle, and the small horizontal
+# wordmark near the bottom. Disk passphrase prompts, questions and boot messages are drawn in white
+# below the mark. Images are scaled to the screen, so any resolution works.
+
+Window.SetBackgroundTopColor(0, 0, 0);
+Window.SetBackgroundBottomColor(0, 0, 0);
+
+screen.w = Window.GetWidth();
+screen.h = Window.GetHeight();
+
+if (screen.w < screen.h) screen.short = screen.w;
+else screen.short = screen.h;
+
+# --- the mark --------------------------------------------------------------------------------
+mark.original = Image("mark.png");
+mark.h = screen.short * 0.24;
+mark.w = mark.original.GetWidth() * mark.h / mark.original.GetHeight();
+mark.image = mark.original.Scale(mark.w, mark.h);
+mark.sprite = Sprite(mark.image);
+mark.sprite.SetX(screen.w / 2 - mark.w / 2);
+mark.sprite.SetY(screen.h * 0.42 - mark.h / 2);
+mark.sprite.SetZ(10);
+
+# --- the wordmark, small, at the bottom --------------------------------------------------------
+lockup.original = Image("lockup.png");
+lockup.h = screen.h * 0.045;
+if (lockup.h < 24) lockup.h = 24;
+lockup.w = lockup.original.GetWidth() * lockup.h / lockup.original.GetHeight();
+lockup.image = lockup.original.Scale(lockup.w, lockup.h);
+lockup.sprite = Sprite(lockup.image);
+lockup.sprite.SetX(screen.w / 2 - lockup.w / 2);
+lockup.sprite.SetY(screen.h - lockup.h - screen.h * 0.06);
+lockup.sprite.SetZ(10);
+lockup.sprite.SetOpacity(0.85);
+
+# --- breathing -------------------------------------------------------------------------------
+# Called about 50 times a second: one breath every three seconds, between 55% and 100% opacity.
+pulse.angle = 0;
+fun refresh_callback () {
+    pulse.angle += 0.0419;
+    mark.sprite.SetOpacity(0.775 + 0.225 * Math.Sin(pulse.angle));
+}
+Plymouth.SetRefreshFunction(refresh_callback);
+
+# --- text: passphrase, questions, messages -------------------------------------------------------
+dialog.y = screen.h * 0.66;
+
+prompt.sprite = Sprite();
+prompt.sprite.SetZ(30);
+entry.sprite = Sprite();
+entry.sprite.SetZ(30);
+message.sprite = Sprite();
+message.sprite.SetZ(30);
+
+bullet.image = Image.Text("•", 1, 1, 1, 1, "Sans 20");
+bullet.shown = 0;
+
+fun centre (sprite, image, y) {
+    sprite.SetImage(image);
+    sprite.SetX(screen.w / 2 - image.GetWidth() / 2);
+    sprite.SetY(y);
+    sprite.SetOpacity(1);
+}
+
+fun hide_bullets () {
+    for (i = 0; i < bullet.shown; i++) bullet.sprite[i].SetOpacity(0);
+}
+
+fun display_normal_callback () {
+    prompt.sprite.SetOpacity(0);
+    entry.sprite.SetOpacity(0);
+    hide_bullets();
+}
+
+# The disk passphrase: the prompt, then one dot per typed character.
+fun display_password_callback (prompt_text, bullet_count) {
+    prompt.image = Image.Text(prompt_text, 1, 1, 1, 1, "Sans 16");
+    centre(prompt.sprite, prompt.image, dialog.y);
+    entry.sprite.SetOpacity(0);
+    spacing = bullet.image.GetWidth() + 6;
+    left = screen.w / 2 - bullet_count * spacing / 2;
+    for (i = 0; i < bullet_count; i++) {
+        if (!bullet.sprite[i]) {
+            bullet.sprite[i] = Sprite(bullet.image);
+            bullet.sprite[i].SetZ(30);
+        }
+        bullet.sprite[i].SetX(left + i * spacing);
+        bullet.sprite[i].SetY(dialog.y + prompt.image.GetHeight() + 12);
+        bullet.sprite[i].SetOpacity(1);
+    }
+    for (i = bullet_count; i < bullet.shown; i++) bullet.sprite[i].SetOpacity(0);
+    if (bullet_count > bullet.shown) bullet.shown = bullet_count;
+}
+
+# A question with a visible answer (not a password).
+fun display_question_callback (prompt_text, entry_text) {
+    hide_bullets();
+    prompt.image = Image.Text(prompt_text, 1, 1, 1, 1, "Sans 16");
+    centre(prompt.sprite, prompt.image, dialog.y);
+    entry.image = Image.Text(entry_text, 1, 1, 1, 1, "Sans 16");
+    centre(entry.sprite, entry.image, dialog.y + prompt.image.GetHeight() + 12);
+}
+
+# Status messages such as "Waiting for the disk".
+fun display_message_callback (text) {
+    message.image = Image.Text(text, 0.8, 0.8, 0.85, 1, "Sans 12");
+    centre(message.sprite, message.image, screen.h * 0.80);
+}
+
+fun hide_message_callback (text) {
+    message.sprite.SetOpacity(0);
+}
+
+Plymouth.SetDisplayNormalFunction(display_normal_callback);
+Plymouth.SetDisplayPasswordFunction(display_password_callback);
+Plymouth.SetDisplayQuestionFunction(display_question_callback);
+Plymouth.SetMessageFunction(display_message_callback);
+Plymouth.SetHideMessageFunction(hide_message_callback);

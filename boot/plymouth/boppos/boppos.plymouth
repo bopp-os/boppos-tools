@@ -1,0 +1,8 @@
+[Plymouth Theme]
+Name=BoppOS
+Description=Black screen, the BoppOS mark breathing in the middle and the wordmark at the bottom
+ModuleName=script
+
+[script]
+ImageDir=/usr/share/plymouth/themes/boppos
+ScriptFile=/usr/share/plymouth/themes/boppos/boppos.script

@@ -1,6 +1,6 @@
 # Maintainer: BoppOS Team
 pkgbase=boppos-tools
-pkgname=('boppos-tools' 'boppos-artwork')
+pkgname=('boppos-tools' 'boppos-artwork' 'boppos-boot-theme')
 pkgver=1.2.0
 pkgrel=1
 arch=('any')
@@ -31,4 +31,13 @@ package_boppos-artwork() {
 
   cd "${srcdir}/${pkgbase}-${pkgver}"
   make DESTDIR="${pkgdir}" PREFIX=/usr SYSCONFDIR=/etc install-artwork
+}
+
+package_boppos-boot-theme() {
+  pkgdesc="BoppOS boot artwork: Plymouth splash and GRUB theme"
+  optdepends=('plymouth: boot splash (select it with plymouth-set-default-theme boppos)'
+              'grub: boot menu theme (copy it to /boot, see the documentation)')
+
+  cd "${srcdir}/${pkgbase}-${pkgver}"
+  make DESTDIR="${pkgdir}" PREFIX=/usr SYSCONFDIR=/etc install-boot-theme
 }
