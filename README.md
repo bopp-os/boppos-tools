@@ -102,6 +102,7 @@ A background system-tray application that reads the update state and alerts you 
 
 * **Status line**: "BoppOS is up to date", "Update available" or "Restart to finish the update". When a restart is pending, *Restart to Finish Update…* appears right below it (it asks again through a notification button first).
 * **Open BoppOS Settings**: starts `boppos-deck` (also what a left click does, where the desktop supports it).
+* **The update entries** (Everything, Operating System, Flatpaks, ...) open `boppos-deck` on its update screen and start the update there, so you see progress, any password prompt and the restart offer. They are `boppos-deck --update all` or `--update os,fw,flatpak,brew`; if the app is already open, the running window is used. Without `boppos-deck` they fall back to background notifications, and without `bopp-system` to a terminal running `boppos-update`.
 * **Check for Updates**, **Install Updates ▸** (Everything, Operating System, Flatpak Apps, Firmware, and Containers in a terminal), **Review Changes…** (`bopp-diff`).
 * **Last checked** and **Quit**.
 

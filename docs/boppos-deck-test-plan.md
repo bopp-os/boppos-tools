@@ -119,3 +119,8 @@ Create a test user, log in on a local session (not wheel).
 ## 5. Kernel-argument safety (VM)
 - [ ] `sudo bopp-kargs remove quiet` on a cmdline containing `rd.quiet`: `rd.quiet` survives.
 - [ ] `ostree admin instutil set-kargs` path: after a removal the machine boots and `ostree admin status` shows the booted and rollback deployments. This path could not be tested without a real ostree system; verify it before relying on it.
+
+## 3j. Tray update entries open the app
+- [ ] From the tray menu, *Update* -> *Operating System*: a boppos-deck window opens on the update progress screen (not just a notification), shows the log, asks for the admin password through the desktop's agent, and offers *Reboot* when an update is staged. `boppos-deck --update os` does the same from a terminal; `--update bios` prints an error and exits 2.
+- [ ] With boppos-deck already open, choosing an entry uses that window. Choosing a second one while the first runs shows "Another action is still running".
+- [ ] After it finishes, the tray's status refreshes by itself (the app starts `boppos-update-monitor`).

@@ -233,7 +233,12 @@ class SystemPage(Page):
 
     def update(self, only: list[str] | None, label: str) -> None:
         cmd = [tool("bopp-system"), "--json", "upgrade"] + (["--only", ",".join(only)] if only else [])
-        self.win.run_job(f"Updating: {label}", [cmd], lambda ok, final: self.refresh())
+
+        def done(ok: bool, final: dict) -> None:
+            self.refresh()
+            self.win.load(lambda: backend.trigger_update_check(), lambda _res: None)
+
+        self.win.run_job(f"Updating: {label}", [cmd], done)
 
     def reboot(self) -> None:
         self.win.confirm("Reboot now?", "Save your game first. The system restarts immediately.", "Reboot",

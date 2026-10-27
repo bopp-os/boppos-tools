@@ -374,7 +374,11 @@ class BoppTray:
             open_in_terminal(["bopp-diff"], title="BoppOS — Pending Changes")
 
     def _on_update(self, only: str | None, label: str) -> None:
-        """Run bopp-system in the background; notifications report progress and the result."""
+        """Open boppos-deck on its update screen, where progress and password prompts are visible. Without it,
+        run bopp-system in the background and report through notifications; without that, a terminal."""
+        if shutil.which("boppos-deck"):
+            launch_detached(["boppos-deck", "--update", only or "all"])
+            return
         if not shutil.which("bopp-system"):
             open_in_terminal(["bash", "-c", "boppos-update --os --flatpak --brew --verbose; echo; "
                               "read -p 'Press Enter to close...' -r"], title="BoppOS Update")
