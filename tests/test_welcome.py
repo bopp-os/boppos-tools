@@ -180,3 +180,14 @@ def test_risky_presets_that_fit_anywhere_are_unsupported():
         for name in ("20-sleep-deep", "50-pci-noaer", "80-intel-iommu-on"):
             assert fit[name].fit == "unsupported" and "Medium risk" in fit[name].reason
         assert fit["10-nvme-no-apst"].fit == "optional"
+
+
+def test_amd_overclock_is_its_own_preset_that_only_fits_amd_graphics():
+    for key, hw in hwprofiles.PROFILES.items():
+        oc = next(o for o in welcome.karg_options(hw) if o.name == welcome.AMD_OVERCLOCK)
+        assert oc.risk_level == "high"
+        assert oc.fit == ("fits" if "amd" in hw.gpus else "unsupported"), key
+        if oc.fit == "unsupported":
+            assert "AMD" in oc.reason
+    for hw in hwprofiles.PROFILES.values():
+        assert welcome.AMD_OVERCLOCK not in welcome.initial_choices(hw).kargs

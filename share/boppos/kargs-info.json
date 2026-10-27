@@ -103,7 +103,8 @@
   "match": "amdgpu.ppfeaturemask=0xffffffff",
   "summary": "Unlocks all AMD GPU power features. Needed for overclocking, undervolting and fan control tools such as LACT.",
   "image_default": true,
-  "risk": "Lets tools set clocks and voltages that can crash the GPU or damage it if misused."
+  "risk": "Lets tools set clocks and voltages that can crash the GPU or damage it if misused.",
+  "risk_level": "high"
  },
  {
   "match": "amdgpu.gpu_recovery=1",

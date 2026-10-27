@@ -154,6 +154,8 @@ class WelcomeFlow(Gtk.Box):
         never = group("Unsupported", "Locked off: they do not fit this hardware, or they are risky enough to leave "
                       "to Kernel arguments in boppos-deck.")
         gone = expander_row("Show unsupported presets", "")
+        oc = next((o for o in options if o.name == welcome.AMD_OVERCLOCK), None)
+        options = [o for o in options if o is not oc]
         for o in options:
             subtitle = o.description + (f"  {o.risk}" if o.risk else "")
             if o.fit == "unsupported":
@@ -165,6 +167,15 @@ class WelcomeFlow(Gtk.Box):
             (suggested if o.fit == "fits" else others).add(row)
         never.add(gone)
         groups = ([rec] if rec else []) + [here]
+        if oc:
+            overclock = group("AMD GPU overclocking", "For tools such as LACT. Leave this off unless you will "
+                              "overclock or undervolt. Takes effect after a reboot.")
+            ok = oc.fit != "unsupported"
+            row = switch_row("Unlock overclocking, undervolting and fan control",
+                             f"{oc.risk}" if ok else oc.reason, ok and oc.name in c.kargs, toggle(c.kargs, oc.name))
+            row.set_sensitive(ok)
+            overclock.add(row)
+            groups.append(overclock)
         if options:
             groups.append(warn)
         if any(o.suggested for o in options):

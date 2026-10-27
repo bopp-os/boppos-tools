@@ -121,6 +121,9 @@ def app_options() -> dict[str, list[flatpaks.App]]:
     return out
 
 
+# Presets the wizard shows as a switch of their own instead of in the list of presets.
+AMD_OVERCLOCK = "72-amdgpu-overclock"
+
 GPU_NAMES = {"amd": "AMD", "intel": "Intel", "nvidia": "NVIDIA"}
 
 
