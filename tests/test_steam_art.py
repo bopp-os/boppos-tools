@@ -1,6 +1,7 @@
 import zlib
 from pathlib import Path
 
+import pytest
 from boppos import steam_shortcut as ss
 
 ROOT = Path(__file__).parent.parent
@@ -22,7 +23,7 @@ def test_artwork_is_named_after_the_shortcut_id(tmp_path):
     grid = tmp_path / "config" / "grid"
     assert ss.install_art(grid, fake_art(tmp_path)) == 5
     i = app_id()
-    want = [f"{i}.png", f"{i}p.png", f"{i}_hero.png", f"{i}_logo.png", f"{i}_icon.png"]
+    want = [f"{i}.png", f"{i}p.png", f"{i}_hero.png", f"{i}_logo.png", f"{i}_icon.jpg"]
     assert sorted(p.name for p in grid.iterdir()) == sorted(want)
 
 
@@ -70,7 +71,60 @@ def test_other_shortcuts_get_no_boppos_artwork(tmp_path, monkeypatch):
 def test_shipped_artwork_has_the_sizes_steam_asks_for():
     import struct
     sizes = {"capsule.png": (920, 430), "portrait.png": (600, 900), "hero.png": (3840, 1240),
-             "logo.png": (640, 193), "icon.png": (256, 256)}
+             "logo.png": (640, 193)}
     for name, want in sizes.items():
         head = (ROOT / "share/boppos/steam-art" / name).read_bytes()[16:24]
         assert struct.unpack(">II", head) == want, name
+    # the sidebar icon is a JPEG: Steam did not draw PNG icons there
+    assert (ROOT / "share/boppos/steam-art/icon.jpg").read_bytes()[:2] == b"\xff\xd8"
+
+
+def _png(path, size=(64, 64), rgba=(255, 0, 0, 0)):
+    from PIL import Image
+    Image.new("RGBA", size, rgba).save(path)
+
+
+def test_other_shortcuts_get_a_jpeg_icon_made_from_their_png(tmp_path):
+    pytest.importorskip("PIL")
+    src = tmp_path / "app.png"
+    _png(src)
+    cfg = tmp_path / "cfg"
+    cfg.mkdir()
+    entry = ss.new_entry("/usr/bin/flatpak", "Foo", icon=str(src), launch_options="run org.foo.Foo")
+    ss.apply_changes(cfg / "shortcuts.vdf", [entry], [])
+    stored = next(iter(ss.vdf.loads((cfg / "shortcuts.vdf").read_bytes())["shortcuts"].values()))
+    icon = Path(stored["icon"])
+    assert icon.parent == cfg / "grid" and icon.name.endswith("_icon.jpg") and icon.read_bytes()[:2] == b"\xff\xd8"
+
+
+def test_an_existing_png_shortcut_is_repaired_but_a_chosen_icon_is_not(tmp_path):
+    pytest.importorskip("PIL")
+    src = tmp_path / "app.png"
+    _png(src)
+    cfg = tmp_path / "cfg"
+    cfg.mkdir()
+    path = cfg / "shortcuts.vdf"
+    old = ss.new_entry("/usr/bin/flatpak", "Foo", icon=str(src), launch_options="run org.foo.Foo")
+    ss.apply_changes(path, [{**old, "icon": str(src)}], [])  # as an older version stored it (add keeps a PNG too)
+    data = ss.vdf.loads(path.read_bytes())
+    next(iter(data["shortcuts"].values()))["icon"] = str(src)
+    path.write_bytes(ss.vdf.dumps(data))
+    res = ss.apply_changes(path, [old], [])
+    assert res == {"added": 0, "removed": 0, "updated": 1}
+    chosen = ss.vdf.loads(path.read_bytes())
+    next(iter(chosen["shortcuts"].values()))["icon"] = "/home/me/mine.jpg"
+    path.write_bytes(ss.vdf.dumps(chosen))
+    assert ss.apply_changes(path, [old], [])["updated"] == 0
+
+
+def test_removing_a_shortcut_removes_the_icon_made_for_it(tmp_path):
+    pytest.importorskip("PIL")
+    src = tmp_path / "app.png"
+    _png(src)
+    cfg = tmp_path / "cfg"
+    cfg.mkdir()
+    entry = ss.new_entry("/usr/bin/flatpak", "Foo", icon=str(src), launch_options="run org.foo.Foo")
+    ss.apply_changes(cfg / "shortcuts.vdf", [entry], [])
+    assert len(list((cfg / "grid").iterdir())) == 1
+    ss.apply_changes(cfg / "shortcuts.vdf", [], [("/usr/bin/flatpak", "run org.foo.Foo")])
+    assert list((cfg / "grid").iterdir()) == []

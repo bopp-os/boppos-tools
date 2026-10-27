@@ -64,7 +64,7 @@ jobs:
 
       - name: Lint and test Python (ruff, pytest)
         run: |
-          pip install pytest ruff
+          pip install pytest ruff pillow
           py=$(grep -lE '^#!.*python' bin/* libexec/boppos/* lib/boppos/* boot/grub/* 2>/dev/null || true)
           # shellcheck disable=SC2086
           ruff check lib/boppos/py tests $py

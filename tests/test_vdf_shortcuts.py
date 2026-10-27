@@ -143,11 +143,11 @@ def test_flatpak_entry_runs_flatpak_with_launch_options():
 def test_shortcuts_are_identified_by_exe_and_launch_options(tmp_path):
     path = tmp_path / "shortcuts.vdf"
     a, b = flatpak("org.a.A", "A"), flatpak("org.b.B", "B")
-    assert ss.apply_changes(path, [a.entry(), b.entry()], []) == {"added": 2, "removed": 0}
-    assert ss.apply_changes(path, [a.entry()], []) == {"added": 0, "removed": 0}  # idempotent
+    assert ss.apply_changes(path, [a.entry(), b.entry()], []) == {"added": 2, "removed": 0, "updated": 0}
+    assert ss.apply_changes(path, [a.entry()], []) == {"added": 0, "removed": 0, "updated": 0}  # idempotent
     data = vdf.loads(path.read_bytes())
     assert ss.has_shortcut(data, "/usr/bin/flatpak", "run org.a.A") and not ss.has_shortcut(data, "/usr/bin/flatpak")
-    assert ss.apply_changes(path, [], [a.identity()]) == {"added": 0, "removed": 1}
+    assert ss.apply_changes(path, [], [a.identity()]) == {"added": 0, "removed": 1, "updated": 0}
     left = vdf.loads(path.read_bytes())["shortcuts"]
     assert [e["AppName"] for e in left.values()] == ["B"] and list(left) == ["0"]  # renumbered, B untouched
 
@@ -162,7 +162,7 @@ def test_removing_leaves_other_shortcuts_byte_for_byte_and_backs_up_once(tmp_pat
     assert after == vdf.loads(SAMPLE)  # the user's own shortcut survived both edits
     assert len(list(tmp_path.glob("shortcuts.vdf.bak-*"))) == 2
     before = path.read_bytes()
-    assert ss.apply_changes(path, [], [g.identity()], stamp="3") == {"added": 0, "removed": 0}
+    assert ss.apply_changes(path, [], [g.identity()], stamp="3") == {"added": 0, "removed": 0, "updated": 0}
     assert path.read_bytes() == before and not (tmp_path / "shortcuts.vdf.bak-3").exists()
 
 
@@ -170,7 +170,7 @@ def test_add_and_remove_in_one_write(tmp_path):
     path = tmp_path / "shortcuts.vdf"
     a, b = flatpak("org.a.A", "A"), flatpak("org.b.B", "B")
     ss.apply_changes(path, [a.entry()], [])
-    assert ss.apply_changes(path, [b.entry()], [a.identity()]) == {"added": 1, "removed": 1}
+    assert ss.apply_changes(path, [b.entry()], [a.identity()]) == {"added": 1, "removed": 1, "updated": 0}
     assert [e["AppName"] for e in vdf.loads(path.read_bytes())["shortcuts"].values()] == ["B"]
     assert len(list(tmp_path.glob("shortcuts.vdf.bak-*"))) <= 2
 

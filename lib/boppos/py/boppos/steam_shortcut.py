@@ -19,7 +19,7 @@ ICON = "/usr/share/icons/hicolor/256x256/apps/boppos-icon.png"
 BACKUPS_KEEP = 3
 # Steam's library artwork for a shortcut lives in <config>/grid, named after the shortcut's id
 ART_NAMES = {"capsule.png": "{id}.png", "portrait.png": "{id}p.png", "hero.png": "{id}_hero.png",
-             "logo.png": "{id}_logo.png", "icon.png": "{id}_icon.png"}
+             "logo.png": "{id}_logo.png", "icon.jpg": "{id}_icon.jpg"}
 
 
 class SteamRunning(Exception):
@@ -59,6 +59,44 @@ def is_boppos(exe: str, launch: str = "") -> bool:
     return exe.strip('"') == EXE and not launch
 
 
+def grid_icon(grid: Path, app_id: int) -> Path:
+    """Where the library sidebar's icon is kept. Steam draws a JPEG there; PNG icons stayed blank."""
+    return grid / f"{app_id & 0xFFFFFFFF}_icon.jpg"
+
+
+def make_jpeg_icon(src: Path, dest: Path, background: tuple[int, int, int] = (32, 34, 40)) -> bool:
+    """Convert an icon to a JPEG, flattening transparency onto `background`. False when Pillow is missing or
+    the image cannot be read (the shortcut then keeps its original icon)."""
+    try:
+        from PIL import Image
+    except ImportError:
+        return False
+    try:
+        with Image.open(src) as im:
+            rgba = im.convert("RGBA")
+            flat = Image.new("RGBA", rgba.size, (*background, 255))
+            flat.alpha_composite(rgba)
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            flat.convert("RGB").save(dest, "JPEG", quality=92)
+    except (OSError, ValueError):
+        return False
+    return True
+
+
+def with_grid_icon(entry: dict, grid: Path) -> dict:
+    """`entry` with its icon pointing at a JPEG in the grid folder (made from the entry's own icon, or BoppOS's
+    shipped one). The entry is returned unchanged when no JPEG can be made."""
+    app_id = shortcut_appid(entry["Exe"], entry["AppName"])
+    dest = grid_icon(grid, app_id)
+    if not dest.exists() and not is_boppos(entry["Exe"], entry.get("LaunchOptions", "")):
+        icon = entry.get("icon", "")
+        if icon and Path(icon).is_file() and not str(icon).lower().endswith(".jpg"):
+            make_jpeg_icon(Path(icon), dest)
+    if not dest.exists():
+        return entry
+    return {**entry, "icon": str(dest)}
+
+
 def _art_files(grid: Path, source: Path | None) -> list[tuple[Path, Path]]:
     src = source or share_file("steam-art")
     app_id = shortcut_appid(f'"{EXE}"', APP_NAME) & 0xFFFFFFFF
@@ -86,6 +124,20 @@ def remove_art(grid: Path, source: Path | None = None) -> int:
             dest.unlink()
             removed += 1
     return removed
+
+
+def _repair_icon(data: dict, entry: dict, exe: str, launch: str) -> int:
+    """Point an existing shortcut with no icon, or a PNG one, at the JPEG icon. An icon you chose is left alone."""
+    new = str(entry.get("icon", ""))
+    if not new.lower().endswith(".jpg"):
+        return 0
+    n = 0
+    for e in _shortcuts(data).values():
+        old = str(e.get("icon", "")) if isinstance(e, dict) else ""
+        if _matches(e, exe, launch) and old != new and (not old or old.lower().endswith(".png")):
+            e["icon"] = new
+            n += 1
+    return n
 
 
 def _shortcuts(data: dict) -> dict:
@@ -178,15 +230,21 @@ def apply_changes(path: Path, adds: list[dict], removes: list[tuple[str, str]], 
     before = len(_shortcuts(data))
     new_data = remove_shortcuts(data, removes) if removes else data
     removed = before - len(_shortcuts(new_data)) if removes else 0
-    added = 0
+    grid = path.parent / "grid"
+    if any(is_boppos(e["Exe"], e.get("LaunchOptions", "")) for e in adds):
+        install_art(grid)  # also when the shortcut already exists: older installs get artwork
+    gone = [e for e in _shortcuts(data).values() if any(_matches(e, x, la) for x, la in removes)]
+    added = updated = 0
     for entry in adds:
-        if not has_shortcut(new_data, entry["Exe"].strip('"'), entry.get("LaunchOptions", "")):
+        entry = with_grid_icon(entry, grid)
+        exe, launch = entry["Exe"].strip('"'), entry.get("LaunchOptions", "")
+        if not has_shortcut(new_data, exe, launch):
             new_data = add_shortcut(new_data, entry)
             added += 1
-    if any(is_boppos(e["Exe"], e.get("LaunchOptions", "")) for e in adds):
-        install_art(path.parent / "grid")  # also when the shortcut already exists: older installs get artwork
-    if not added and not removed:
-        return {"added": 0, "removed": 0}
+        else:
+            updated += _repair_icon(new_data, entry, exe, launch)
+    if not added and not removed and not updated:
+        return {"added": 0, "removed": 0, "updated": 0}
     new = vdf.dumps(new_data)
     check = vdf.loads(new)  # must parse back with exactly the expected number of shortcuts
     if len(_shortcuts(check)) != before + added - removed:
@@ -205,10 +263,15 @@ def apply_changes(path: Path, adds: list[dict], removes: list[tuple[str, str]], 
         Path(tmp).unlink(missing_ok=True)
         raise
     if removed and any(is_boppos(exe, launch) for exe, launch in removes):
-        remove_art(path.parent / "grid")
-    return {"added": added, "removed": removed}
+        remove_art(grid)
+    for e in gone:  # icons we made for the removed shortcuts
+        icon = Path(str(e.get("icon", "")))
+        if icon.parent == grid and icon.name.endswith("_icon.jpg"):
+            icon.unlink(missing_ok=True)
+    return {"added": added, "removed": removed, "updated": updated}
 
 
 def install_into(path: Path, entry: dict, stamp: str | None = None) -> str:
     """Add `entry` to one shortcuts.vdf. Returns "added" or "present"; raises (file untouched) on trouble."""
-    return "added" if apply_changes(path, [entry], [], stamp)["added"] else "present"
+    res = apply_changes(path, [entry], [], stamp)
+    return "added" if res["added"] else ("updated" if res["updated"] else "present")
