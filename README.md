@@ -186,7 +186,7 @@ bopp-steam-shortcut sync --add ID[,ID] --remove ID[,ID] [--restart-steam]
 bopp-steam-shortcut apply-pending [--wait SECONDS] [--reopen-steam]
 ```
 
-Adds and removes non-Steam shortcuts so apps can be started from Gaming Mode. Flatpak apps get `flatpak run <id>` as launch options and their exported PNG icon; each shortcut is identified by what it runs, so your own shortcuts are never touched. boppos-deck has a **Steam library** page: what is already in Steam on top, everything else in collapsed categories (the curated list's, plus "Other apps").
+Adds and removes non-Steam shortcuts so apps can be started from Gaming Mode. Flatpak apps get `flatpak run <id>` as launch options and their exported PNG icon; each shortcut is identified by what it runs, so your own shortcuts are never touched. The BoppOS shortcut gets the blue app icon and library artwork (capsule, portrait, hero and logo, rendered by `tools/render-steam-art` onto the icon's blue gradient and installed in `/usr/share/boppos/steam-art/`); the images are copied into Steam's `grid/` folder under the shortcut's id when it is added, never over a file that is already there, and removed with the shortcut only if still unchanged. boppos-deck has a **Steam library** page: what is already in Steam on top, everything else in collapsed categories (the curated list's, plus "Other apps").
 
 Steam only keeps changes to `shortcuts.vdf` when it is closed, and rewrites the file when it exits, so changes are **queued** in `~/.local/state/boppos-deck/steam-pending.json` and applied as soon as Steam is not running:
 * Steam closed: applied right away.
@@ -202,7 +202,7 @@ Every edit backs the file up first (last 3 kept), checks the new bytes parse bac
 A separate package that installs the BoppOS boot splash (black, the white mark breathing, the small wordmark at the
 bottom, with a working disk-passphrase prompt) and a matching GRUB theme. It only installs files; selecting the
 Plymouth theme is a step for the image, and `sudo bopp-grub-theme install` puts the GRUB theme on `/boot` (reversible, with `--dry-run`); both are described in [docs/boot-theme.md](docs/boot-theme.md), which also has a way to preview Plymouth without rebooting. `boppos-artwork` now also ships the logo lockups
-(`boppos-logo-{horizontal,stacked}-{white,black}.svg`).
+(`boppos-logo-{horizontal,stacked}-{white,black,blue}.svg`; *blue* is the white logo on the icon's blue gradient).
 
 ## Critical System & Migration Tools
 

@@ -20,7 +20,9 @@ install-tools:
 	install -m 644 share/applications/* $(DESTDIR)$(PREFIX)/share/applications/
 	
 	install -d $(DESTDIR)$(PREFIX)/share/boppos
-	install -m 644 share/boppos/* $(DESTDIR)$(PREFIX)/share/boppos/
+	find share/boppos -maxdepth 1 -type f -exec install -m 644 {} $(DESTDIR)$(PREFIX)/share/boppos/ \;
+	install -d $(DESTDIR)$(PREFIX)/share/boppos/steam-art
+	install -m 644 share/boppos/steam-art/* $(DESTDIR)$(PREFIX)/share/boppos/steam-art/
 	chmod 755 $(DESTDIR)$(PREFIX)/share/boppos/*.sh || true
 	
 	install -d $(DESTDIR)$(PREFIX)/lib/systemd/system

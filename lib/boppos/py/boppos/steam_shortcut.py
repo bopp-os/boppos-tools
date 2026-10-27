@@ -10,12 +10,16 @@ import zlib
 from pathlib import Path
 
 from . import vdf
+from .paths import share_file
 from .vdf import Int32, VdfError
 
 APP_NAME = "BoppOS"
 EXE = "/usr/bin/boppos-deck"
 ICON = "/usr/share/icons/hicolor/256x256/apps/boppos-icon.png"
 BACKUPS_KEEP = 3
+# Steam's library artwork for a shortcut lives in <config>/grid, named after the shortcut's id
+ART_NAMES = {"capsule.png": "{id}.png", "portrait.png": "{id}p.png", "hero.png": "{id}_hero.png",
+             "logo.png": "{id}_logo.png"}
 
 
 class SteamRunning(Exception):
@@ -49,6 +53,39 @@ def new_entry(exe: str = EXE, name: str = APP_NAME, icon: str = ICON, launch_opt
         "FlatpakAppID": "",
         "tags": {},
     }
+
+
+def is_boppos(exe: str, launch: str = "") -> bool:
+    return exe.strip('"') == EXE and not launch
+
+
+def _art_files(grid: Path, source: Path | None) -> list[tuple[Path, Path]]:
+    src = source or share_file("steam-art")
+    app_id = shortcut_appid(f'"{EXE}"', APP_NAME) & 0xFFFFFFFF
+    return [(src / name, grid / pattern.format(id=app_id)) for name, pattern in ART_NAMES.items()
+            if (src / name).is_file()]
+
+
+def install_art(grid: Path, source: Path | None = None) -> int:
+    """Copy BoppOS's Steam artwork into the grid folder. A file that is already there is left alone, so artwork
+    you chose yourself is never replaced. Returns how many files were copied."""
+    copied = 0
+    for src, dest in _art_files(grid, source):
+        if not dest.exists():
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src, dest)
+            copied += 1
+    return copied
+
+
+def remove_art(grid: Path, source: Path | None = None) -> int:
+    """Remove the artwork install_art put there. Only files identical to ours go: your own are kept."""
+    removed = 0
+    for src, dest in _art_files(grid, source):
+        if dest.is_file() and dest.read_bytes() == src.read_bytes():
+            dest.unlink()
+            removed += 1
+    return removed
 
 
 def _shortcuts(data: dict) -> dict:
@@ -146,6 +183,8 @@ def apply_changes(path: Path, adds: list[dict], removes: list[tuple[str, str]], 
         if not has_shortcut(new_data, entry["Exe"].strip('"'), entry.get("LaunchOptions", "")):
             new_data = add_shortcut(new_data, entry)
             added += 1
+    if any(is_boppos(e["Exe"], e.get("LaunchOptions", "")) for e in adds):
+        install_art(path.parent / "grid")  # also when the shortcut already exists: older installs get artwork
     if not added and not removed:
         return {"added": 0, "removed": 0}
     new = vdf.dumps(new_data)
@@ -165,6 +204,8 @@ def apply_changes(path: Path, adds: list[dict], removes: list[tuple[str, str]], 
     except BaseException:
         Path(tmp).unlink(missing_ok=True)
         raise
+    if removed and any(is_boppos(exe, launch) for exe, launch in removes):
+        remove_art(path.parent / "grid")
     return {"added": added, "removed": removed}
 
 
