@@ -109,6 +109,15 @@ def default_flatpak_ids() -> set[str]:
         return set()
 
 
+def curated_flatpak_ids() -> set[str]:
+    """The curated list that used to be installed by hand: the wizard now recommends all of its apps."""
+    try:
+        apps = flatpaks.parse_list(Path(flatpaks.DEFAULT_LIST).read_text())
+    except (OSError, flatpaks.ListError):
+        return set()
+    return {a.ref for a in apps if a.kind == "app"}
+
+
 def app_options() -> dict[str, list[flatpaks.App]]:
     """The curated apps by category (runtimes and extensions are not offered)."""
     try:
@@ -176,7 +185,7 @@ def recommended(hw: hwprofiles.Hardware | None = None) -> list[Recommended]:
     hw = hwprofiles.detect() if hw is None else hw
     extra = hwprofiles.KIND_DEFAULTS.get(hw.kind, {})
     known = {a.ref for apps in app_options().values() for a in apps}
-    refs = default_flatpak_ids() | (set(extra.get("extra_flatpaks", ())) & known)
+    refs = (default_flatpak_ids() | curated_flatpak_ids() | set(extra.get("extra_flatpaks", ()))) & known
     recs = [Recommended("apps", "flatpak", r) for r in sorted(refs)]
     flags = {"firmware_check": True, "steam_shortcuts": False, "decky": False, "auto_updates": False}
     flags.update({k: bool(v) for k, v in extra.items() if k in flags})

@@ -116,7 +116,7 @@ def test_handheld_defaults_add_steam_items_but_never_kargs():
     assert c.steam_shortcuts and c.decky and c.kargs == set()
     assert "com.vysp3r.ProtonPlus" in c.flatpaks and "io.github.kolunmi.Bazaar" in c.flatpaks
     d = welcome.initial_choices(hwprofiles.PROFILES["amd-desktop"])
-    assert not (d.steam_shortcuts or d.decky) and "com.vysp3r.ProtonPlus" not in d.flatpaks
+    assert not (d.steam_shortcuts or d.decky)
 
 
 def test_vm_skips_the_firmware_check_and_laptop_gets_auto_updates():
@@ -192,3 +192,13 @@ def test_amd_overclock_is_its_own_preset_that_only_fits_amd_graphics():
             assert "AMD" in oc.reason
     for hw in hwprofiles.PROFILES.values():
         assert welcome.AMD_OVERCLOCK not in welcome.initial_choices(hw).kargs
+
+
+def test_every_app_of_the_curated_list_is_recommended_and_switched_on():
+    hw = hwprofiles.PROFILES["amd-desktop"]
+    recommended = {r.key for r in welcome.recommended(hw) if r.kind == "flatpak"}
+    assert "it.mijorus.gearlever" in recommended
+    assert welcome.curated_flatpak_ids() and welcome.curated_flatpak_ids() <= recommended
+    assert recommended <= welcome.initial_choices(hw).flatpaks
+    extra_only = {a.ref for apps in welcome.app_options().values() for a in apps} - recommended
+    assert "net.lutris.Lutris" in extra_only  # the opt-in extras stay opt-in
