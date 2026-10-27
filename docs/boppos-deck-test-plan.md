@@ -90,16 +90,20 @@ Add the app via `bopp-steam-shortcut add` with Steam closed, then start Steam.
    Add `SteamDeck=1` to make it full screen with controller prompts, like Gaming Mode.
 2. **Gaming Mode look, real actions, no password:** `SteamDeck=1 BOPPOS_HELPER_ESCALATE=sudo ...` after `sudo -v`. The password
    screen does not appear here (sudo replaces polkit); this is for checking everything else.
-3. **The real thing (our polkit agent + `pkexec`)** needs a session where no desktop agent is running, because only one agent can
-   register per login session. A text login on another TTY is one:
-   - Ctrl+Alt+F3, log in as your normal user.
-   - `cd` to the checkout, then:
-     `SteamDeck=1 BOPPOS_HELPER_DIR="$PWD/libexec/boppos" gamescope -W 1280 -H 800 -f -- bin/boppos-deck`
-     (do **not** set `BOPPOS_HELPER_ESCALATE`).
+3. **The real thing (our polkit agent + `pkexec`)** needs a login session where no desktop agent is running, because only one
+   agent can serve a session and KDE's already serves yours (that is why a KDE password window appears when you run the app from
+   a terminal inside KDE). Two ways to get such a session:
+   - **From inside KDE, in a window:** `tools/dev-gaming`. It starts the app from a new login session with `su -l` (you type your
+     own password once); the window still opens on your screen, but `pkexec` requests from that session have no desktop agent
+     and go to the app's keyboard. Run `tools/dev-gaming --check` first: it asks `pkexec true` from the new session, and the
+     password must be asked **in the terminal**. If a KDE window appears instead, this route does not work on your system; use the next one.
+   - **From a text console:** Ctrl+Alt+F3, log in, `cd` to the checkout, then
+     `SteamDeck=1 BOPPOS_HELPER_DIR="$PWD/libexec/boppos" gamescope -W 1280 -H 800 -f -- bin/boppos-deck`.
+     Ctrl+Alt+F1 (or `exit`) returns to the desktop.
+   - Do **not** set `BOPPOS_HELPER_ESCALATE` in either: it replaces polkit with sudo.
    - From a checkout the read-only calls are not waived either (the polkit rule only knows `/usr`), so the first page already asks
      for your password: that is the keyboard test. Then try an Advanced action (a preset switch). Type your real password with
      the controller. A wrong one should say "Wrong password. Try again."; B cancels and the action reports it was not authorised.
-   - Ctrl+Alt+F1/F2 (or `exit`) returns to the desktop.
    - If it never prompts, look at the first lines the app printed: "polkit agent not registered (...)" means another agent
      already owns that session.
 

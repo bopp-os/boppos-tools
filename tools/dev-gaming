@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+# Run boppos-deck the way Gaming Mode does: full screen, controller prompts, and answering its own
+# password requests with the on-screen keyboard instead of a desktop dialog.
+#
+# Only one polkit agent can serve a login session, and KDE's already serves yours. So the app is started from a
+# NEW login session (via `su -l`, you type your own password once); its window still opens on your screen.
+# Real pkexec requests from that session go to the app's keyboard, not to KDE.
+#
+#   tools/dev-gaming            the app, real helpers from this checkout
+#   tools/dev-gaming --check    only prove that the new session has no desktop agent (see below), then stop
+set -euo pipefail
+
+root=$(cd "$(dirname "$0")/.." && pwd)
+mode=${1:-run}
+
+# What the new session needs to reach your screen (su -l starts with an almost empty environment)
+env_args=(
+    "XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+    "WAYLAND_DISPLAY=${WAYLAND_DISPLAY:-wayland-0}"
+    "DISPLAY=${DISPLAY:-:0}"
+    "DBUS_SESSION_BUS_ADDRESS=${DBUS_SESSION_BUS_ADDRESS:-unix:path=${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/bus}"
+)
+[[ -n "${XAUTHORITY:-}" ]] && env_args+=("XAUTHORITY=$XAUTHORITY")
+
+if [[ "$mode" == "--check" ]]; then
+    inner='echo "this session: ${XDG_SESSION_ID:-none}"; echo "now asking pkexec for something harmless;"
+echo "if the password is asked HERE in this terminal, no desktop agent covers this session (good):"; pkexec true && echo OK'
+else
+    inner=$(printf 'cd %q && exec env %s SteamDeck=1 BOPPOS_HELPER_DIR=%q bin/boppos-deck' \
+        "$root" "$(printf '%q ' "${env_args[@]}")" "$root/libexec/boppos")
+fi
+
+echo "desktop session: ${XDG_SESSION_ID:-unknown}"
+echo "Starting a new login session for $USER (su asks for your password)..."
+exec su -l "$USER" -c "$inner"

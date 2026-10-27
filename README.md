@@ -316,6 +316,9 @@ SteamDeck=1 BOPPOS_DECK_TEST=keyboard bin/boppos-deck   # same, looking and beha
 ```
 
 Nothing typed there is checked or sent anywhere. To test the **real** thing (our polkit agent answering a real
-`pkexec` request), see "Gaming Mode keyboard" in `docs/boppos-deck-test-plan.md`.
+`pkexec` request) without leaving KDE, use `tools/dev-gaming`: it starts the app from a new login session (`su -l`), where KDE's
+password agent does not apply, so the on-screen keyboard answers instead. `tools/dev-gaming --check` first proves that with a
+harmless `pkexec true` (the password must be asked in the terminal, not in a KDE window). Details in
+`docs/boppos-deck-test-plan.md`.
 
 The tests need no root and touch nothing real: `pytest`.
