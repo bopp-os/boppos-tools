@@ -19,6 +19,7 @@ window.deck row:focus-within {
 window.deck.size-xl row:focus,
 window.deck.size-xl row:focus-visible { outline-width: 6px; outline-offset: -6px; }
 
+window.deck button:focus,
 window.deck button:focus-visible,
 window.deck switch:focus-visible {
   outline: 4px solid @accent_bg_color;
@@ -59,3 +60,14 @@ window.deck .glyph-cross { color: #7aa2ff; }
 window.deck .glyph-circle { color: #ff7a7a; }
 window.deck .glyph-a { color: #6fd36f; }
 window.deck .glyph-b { color: #ff7a7a; }
+
+/* Confirmation dialogs are drawn outside the window's style scope, so they get the same look explicitly */
+.deck-dialog { font-size: 128%; }
+.deck-dialog.size-l { font-size: 165%; }
+.deck-dialog.size-xl { font-size: 210%; }
+.deck-dialog button { min-height: 2.4em; min-width: 6em; }
+.deck-dialog button:focus,
+.deck-dialog button:focus-visible {
+  outline: 4px solid @accent_bg_color;
+  outline-offset: 2px;
+}

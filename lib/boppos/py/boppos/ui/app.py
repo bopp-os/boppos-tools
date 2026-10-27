@@ -425,6 +425,11 @@ class DeckWindow(Adw.ApplicationWindow):
             dlg.set_response_appearance("ok", Adw.ResponseAppearance.SUGGESTED)
         dlg.set_default_response("cancel")
         dlg.set_close_response("cancel")
+        dlg.set_prefer_wide_layout(True)
+        dlg.add_css_class("deck-dialog")
+        for size in ("size-l", "size-xl"):  # the dialog does not inherit the window's size classes
+            if self.has_css_class(size):
+                dlg.add_css_class(size)
         self.dialog = dlg
 
         def finished(d, res):
@@ -435,6 +440,8 @@ class DeckWindow(Adw.ApplicationWindow):
                 on_cancel()
 
         dlg.choose(self, None, finished)
+        GLib.idle_add(lambda: (self.set_focus_visible(True), dlg.child_focus(Gtk.DirectionType.TAB_FORWARD),
+                               GLib.SOURCE_REMOVE)[-1])
 
     def confirm_quit(self) -> None:
         self.confirm("Exit BoppOS settings?", "You will return to Steam.", "Exit", self.get_application().quit)
@@ -577,6 +584,7 @@ class DeckWindow(Adw.ApplicationWindow):
         return True
 
     def handle_action(self, a: Action) -> None:
+        self.set_focus_visible(True)  # GTK only shows focus after keyboard input; a controller needs it too
         if self.stack.get_visible_child_name() == "auth":
             if a in DIRECTIONS:
                 self.child_focus(DIRECTION_MAP[a])
