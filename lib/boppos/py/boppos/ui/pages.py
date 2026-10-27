@@ -50,6 +50,7 @@ class Page:
         self.loading = False
         self.loaded_at = 0.0
         self._shown: str | None = None
+        self._view = None  # view_state() the content on screen was built with
         self.box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=24)
         self.box.set_margin_top(24)
         self.box.set_margin_bottom(24)
@@ -85,7 +86,9 @@ class Page:
         self.loaded_at = time.monotonic()
         self._gen += 1
         gen = self._gen
-        quiet = quiet and self.built
+        # Content built under other settings (Advanced switched on or off) is replaced at once: keeping it on screen
+        # would show switches that are enabled although the setting now says they must not be.
+        quiet = quiet and self.built and self._view == self.view_state()
         if not quiet:
             self.clear()
             g = group()
@@ -105,7 +108,7 @@ class Page:
             try:
                 self.clear()
                 self.build(data)
-                self.built, self._shown = True, shown
+                self.built, self._shown, self._view = True, shown, self.view_state()
             except Exception as exc:  # a broken page must say so and offer a retry, not stay blank
                 self.show_error(exc)
                 return
@@ -116,7 +119,7 @@ class Page:
 
     def show_error(self, exc: BaseException) -> None:
         self.clear()
-        self.built, self._shown = False, None
+        self.built, self._shown, self._view = False, None, None
         g = group("Something went wrong")
         g.add(message_row(f"This page could not be loaded: {exc}"))
         g.add(button_row("Try again", "", "Retry", self.refresh, suggested=True))
