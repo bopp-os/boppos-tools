@@ -1,4 +1,4 @@
-from boppos import welcome
+from boppos import hwprofiles, welcome
 
 
 def test_flag_roundtrip(tmp_path):
@@ -30,7 +30,7 @@ def test_choices_empty():
 
 
 def test_initial_choices_match_todays_defaults():
-    c = welcome.initial_choices()
+    c = welcome.initial_choices(hwprofiles.PROFILES["amd-desktop"])
     assert "io.github.kolunmi.Bazaar" in c.flatpaks
     assert c.firmware_check
     assert not (c.decky or c.steam_shortcuts or c.howdy or c.tpm_unlock)
@@ -43,7 +43,7 @@ def test_app_options_are_grouped_apps_only():
 
 
 def test_karg_options_suggest_by_device():
-    opts = welcome.karg_options({"sys_vendor": "Nobody", "product_name": "Nothing"})
+    opts = welcome.karg_options(hwprofiles.PROFILES["vm"])
     assert opts and not any(o.suggested for o in opts)
     assert [o.name for o in opts] == sorted(o.name for o in opts)
 
@@ -102,3 +102,46 @@ def test_no_kargs_preset_is_ever_preselected():
 def test_kargs_plan_line_warns():
     text = welcome.build_plan(welcome.Choices(kargs={"20-sleep-deep"}))[0].text
     assert "leave these off unless you need them" in text
+
+
+def test_karg_options_follow_the_graphics_vendor():
+    amd = {o.name for o in welcome.karg_options(hwprofiles.PROFILES["amd-desktop"]) if o.suggested}
+    nv = {o.name for o in welcome.karg_options(hwprofiles.PROFILES["nvidia-desktop"]) if o.suggested}
+    assert "70-amdgpu-no-runpm" in amd and "71-nvidia-drm-modeset" not in amd
+    assert "71-nvidia-drm-modeset" in nv and "70-amdgpu-no-runpm" not in nv
+    assert "41-intel-psr-off" in nv
+
+
+def test_handheld_defaults_add_steam_items_but_never_kargs():
+    c = welcome.initial_choices(hwprofiles.PROFILES["steam-deck"])
+    assert c.steam_shortcuts and c.decky and c.kargs == set()
+    assert "com.vysp3r.ProtonPlus" in c.flatpaks and "io.github.kolunmi.Bazaar" in c.flatpaks
+    d = welcome.initial_choices(hwprofiles.PROFILES["amd-desktop"])
+    assert not (d.steam_shortcuts or d.decky) and "com.vysp3r.ProtonPlus" not in d.flatpaks
+
+
+def test_vm_skips_the_firmware_check_and_laptop_gets_auto_updates():
+    assert not welcome.initial_choices(hwprofiles.PROFILES["vm"]).firmware_check
+    assert welcome.initial_choices(hwprofiles.PROFILES["intel-laptop"]).auto_updates
+
+
+def test_everything_recommended_starts_on_and_nothing_else():
+    for hw in hwprofiles.PROFILES.values():
+        recs = welcome.recommended(hw)
+        c = welcome.initial_choices(hw)
+        assert {r.key for r in recs if r.kind == "flatpak"} == c.flatpaks
+        on = {a for a in welcome.FLAGS if getattr(c, a)}
+        assert {r.key for r in recs if r.kind == "flag"} == on
+        assert all(r.key in welcome.FLAGS for r in recs if r.kind == "flag")
+        assert c.kargs == set() and not (c.howdy or c.tpm_unlock or c.dev_container)
+
+
+def test_recommended_follows_the_kind_and_belongs_to_a_step():
+    steps = {s.key for s in welcome.STEPS}
+    deck = welcome.recommended(hwprofiles.PROFILES["steam-deck"])
+    assert {("apps", "decky"), ("apps", "steam_shortcuts"), ("hardware", "firmware_check")} <= \
+        {(r.step, r.key) for r in deck}
+    assert all(r.step in steps for r in deck)
+    laptop = welcome.recommended(hwprofiles.PROFILES["intel-laptop"])
+    assert ("updates", "auto_updates") in {(r.step, r.key) for r in laptop}
+    assert all(r.key != "firmware_check" for r in welcome.recommended(hwprofiles.PROFILES["vm"]))

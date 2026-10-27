@@ -9,8 +9,7 @@ import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from . import flatpaks, kargs
-from .dmi import device_label, read_dmi
+from . import flatpaks, hwprofiles, kargs
 
 FLAG = "welcome-done"
 
@@ -93,7 +92,7 @@ class KargOption:
     category: str
     risk_level: str
     risk: str
-    suggested: bool  # the preset names this device (match.*) and it fits
+    suggested: bool  # fits this hardware: its DMI match, or its graphics vendor
 
 
 def default_flatpak_ids() -> set[str]:
@@ -117,36 +116,81 @@ def app_options() -> dict[str, list[flatpaks.App]]:
     return out
 
 
-def karg_options(dmi: dict[str, str] | None = None) -> list[KargOption]:
-    """Every kargs preset, the ones that match this device first."""
-    dmi = read_dmi() if dmi is None else dmi
+def karg_gpu(tokens: list[str]) -> str | None:
+    """Which graphics vendor a preset is about, from its arguments (None: not about graphics)."""
+    for t in tokens:
+        if t.startswith("amdgpu."):
+            return "amd"
+        if t.startswith(("i915.", "xe.", "intel_iommu")):
+            return "intel"
+        if t.startswith("nvidia"):
+            return "nvidia"
+    return None
+
+
+def karg_options(hw: hwprofiles.Hardware | None = None) -> list[KargOption]:
+    """Every kargs preset; the ones that fit this hardware (its DMI or its graphics vendor) come first."""
+    hw = hwprofiles.detect() if hw is None else hw
     try:
         dropins = kargs.load_dropins()
     except OSError:
         return []
     opts = [
         KargOption(d.name, d.description, d.category, d.risk_level, d.risk,
-                   bool(d.match) and kargs.matches_device(d, dmi))
+                   (bool(d.match) and kargs.matches_device(d, hw.dmi)) or karg_gpu(d.kargs) in hw.gpus)
         for d in dropins.values() if not d.error
     ]
     return sorted(opts, key=lambda o: (not o.suggested, o.name))
 
 
-def device(dmi: dict[str, str] | None = None) -> str:
-    return device_label(read_dmi() if dmi is None else dmi)
-
-
 def has_tpm(root: str | Path = "/") -> bool:
-    return (Path(root) / "dev/tpmrm0").exists() or (Path(root) / "dev/tpm0").exists()
+    return hwprofiles.detect(root).tpm
 
 
 def has_camera(root: str | Path = "/") -> bool:
-    return any((Path(root) / "dev").glob("video*"))
+    return hwprofiles.detect(root).camera
 
 
-def initial_choices() -> Choices:
-    """What is switched on before the user touches anything: today's defaults. Never any kargs preset."""
-    return Choices(flatpaks=default_flatpak_ids(), firmware_check=True)
+# The yes/no options, as the wizard words them.
+FLAGS = {
+    "steam_shortcuts": ("BoppOS shortcut in Steam", "Opens boppos-deck from your Steam library."),
+    "decky": ("Decky Loader", "Plugins for the Steam Gaming Mode overlay."),
+    "firmware_check": ("Check for firmware updates", "Runs fwupd after setup. Nothing is installed without asking."),
+    "auto_updates": ("Automatic updates", "Download new system images in the background; you choose when to reboot."),
+}
+
+
+@dataclass(frozen=True)
+class Recommended:
+    step: str  # the wizard step that shows it
+    kind: str  # "flatpak" (key is the ref) or "flag" (key is a Choices attribute named in FLAGS)
+    key: str
+
+
+def recommended(hw: hwprofiles.Hardware | None = None) -> list[Recommended]:
+    """What the wizard recommends for this hardware: all of it starts switched on, the user can switch it off.
+    Never a kargs preset."""
+    hw = hwprofiles.detect() if hw is None else hw
+    extra = hwprofiles.KIND_DEFAULTS.get(hw.kind, {})
+    known = {a.ref for apps in app_options().values() for a in apps}
+    refs = default_flatpak_ids() | (set(extra.get("extra_flatpaks", ())) & known)
+    recs = [Recommended("apps", "flatpak", r) for r in sorted(refs)]
+    flags = {"firmware_check": True, "steam_shortcuts": False, "decky": False, "auto_updates": False}
+    flags.update({k: bool(v) for k, v in extra.items() if k in flags})
+    steps = {"firmware_check": "hardware", "steam_shortcuts": "apps", "decky": "apps", "auto_updates": "updates"}
+    recs += [Recommended(steps[k], "flag", k) for k, on in flags.items() if on]
+    return recs
+
+
+def initial_choices(hw: hwprofiles.Hardware | None = None) -> Choices:
+    """Everything recommended is on before the user touches anything."""
+    c = Choices()
+    for r in recommended(hw):
+        if r.kind == "flatpak":
+            c.flatpaks.add(r.key)
+        else:
+            setattr(c, r.key, True)
+    return c
 
 
 @dataclass(frozen=True)
