@@ -7,7 +7,8 @@ arch=('any')
 url="https://github.com/bopp-os/boppos-tools"
 license=('GPL3')
 makedepends=('git' 'make')
-source=("${pkgbase}-${pkgver}.tar.gz::https://github.com/bopp-os/boppos-tools/archive/refs/tags/v${pkgver}.tar.gz")
+# The archive attached to the GitHub release by .github/workflows/release.yml (GitHub records its sha256 digest).
+source=("${pkgbase}-${pkgver}.tar.gz::https://github.com/bopp-os/boppos-tools/releases/download/v${pkgver}/${pkgbase}-${pkgver}.tar.gz")
 sha256sums=('SKIP')
 
 build() {
