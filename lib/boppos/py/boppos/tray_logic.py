@@ -63,7 +63,7 @@ def menu_spec(state: TrayState, *, have_settings: bool, have_system: bool, busy:
                 "default": kw.pop("default", False), "children": kw.pop("children", None)}
 
     install = [
-        item("update-all", "Everything (system, apps, Homebrew)"),
+        item("update-all", "Everything (system, apps, containers)"),
         item("update-os", "Operating System", visible=have_system),
         item("update-flatpak", "Flatpak Apps", visible=have_system),
         item("update-firmware", "Firmware", visible=have_system),

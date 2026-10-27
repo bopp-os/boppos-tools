@@ -77,10 +77,12 @@ def _upgrade(args) -> int:
         return _fail(args, f"unknown target(s): {','.join(bad)}", 2)
     emit = make_emitter(args.json, open_log("upgrade"))
     failed: list[str] = []
-    for target, cmds in system.upgrade_steps(only):
-        emit({"event": "step", "id": target, "status": "start"})
+    steps = system.upgrade_steps(only)
+    for n, (target, cmds) in enumerate(steps, 1):
+        label = system.TARGET_LABELS[target]
+        emit({"event": "step", "id": target, "status": "start", "label": label, "index": n, "total": len(steps)})
         ok = all(system.accepted_rc(target, c, run_stream(c, emit)) for c in cmds)
-        emit({"event": "step", "id": target, "status": "ok" if ok else "fail"})
+        emit({"event": "step", "id": target, "status": "ok" if ok else "fail", "label": label})
         if not ok:
             failed.append(target)
     st = system.get_status()

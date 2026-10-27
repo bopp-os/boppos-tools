@@ -16,7 +16,7 @@ Menu
   ───────────────
   Check for Updates                — triggers an immediate systemd run via polkit
   Install Updates ▸                — runs bopp-system in the background, with notifications
-        Everything (system, apps, Homebrew)
+        Everything (system, apps, containers)
         Operating System · Flatpak Apps · Firmware
         Containers (Distrobox & Litterbox)…   — in a terminal
   Review Changes…                  — shows the bopp-diff output in a terminal
