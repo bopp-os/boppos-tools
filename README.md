@@ -147,7 +147,7 @@ A full-screen GTK4/libadwaita app for the things you would otherwise do in a ter
 
 * Keyboard: arrows move, `Enter` selects, `Esc` goes back, `Ctrl+Tab` / `Ctrl+Shift+Tab` switch pages.
 * Controller (SDL3, read directly): D-pad or left stick moves, `A` selects, `B` goes back, `LB`/`RB` switch pages, `Start` asks to exit (Gaming Mode).
-* Risky actions (rollback, pin, switch update tag, Decky uninstall) are hidden until **Advanced options** is switched on in *About*, and always ask first.
+* Risky actions (rollback, pin, switch update tag, custom kernel arguments, Decky uninstall, high-risk kernel presets) are hidden until **Advanced options** is switched on in *About*, and always ask first. Apps are grouped in collapsible categories (`## Category` lines in the Flatpak list), with an *Only show installed apps* switch.
 * Everything it does is one of the CLIs below, so scripts and a future Decky plugin can share the same backend. Set `BOPPOS_DECK_BIN_DIR` to point it at other copies of those tools (testing).
 * Privileged actions go through `pkexec` helpers in `/usr/libexec/boppos/`. Changing the system asks for an administrator password (`auth_admin_keep`); only fixed read-only calls (`status`, `check`, `dropins`) are waived by `polkit/rules.d/51-boppos-deck.rules`. Gaming Mode has no polkit agent, so boppos-deck registers its own for the login session and shows a built-in gamepad keyboard: D-pad moves, `A` types, `RB` shift, `LB` delete, `Start` confirms, `B` cancels; a physical or Steam Input keyboard works too. On the desktop the desktop's own agent is used and boppos-deck does not register (set `BOPPOS_DECK_AGENT=1` to force it, with no other agent running).
 
@@ -204,7 +204,7 @@ sudo bopp-kargs COMMAND [ARGS]
 * **`apply`**: make the system match the enabled, matching drop-ins. Idempotent. Only arguments listed in `/var/lib/bopp-kargs/managed` (the ones it added itself) are ever removed.
 * **`enable <name>`** / **`disable <name>`**: switch a drop-in on or off (writes an override in `/etc/bopp-kargs.d`) and apply.
 
-`apply`, `enable`, `disable` and `status` also work without `sudo`: they run the polkit-gated helper `/usr/libexec/boppos/kargs-helper` (password for the changing verbs), which only exposes those verbs and never free-form arguments.
+`status`, `list`, `apply`, `enable`, `disable`, `add` and `remove` also work without `sudo`: they run the polkit-gated helper `/usr/libexec/boppos/kargs-helper` (password for everything that changes the system). `add`/`remove` through the helper refuse `ostree=`/`root=` and keys that open a shell or change init (`init`, `rd.break`, `single`, `systemd.unit`, ...); the CLI run with `sudo` is not restricted.
 
 #### Drop-in files
 
@@ -212,13 +212,16 @@ sudo bopp-kargs COMMAND [ARGS]
 
 ```ini
 description = Use the active amd-pstate driver     # shown in boppos-deck
+category = Power & sleep                           # group heading in boppos-deck
+risk_level = low                                   # low, medium or high (high is hidden until Advanced is on)
+risk = What can go wrong, in plain words           # shown next to the switch; medium/high ask for confirmation
 kargs = amd_pstate=active                          # may repeat
 enabled = true                                     # false = off by default
 match.sys_vendor = Valve                           # DMI field from /sys/class/dmi/id
 match.product_name = Jupiter|Galileo               # fnmatch patterns, any case, '|' = or
 ```
 
-Without any `match.*` line a drop-in applies to every device. A drop-in with an invalid line is reported by `dropins` and ignored.
+Without any `match.*` line a drop-in applies to every device. The image ships opt-in presets for every machine in `kargs.d/` (NVMe power states, deep sleep, threaded IRQs, AMD/Intel display flicker fixes, PCIe error reporting, CPU mitigations), each off by default with its risk written out. A drop-in with an invalid line is reported by `dropins` and ignored.
 
 ---
 
@@ -264,10 +267,13 @@ The root helpers normally live in `/usr/libexec/boppos/`. To try the tools from 
 
 ```bash
 export BOPPOS_HELPER_DIR="$PWD/libexec/boppos"     # use the helpers from this checkout
+sudo -v; export BOPPOS_HELPER_ESCALATE=sudo         # optional: one sudo password instead of one polkit prompt per action
 sudo -E bin/bopp-system --json status               # as root the helper runs directly
 bin/bopp-system --json status                       # as a user: pkexec asks for a password (the polkit rule only knows /usr)
 bin/boppos-deck                                     # the app; privileged pages will prompt for a password
 sudo -E bin/bopp-kargs --dry-run add foo=1          # read-only/--dry-run first on a real system
 ```
+
+`BOPPOS_HELPER_ESCALATE=sudo` swaps `pkexec` for `sudo -n`, so run `sudo -v` first and again whenever the sudo timestamp expires. It skips the polkit agent and password screen, so test those through `pkexec` (see `docs/boppos-deck-test-plan.md`).
 
 The tests need no root and touch nothing real: `pytest`.

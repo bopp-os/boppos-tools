@@ -11,8 +11,17 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 from gi.repository import Adw, Gtk  # noqa: E402
 
+from . import backend  # noqa: E402
 from .backend import run_json, tool  # noqa: E402
-from .widgets import button_row, combo_row, group, info_row, message_row, switch_row  # noqa: E402
+from .widgets import (  # noqa: E402
+    button_row,
+    combo_row,
+    expander_row,
+    group,
+    info_row,
+    message_row,
+    switch_row,
+)
 
 
 class Page:
@@ -47,7 +56,7 @@ class Page:
     def needs_refresh(self) -> bool:
         return self.stale or time.monotonic() - self.loaded_at > 30
 
-    def refresh(self) -> None:
+    def refresh(self, refocus: bool = False) -> None:
         """Show a placeholder, load data on a thread, then call build(data) on the main thread."""
         self.stale = False
         self.loaded_at = time.monotonic()
@@ -62,6 +71,8 @@ class Page:
             if gen == self._gen:
                 self.clear()
                 self.build(data)
+                if refocus:
+                    self.widget.child_focus(Gtk.DirectionType.TAB_FORWARD)
 
         self.win.load(self.fetch, done)
 
@@ -211,6 +222,9 @@ class SystemPage(Page):
 class KargsPage(Page):
     title, key, icon = "Kernel arguments", "kargs", "utilities-terminal-symbolic"
 
+    RISK_LABEL = {"low": "Low risk", "medium": "Medium risk", "high": "High risk"}
+    RISK_CLASS = {"low": "success", "medium": "warning", "high": "error"}
+
     def fetch(self):
         try:
             cmdline = Path("/proc/cmdline").read_text().strip()
@@ -219,6 +233,7 @@ class KargsPage(Page):
         return {
             "dropins": run_json([tool("bopp-kargs"), "--json", "dropins"]),
             "status": run_json([tool("bopp-kargs"), "--json", "status"]),
+            "list": run_json([tool("bopp-kargs"), "--json", "list"]) if self.win.advanced else None,
             "cmdline": cmdline,
         }
 
@@ -231,49 +246,135 @@ class KargsPage(Page):
             return
         status = data["status"]
         blocked = status.get("blocked_reason") if "error" not in status else status["error"]
+        self.blocked = bool(blocked)
         if blocked:
             text = {"staged": "An update is staged. Reboot before changing kernel arguments."}.get(
                 blocked, f"Changes are unavailable: {blocked}")
             banner = Adw.Banner.new(text)
+            banner.set_use_markup(False)
             banner.set_revealed(True)
             self.box.append(banner)
         items = dropins.get("dropins", [])
-        mine = [d for d in items if d["matches_device"] and not d["error"]]
-        g = group("Presets for this device",
-                  "Switches add or remove kernel arguments. They take effect after a reboot.")
-        if not mine:
+        usable = [d for d in items if d["matches_device"] and not d["error"]]
+        # High-risk presets stay hidden until Advanced is on, unless one is already enabled.
+        shown = [d for d in usable if d.get("risk_level") != "high" or self.win.advanced or d["enabled"]]
+        categories: dict[str, list[dict]] = {}
+        for d in shown:
+            categories.setdefault(d.get("category") or "Other", []).append(d)
+        if not categories:
+            g = group("Presets")
             g.add(message_row("No presets are available for this device."))
-        for d in mine:
-            sub = (d["description"] + "\n" if d["description"] else "") + " ".join(d["kargs"])
-            row = switch_row(d["name"].replace("-", " ").capitalize(), sub, d["enabled"],
-                             lambda on, name=d["name"]: self.toggle(name, on))
-            row.set_sensitive(not blocked)
-            g.add(row)
-        self.box.append(g)
+            self.box.append(g)
+        for cat, group_items in categories.items():
+            g = group(cat, "Each preset changes kernel arguments. Changes take effect after a reboot."
+                      if cat == next(iter(categories)) else None)
+            for d in group_items:
+                g.add(self.preset_row(d))
+            self.box.append(g)
+
+        if self.win.advanced:
+            self.build_advanced(data, items)
 
         g = group("Running kernel")
         g.add(info_row("Command line", "", data["cmdline"] or "unavailable"))
         self.box.append(g)
 
+    def preset_row(self, d: dict) -> Adw.SwitchRow:
+        level = d.get("risk_level", "low")
+        lines = [d["description"] or d["name"], "Adds: " + " ".join(d["kargs"])]
+        if d.get("risk"):
+            lines.append(f"Risk: {d['risk']}")
+        row = switch_row(d["description"] or d["name"], "\n".join(lines[1:]), d["enabled"],
+                         lambda on, dd=d: self.toggle(dd, on))
+        tag = Gtk.Label(label=self.RISK_LABEL.get(level, level))
+        tag.add_css_class(self.RISK_CLASS.get(level, "dim-label"))
+        tag.add_css_class("heading")
+        tag.set_valign(Gtk.Align.CENTER)
+        row.add_suffix(tag)
+        row.set_sensitive(not self.blocked)
+        return row
+
+    def build_advanced(self, data: dict, items: list[dict]) -> None:
+        g = group("Custom arguments", "Advanced. A wrong argument can stop the system from booting. The previous "
+                  "deployment stays available to roll back to.")
+        g.add(button_row("Add an argument", "For example pci=noaer. You type it with the on-screen keyboard.",
+                         "Add…", self.add_custom))
+        self.box.append(g)
+
+        options = (data.get("list") or {}).get("options") if isinstance(data.get("list"), dict) else None
+        if options:
+            managed = set((data["status"] or {}).get("managed") or [])
+            g = group("Current arguments", "What the next boot uses. Arguments set by a preset are changed with "
+                      "its switch.")
+            for tok in options:
+                if tok.split("=", 1)[0] in ("ostree", "root"):
+                    continue
+                if tok in managed:
+                    g.add(info_row(tok, "preset"))
+                elif self.can_remove(tok):
+                    g.add(button_row(tok, "", "Remove", lambda t=tok: self.remove_custom(t), destructive=True))
+                else:
+                    g.add(info_row(tok, "locked"))
+            self.box.append(g)
+
         others = [d for d in items if not d["matches_device"] or d["error"]]
-        if self.win.advanced and others:
-            g = group("Other presets", "Advanced. These do not match this device and are never applied.")
+        if others:
+            g = group("Other presets", "These do not match this device and are never applied.")
             for d in others:
                 g.add(info_row(d["name"], "invalid" if d["error"] else "other device",
                                d["error"] or " ".join(d["kargs"])))
             self.box.append(g)
 
-    def toggle(self, name: str, on: bool) -> None:
-        verb = "enable" if on else "disable"
+    @staticmethod
+    def can_remove(tok: str) -> bool:
+        from ..privileged import UsageError, checked_karg
 
+        try:
+            checked_karg(tok)
+        except UsageError:
+            return False
+        return True
+
+    # actions
+    def toggle(self, d: dict, on: bool) -> None:
+        level = d.get("risk_level", "low")
+        if on and level in ("medium", "high"):
+            self.win.confirm(f"Turn on “{d['description'] or d['name']}”?",
+                             d.get("risk") or "This changes boot behaviour.", "Turn on",
+                             lambda: self.run_verb("enable", d["name"]),
+                             destructive=level == "high", on_cancel=self.refresh)
+        else:
+            self.run_verb("enable" if on else "disable", d["name"])
+
+    def run_verb(self, verb: str, arg: str) -> None:
         def done(res):
             if isinstance(res, dict) and "error" in res:
-                self.win.toast(f"Could not {verb} {name}: {res['error']}")
+                self.win.toast(f"Could not {verb}: {res['error']}")
             else:
                 self.win.toast("Saved. Reboot to apply.")
             self.refresh()
 
-        self.win.load(lambda: run_json([tool("bopp-kargs"), "--json", verb, name], timeout=180), done)
+        self.win.load(lambda: run_json([tool("bopp-kargs"), "--json", verb, arg], timeout=180), done)
+
+    def add_custom(self) -> None:
+        from ..privileged import UsageError, checked_karg
+
+        def typed(text: str) -> None:
+            arg = text.strip()
+            try:
+                checked_karg(arg)
+            except UsageError as exc:
+                self.win.toast(str(exc))
+                return
+            self.win.confirm(f"Add “{arg}”?", "It is added to the next boot. If the system fails to boot, roll back "
+                             "from the boot menu.", "Add", lambda: self.run_verb("add", arg), destructive=True)
+
+        self.win.ask_text("Add a kernel argument", "Argument (key or key=value):", typed)
+
+    def remove_custom(self, tok: str) -> None:
+        self.win.confirm(f"Remove “{tok}”?", "It is removed from the next boot. Some arguments are needed for the "
+                         "system to start; the previous deployment stays available to roll back to.", "Remove",
+                         lambda: self.run_verb("remove", tok), destructive=True)
 
 
 # --- Apps -------------------------------------------------------------------------------------
@@ -281,6 +382,11 @@ class KargsPage(Page):
 
 class AppsPage(Page):
     title, key, icon = "Apps", "apps", "view-app-grid-symbolic"
+
+    def __init__(self, win):
+        super().__init__(win)
+        self.expanded: set[str] = set()
+        self.want: dict[str, bool] = {}
 
     def fetch(self):
         return run_json([tool("install-optional-flatpaks"), "--json", "--status"], timeout=60)
@@ -292,29 +398,64 @@ class AppsPage(Page):
             self.box.append(g)
             return
         self.apps = [a for a in data if a.get("kind") == "app"]
-        self.want = {a["id"]: a["installed"] for a in self.apps}
-        g = group("BoppOS apps", "Switch an app on to install it, off to remove it, then press Apply.")
+        previous = self.want
+        self.want = {a["id"]: previous.get(a["id"], a["installed"]) for a in self.apps}
+        only_installed = bool(self.win.settings.get("apps_installed_only"))
+
+        g = group()
+        g.add(switch_row("Only show installed apps", "Hides everything you have not installed", only_installed,
+                         self.set_only_installed))
+        self.box.append(g)
+
+        categories: dict[str, list[dict]] = {}
         for a in self.apps:
-            g.add(switch_row(a["name"], a["id"] + ("  ·  installed" if a["installed"] else ""), a["installed"],
-                             lambda on, i=a["id"]: self.set_want(i, on)))
+            categories.setdefault(a.get("category") or "Other", []).append(a)
+        g = group("BoppOS apps", "Open a category, switch an app on to install it or off to remove it, then press "
+                  "Apply.")
+        for cat, apps in categories.items():
+            visible = [a for a in apps if a["installed"] or not only_installed]
+            if not visible:
+                continue
+            done = sum(1 for a in apps if a["installed"])
+            exp = expander_row(cat, f"{done} of {len(apps)} installed")
+            exp.set_expanded(cat in self.expanded)
+            exp.connect("notify::expanded", lambda e, _p, c=cat: self.remember(c, e.get_expanded()))
+            for a in visible:
+                exp.add_row(switch_row(a["name"], a["id"] + ("  ·  installed" if a["installed"] else ""),
+                                       self.want[a["id"]], lambda on, i=a["id"]: self.set_want(i, on)))
+            g.add(exp)
         self.box.append(g)
         g = group()
         self.apply_row = button_row("Apply changes", "No changes yet", "Apply", self.apply, suggested=True)
-        self.apply_row.set_sensitive(False)
         g.add(self.apply_row)
         g.add(message_row("To browse everything else on Flathub, open Bazaar."))
         self.box.append(g)
+        self.update_apply_row()
+
+    def remember(self, cat: str, open_: bool) -> None:
+        (self.expanded.add if open_ else self.expanded.discard)(cat)
+
+    def set_only_installed(self, on: bool) -> None:
+        self.win.settings["apps_installed_only"] = on
+        try:
+            backend.save_settings(self.win.settings)
+        except OSError:
+            pass
+        self.refresh(refocus=True)
 
     def diff(self) -> tuple[list[str], list[str]]:
         add = [a["id"] for a in self.apps if self.want[a["id"]] and not a["installed"]]
         rem = [a["id"] for a in self.apps if not self.want[a["id"]] and a["installed"]]
         return add, rem
 
-    def set_want(self, app_id: str, on: bool) -> None:
-        self.want[app_id] = on
+    def update_apply_row(self) -> None:
         add, rem = self.diff()
         self.apply_row.set_sensitive(bool(add or rem))
         self.apply_row.set_subtitle(f"{len(add)} to install, {len(rem)} to remove" if add or rem else "No changes yet")
+
+    def set_want(self, app_id: str, on: bool) -> None:
+        self.want[app_id] = on
+        self.update_apply_row()
 
     def apply(self) -> None:
         add, rem = self.diff()
@@ -326,6 +467,7 @@ class AppsPage(Page):
             cmds.append([*base, "--remove", "--only", ",".join(rem)])
 
         def go():
+            self.want = {}
             self.win.run_job("Installing and removing apps", cmds, lambda ok, final: self.refresh())
 
         if rem:

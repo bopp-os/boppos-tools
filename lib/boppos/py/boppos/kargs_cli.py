@@ -15,6 +15,7 @@ from . import kargs
 from .bootc import parse_status
 from .dmi import read_dmi
 from .kargs import KargError
+from .system import escalation
 
 MUTATING = {"add", "remove", "apply", "enable", "disable", "edit"}
 HELPER = "/usr/libexec/boppos/kargs-helper"
@@ -110,7 +111,7 @@ def _via_helper(args: argparse.Namespace) -> int:
     argv = [args.cmd, *([args.name] if hasattr(args, "name") else []), *([args.arg] if hasattr(args, "arg") else [])]
     if args.cmd == "list" and args.index is not None:
         raise KargError("list INDEX needs root; run it with sudo", "not-root")
-    proc = subprocess.run(["pkexec", helper_path(), *argv], capture_output=True, text=True, check=False)
+    proc = subprocess.run([*escalation(), helper_path(), *argv], capture_output=True, text=True, check=False)
     try:
         data = json.loads(proc.stdout)
     except json.JSONDecodeError:

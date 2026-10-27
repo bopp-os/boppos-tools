@@ -8,20 +8,26 @@ import gi
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
-from gi.repository import Adw, Gtk  # noqa: E402
+from gi.repository import Adw, GLib, Gtk  # noqa: E402
+
+
+def plain(row):
+    """Show a row's title and subtitle as plain text (libadwaita parses them as Pango markup)."""
+    row.set_use_markup(False)
+    return row
 
 
 def group(title: str | None = None, description: str | None = None) -> Adw.PreferencesGroup:
     g = Adw.PreferencesGroup()
     if title:
-        g.set_title(title)
+        g.set_title(GLib.markup_escape_text(title))
     if description:
-        g.set_description(description)
+        g.set_description(GLib.markup_escape_text(description))
     return g
 
 
 def info_row(title: str, value: str = "", subtitle: str = "") -> Adw.ActionRow:
-    row = Adw.ActionRow(title=title, subtitle=subtitle)
+    row = plain(Adw.ActionRow(title=title, subtitle=subtitle))
     row.set_subtitle_lines(0)
     row.set_focusable(True)
     row.set_activatable(False)
@@ -36,7 +42,8 @@ def info_row(title: str, value: str = "", subtitle: str = "") -> Adw.ActionRow:
 def button_row(title: str, subtitle: str, label: str, on_click: Callable[[], None], *,
                suggested: bool = False, destructive: bool = False) -> Adw.ActionRow:
     """A row with a button. The row is the focus stop; the button only draws the affordance."""
-    row = Adw.ActionRow(title=title, subtitle=subtitle)
+    row = plain(Adw.ActionRow(title=title, subtitle=subtitle))
+    row.set_title_lines(0)
     row.set_subtitle_lines(0)
     btn = Gtk.Button(label=label)
     btn.set_valign(Gtk.Align.CENTER)
@@ -53,7 +60,8 @@ def button_row(title: str, subtitle: str, label: str, on_click: Callable[[], Non
 
 
 def switch_row(title: str, subtitle: str, active: bool, on_toggle: Callable[[bool], None]) -> Adw.SwitchRow:
-    row = Adw.SwitchRow(title=title, subtitle=subtitle)
+    row = plain(Adw.SwitchRow(title=title, subtitle=subtitle))
+    row.set_title_lines(0)
     row.set_subtitle_lines(0)
     row.set_active(active)
     row.connect("notify::active", lambda r, _p: on_toggle(r.get_active()))
@@ -61,15 +69,20 @@ def switch_row(title: str, subtitle: str, active: bool, on_toggle: Callable[[boo
 
 
 def combo_row(title: str, options: list[str], selected: int = 0) -> Adw.ComboRow:
-    row = Adw.ComboRow(title=title)
+    row = plain(Adw.ComboRow(title=title))
     row.set_model(Gtk.StringList.new(options))
     row.set_selected(selected)
     return row
 
 
 def message_row(text: str) -> Adw.ActionRow:
-    row = Adw.ActionRow(title=text)
+    row = plain(Adw.ActionRow(title=text))
     row.set_title_lines(0)
     row.set_focusable(True)
     row.set_activatable(False)
     return row
+
+
+def expander_row(title: str, subtitle: str = "") -> Adw.ExpanderRow:
+    # ExpanderRow always parses its title as markup, so escape it instead of switching markup off
+    return Adw.ExpanderRow(title=GLib.markup_escape_text(title), subtitle=GLib.markup_escape_text(subtitle))

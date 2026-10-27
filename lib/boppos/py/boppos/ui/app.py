@@ -240,6 +240,7 @@ class DeckWindow(Adw.ApplicationWindow):
         else:
             self.osk_shift.remove_css_class("suggested-action")
         echo = bool(self.auth_req and self.auth_req["echo"])
+        self.osk_show.set_visible(not echo)
         self.a_display.set_label(self.pw.display(echo) or " ")
 
     def osk_press(self, ch: str) -> None:
@@ -261,11 +262,17 @@ class DeckWindow(Adw.ApplicationWindow):
             return
         self.show_auth(req)
 
+    def ask_text(self, title: str, prompt: str, on_ok: Callable[[str], None],
+                 on_cancel: Callable[[], None] | None = None) -> None:
+        """Plain text entry with the same on-screen keyboard (the text is shown, not masked)."""
+        self.ask_password(title, prompt, True, "", "", on_ok, on_cancel or (lambda: None))
+
     def show_auth(self, req: dict) -> None:
         self.auth_req = req
         self.pw.clear()
         self.a_title.set_label(req["message"] or "Authentication required")
-        self.a_sub.set_label(f"{req['prompt'].strip() or 'Password:'}  (for {req['user']})")
+        who = f"  (for {req['user']})" if req["user"] else ""
+        self.a_sub.set_label(f"{req['prompt'].strip() or 'Password:'}{who}")
         self.a_error.set_label(req["error"])
         self.a_error.set_visible(bool(req["error"]))
         current = self.stack.get_visible_child_name()
@@ -387,7 +394,7 @@ class DeckWindow(Adw.ApplicationWindow):
         self.toasts.add_toast(t)
 
     def confirm(self, heading: str, body: str, label: str, on_ok: Callable[[], None],
-                destructive: bool = False) -> None:
+                destructive: bool = False, on_cancel: Callable[[], None] | None = None) -> None:
         dlg = Adw.AlertDialog.new(heading, body)
         dlg.add_response("cancel", "Cancel")
         dlg.add_response("ok", label)
@@ -403,6 +410,8 @@ class DeckWindow(Adw.ApplicationWindow):
             self.dialog = None
             if d.choose_finish(res) == "ok":
                 on_ok()
+            elif on_cancel:
+                on_cancel()
 
         dlg.choose(self, None, finished)
 

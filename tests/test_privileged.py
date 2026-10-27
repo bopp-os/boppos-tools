@@ -109,3 +109,14 @@ def test_cli_list_and_add_go_through_the_helper(monkeypatch, capsys):
     assert kargs_cli.main(["add", "pci=noaer"]) == 0
     assert calls[-1] == ["pkexec", kargs_cli.HELPER, "add", "pci=noaer"]
     assert kargs_cli.main(["list", "1"]) == 1  # an explicit index needs root
+
+
+def test_escalation_prefix(monkeypatch):
+    from boppos import system
+
+    monkeypatch.delenv("BOPPOS_HELPER_ESCALATE", raising=False)
+    assert system.escalation(euid=1000) == ["pkexec"] and system.escalation(euid=0) == []
+    monkeypatch.setenv("BOPPOS_HELPER_ESCALATE", "sudo")
+    assert system.escalation(euid=1000) == ["sudo", "-n"] and system.escalation(euid=0) == []
+    monkeypatch.setenv("BOPPOS_HELPER_ESCALATE", "anything-else")
+    assert system.escalation(euid=1000) == ["pkexec"]

@@ -23,7 +23,8 @@ def systemctl(*args, check=True):
 
 
 def main(argv):
-    raw_uid = os.environ.get("PKEXEC_UID", "")
+    # pkexec scrubs the environment and sets PKEXEC_UID; sudo sets SUDO_UID itself (development use)
+    raw_uid = os.environ.get("PKEXEC_UID") or os.environ.get("SUDO_UID", "")
     os.environ.clear()
     os.environ.update(PATH="/usr/sbin:/usr/bin", LANG="C.UTF-8")
     if len(argv) != 1 or argv[0] not in ("install", "uninstall"):

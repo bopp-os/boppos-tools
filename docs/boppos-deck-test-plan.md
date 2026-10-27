@@ -35,6 +35,12 @@ Add the app via `bopp-steam-shortcut add` with Steam closed, then start Steam.
 - [ ] Decky: Steam restarts, the Decky menu appears; *Uninstall* removes the service. A tampered download (wrong hash) is refused.
 - [ ] Kernel arguments: toggling a preset changes `/proc/cmdline` after a reboot; toggling it back removes only what it added. With an update staged the page shows the *reboot first* banner and the switches are disabled.
 
+## 3a. Presets, custom arguments and apps
+- [ ] Kernel arguments lists the presets in categories with a Low/Medium/High risk label and "Adds:" and "Risk:" lines. High-risk presets appear only with Advanced on.
+- [ ] Turning on a medium or high preset shows its risk text with Cancel as default; cancelling puts the switch back; confirming asks for the password and applies.
+- [ ] Advanced: *Add an argument* opens the keyboard with the text visible; `pci=noaer` is accepted; `init=/bin/sh`, `rd.break`, `ostree=x` and `a b` are rejected with a message. *Remove* on a listed argument asks first; arguments set by a preset show "preset" instead of a button.
+- [ ] Apps: categories are collapsed; *Only show installed apps* hides the rest and keeps the pending selection; Apply installs and removes.
+
 ## 3b. Desktop session with its own agent (KDE/GNOME)
 - [ ] boppos-deck starts without registering an agent; a changing action shows the desktop's own password dialog; cancelling it fails the action with a readable message.
 

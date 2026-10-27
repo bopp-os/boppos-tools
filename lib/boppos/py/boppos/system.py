@@ -21,11 +21,22 @@ TARGETS = ("os", "fw", "flatpak", "brew")
 DEFAULT_TARGETS = ("os", "flatpak", "brew")  # same default as boppos-update
 
 
+def escalation(euid: int | None = None) -> list[str]:
+    """Prefix that gets a helper running as root: nothing as root, pkexec normally.
+
+    BOPPOS_HELPER_ESCALATE=sudo (development only) uses `sudo -n`, so a single `sudo -v` in the
+    terminal covers every action instead of one polkit prompt each.
+    """
+    if (os.geteuid() if euid is None else euid) == 0:
+        return []
+    return ["sudo", "-n"] if os.environ.get("BOPPOS_HELPER_ESCALATE") == "sudo" else ["pkexec"]
+
+
 def helper_cmd(name: str, args: list[str], euid: int | None = None) -> list[str]:
     """Command that runs a root helper: directly as root, otherwise through pkexec."""
-    # BOPPOS_HELPER_DIR: run the helpers from a checkout (use with sudo; polkit only knows the /usr path)
+    # BOPPOS_HELPER_DIR: run the helpers from a checkout (polkit only knows the /usr path)
     path = f"{os.environ.get('BOPPOS_HELPER_DIR') or HELPER_DIR}/{name}"
-    return [path, *args] if (os.geteuid() if euid is None else euid) == 0 else ["pkexec", path, *args]
+    return [*escalation(euid), path, *args]
 
 
 def explain_pkexec(returncode: int, stderr: str) -> str | None:
