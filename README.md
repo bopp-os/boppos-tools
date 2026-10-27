@@ -150,7 +150,7 @@ sudo bopp-setup-howdy
 
 ### `boppos-deck` (Controller-friendly settings app)
 
-A full-screen GTK4/libadwaita app for the things you would otherwise do in a terminal: updates and rollback, kernel-argument presets, the curated Flatpak list, Decky Loader, a support report. It works with a controller in Steam Gaming Mode, and with mouse and keyboard on the desktop: same large rows, same pages.
+A full-screen GTK4/libadwaita app for the things you would otherwise do in a terminal: updates and rollback, kernel-argument presets, the curated Flatpak list, putting apps into the Steam library, Decky Loader, a support report. It works with a controller in Steam Gaming Mode, and with mouse and keyboard on the desktop: same large rows, same pages.
 
 * Keyboard: arrows move, `Enter` selects, `Esc` goes back, `Ctrl+Tab` / `Ctrl+Shift+Tab` switch pages.
 * Controller (SDL3, read directly): D-pad or left stick moves, `A` selects, `B` goes back, `LB`/`RB` switch pages, `Start` asks to exit (Gaming Mode).
@@ -176,13 +176,25 @@ bopp-decky [--json] status | install | uninstall
 
 Installs per user into `~/homebrew` from the latest stable GitHub release, like the upstream installer, but verifies the download against the sha256 digest GitHub publishes (a release without one is refused). The root helper writes a fixed `plugin_loader.service` to `/etc/systemd/system` and refuses a binary the user does not own or that others can write to. It also sets Steam's CEF remote-debugging flag. In Gaming Mode it restarts Steam; elsewhere restart Steam yourself. As with upstream Decky, this is a root service that runs a file from your home directory.
 
-### `bopp-steam-shortcut` (Steam library entry)
+### `bopp-steam-shortcut` (Steam library entries)
 
 ```bash
-bopp-steam-shortcut add [--force] | status
+bopp-steam-shortcut add [--force] | status                 # first login: the "BoppOS" shortcut
+bopp-steam-shortcut apps                                   # BoppOS and installed Flatpak apps, in Steam or not
+bopp-steam-shortcut sync --add ID[,ID] --remove ID[,ID] [--restart-steam]
+bopp-steam-shortcut apply-pending [--wait SECONDS] [--reopen-steam]
 ```
 
-Adds a "BoppOS" non-Steam shortcut. It only edits `shortcuts.vdf` while Steam is not running (exit 3 otherwise), backs the file up first (last 3 kept), checks the new bytes parse back, and replaces the file atomically. Corrupt files are left alone. It offers the shortcut once per user. `bopp-steam-shortcut.service` retries every minute until Steam is closed and is enabled by the preset in `systemd/user-preset/`; if your image does not apply user presets, enable it with `systemctl --user enable bopp-steam-shortcut.service`.
+Adds and removes non-Steam shortcuts so apps can be started from Gaming Mode. Flatpak apps get `flatpak run <id>` as launch options and their exported PNG icon; each shortcut is identified by what it runs, so your own shortcuts are never touched. boppos-deck has a **Steam library** page with one switch per app.
+
+Steam only keeps changes to `shortcuts.vdf` when it is closed, and rewrites the file when it exits, so changes are **queued** in `~/.local/state/boppos-deck/steam-pending.json` and applied as soon as Steam is not running:
+* Steam closed: applied right away.
+* Steam running and `--restart-steam` (what boppos-deck uses): a detached helper (`systemd-run --user`) is started, then Steam is asked to quit (`steam -shutdown`). When it has quit the helper edits the files and, on the desktop, reopens Steam; in Gaming Mode the session brings Steam back.
+* Otherwise `sync` exits 3 and the changes wait; `bopp-steam-pending.service` applies anything left over at the next login.
+
+Every edit backs the file up first (last 3 kept), checks the new bytes parse back, then replaces the file atomically; a file that does not parse is left alone. `add` offers the BoppOS shortcut once per user via `bopp-steam-shortcut.service`, which retries every minute until Steam is closed and is enabled by the preset in `systemd/user-preset/` (otherwise: `systemctl --user enable bopp-steam-shortcut.service bopp-steam-pending.service`).
+
+---
 
 ## Critical System & Migration Tools
 

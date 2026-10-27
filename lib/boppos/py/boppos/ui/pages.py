@@ -519,6 +519,81 @@ class AppsPage(Page):
             go()
 
 
+# --- Steam library -------------------------------------------------------------------------------
+
+
+class SteamPage(Page):
+    title, key, icon = "Steam library", "steam", "applications-games-symbolic"
+
+    def __init__(self, win):
+        super().__init__(win)
+        self.base: dict[str, bool] = {}
+        self.want: dict[str, bool] = {}
+
+    def fetch(self):
+        return run_json([tool("bopp-steam-shortcut"), "--json", "apps"], timeout=60)
+
+    def build(self, data) -> None:
+        if "error" in data:
+            g = group("Steam library")
+            g.add(message_row(f"Could not read the Steam library: {data['error']}"))
+            self.box.append(g)
+            return
+        self.info = data
+        if not data["steam_found"]:
+            g = group("Steam library")
+            g.add(message_row("Steam has not created a library for this user yet. Start Steam once, then come back."))
+            self.box.append(g)
+            return
+        previous = self.want
+        self.base = {a["key"]: a["present"] for a in data["apps"]}
+        self.want = {k: previous.get(k, v) for k, v in self.base.items()}
+        g = group("Steam library", "Switch an app on to add it to Steam as a non-Steam game, so you can start it "
+                  "from Gaming Mode. Off removes the shortcut. Apps you install later show up here.")
+        for a in data["apps"]:
+            sub = a["key"] + (f"  ·  queued: {a['queued']} when Steam closes" if a["queued"] else "")
+            g.add(switch_row(a["name"], sub, self.want[a["key"]], lambda on, k=a["key"]: self.set_want(k, on)))
+        self.box.append(g)
+        g = group()
+        self.apply_row = button_row("Apply changes", "No changes yet", "Apply", self.apply, suggested=True)
+        g.add(self.apply_row)
+        g.add(message_row("Steam has to be closed to change its library. Applying closes it and brings it back"
+                          + ("." if data["gaming"] else " on the desktop.")
+                          if data["steam_running"] else "Steam is not running, so changes apply right away."))
+        self.box.append(g)
+        self.update_apply_row()
+
+    def diff(self) -> tuple[list[str], list[str]]:
+        add = [k for k, on in self.want.items() if on and not self.base.get(k)]
+        rem = [k for k, on in self.want.items() if not on and self.base.get(k)]
+        return add, rem
+
+    def update_apply_row(self) -> None:
+        add, rem = self.diff()
+        self.apply_row.set_sensitive(bool(add or rem))
+        self.apply_row.set_subtitle(f"{len(add)} to add, {len(rem)} to remove" if add or rem else "No changes yet")
+
+    def set_want(self, key: str, on: bool) -> None:
+        self.want[key] = on
+        self.update_apply_row()
+
+    def apply(self) -> None:
+        add, rem = self.diff()
+        cmd = [tool("bopp-steam-shortcut"), "--json", "sync", "--add", ",".join(add), "--remove", ",".join(rem),
+               "--restart-steam"]
+
+        def go():
+            self.want = {}
+            self.win.run_job("Updating the Steam library", [cmd], lambda ok, final: self.refresh())
+
+        if self.info.get("steam_running"):
+            self.win.confirm("Close and reopen Steam?", "Steam has to be closed to change its library, so any game "
+                             "that is running will be closed. Steam comes back by itself.", "Continue", go,
+                             destructive=True)
+        else:
+            go()
+
+
 # --- Decky ------------------------------------------------------------------------------------
 
 
@@ -608,4 +683,4 @@ class AboutPage(Page):
         self.box.append(g)
 
 
-ALL_PAGES = [SystemPage, KargsPage, AppsPage, DeckyPage, SupportPage, AboutPage]
+ALL_PAGES = [SystemPage, KargsPage, AppsPage, SteamPage, DeckyPage, SupportPage, AboutPage]

@@ -28,7 +28,7 @@ def shortcut_appid(exe: str, name: str) -> int:
     return value - (1 << 32) if value >= 1 << 31 else value
 
 
-def new_entry(exe: str = EXE, name: str = APP_NAME, icon: str = ICON) -> dict:
+def new_entry(exe: str = EXE, name: str = APP_NAME, icon: str = ICON, launch_options: str = "") -> dict:
     quoted = f'"{exe}"'
     return {
         "appid": Int32(shortcut_appid(quoted, name)),
@@ -37,7 +37,7 @@ def new_entry(exe: str = EXE, name: str = APP_NAME, icon: str = ICON) -> dict:
         "StartDir": f'"{os.path.dirname(exe)}/"',
         "icon": icon,
         "ShortcutPath": "",
-        "LaunchOptions": "",
+        "LaunchOptions": launch_options,
         "IsHidden": Int32(0),
         "AllowDesktopConfig": Int32(1),
         "AllowOverlay": Int32(1),
@@ -60,13 +60,24 @@ def _shortcuts(data: dict) -> dict:
     return sc
 
 
-def has_shortcut(data: dict, exe: str = EXE) -> bool:
-    for entry in _shortcuts(data).values():
-        if isinstance(entry, dict):
-            have = str(entry.get("Exe", entry.get("exe", ""))).strip('"')
-            if have == exe:
-                return True
-    return False
+def _matches(entry: object, exe: str, launch: str) -> bool:
+    """A shortcut is identified by what it runs: the executable plus its launch options."""
+    if not isinstance(entry, dict):
+        return False
+    have = str(entry.get("Exe", entry.get("exe", ""))).strip('"')
+    return have == exe and str(entry.get("LaunchOptions", entry.get("launchoptions", ""))).strip() == launch.strip()
+
+
+def has_shortcut(data: dict, exe: str = EXE, launch: str = "") -> bool:
+    return any(_matches(e, exe, launch) for e in _shortcuts(data).values())
+
+
+def remove_shortcuts(data: dict, targets: list[tuple[str, str]]) -> dict:
+    """Return data without the shortcuts matching any (exe, launch options) pair; keys are renumbered."""
+    kept = [e for e in _shortcuts(data).values() if not any(_matches(e, x, la) for x, la in targets)]
+    out = dict(data)
+    out["shortcuts"] = {str(i): e for i, e in enumerate(kept)}
+    return out
 
 
 def add_shortcut(data: dict, entry: dict) -> dict:
@@ -118,16 +129,28 @@ def _backup(path: Path, stamp: str) -> Path | None:
     return dest
 
 
-def install_into(path: Path, entry: dict, stamp: str | None = None) -> str:
-    """Add `entry` to one shortcuts.vdf. Returns "added", "present" or raises (file untouched)."""
+def apply_changes(path: Path, adds: list[dict], removes: list[tuple[str, str]], stamp: str | None = None) -> dict:
+    """Add and remove shortcuts in one shortcuts.vdf with a single backup and one atomic write.
+
+    Returns {"added": n, "removed": n}; nothing is written when there is nothing to do. Raises (file
+    untouched) when the file cannot be parsed or the result fails verification.
+    """
     stamp = stamp or time.strftime("%Y%m%d-%H%M%S")
     raw = path.read_bytes() if path.exists() else vdf.dumps({"shortcuts": {}})
     data = vdf.loads(raw)
-    if has_shortcut(data, entry["Exe"].strip('"')):
-        return "present"
-    new = vdf.dumps(add_shortcut(data, entry))
-    check = vdf.loads(new)  # must parse back and still contain everything we started with
-    if len(_shortcuts(check)) != len(_shortcuts(data)) + 1:
+    before = len(_shortcuts(data))
+    new_data = remove_shortcuts(data, removes) if removes else data
+    removed = before - len(_shortcuts(new_data)) if removes else 0
+    added = 0
+    for entry in adds:
+        if not has_shortcut(new_data, entry["Exe"].strip('"'), entry.get("LaunchOptions", "")):
+            new_data = add_shortcut(new_data, entry)
+            added += 1
+    if not added and not removed:
+        return {"added": 0, "removed": 0}
+    new = vdf.dumps(new_data)
+    check = vdf.loads(new)  # must parse back with exactly the expected number of shortcuts
+    if len(_shortcuts(check)) != before + added - removed:
         raise VdfError("verification failed: unexpected number of shortcuts")
     _backup(path, stamp)
     fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=".shortcuts.")
@@ -142,4 +165,9 @@ def install_into(path: Path, entry: dict, stamp: str | None = None) -> str:
     except BaseException:
         Path(tmp).unlink(missing_ok=True)
         raise
-    return "added"
+    return {"added": added, "removed": removed}
+
+
+def install_into(path: Path, entry: dict, stamp: str | None = None) -> str:
+    """Add `entry` to one shortcuts.vdf. Returns "added" or "present"; raises (file untouched) on trouble."""
+    return "added" if apply_changes(path, [entry], [], stamp)["added"] else "present"

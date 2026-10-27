@@ -9,6 +9,8 @@ import threading
 from collections.abc import Callable
 from pathlib import Path
 
+from ..session import gaming_mode  # noqa: F401 - re-exported for the UI
+
 _DEV_BIN = Path(__file__).resolve().parents[5] / "bin"
 
 
@@ -106,8 +108,3 @@ def save_settings(data: dict) -> None:
     tmp = path.with_suffix(".tmp")
     tmp.write_text(json.dumps(data, indent=2))
     os.replace(tmp, path)
-
-
-def gaming_mode(env: dict[str, str] | None = None) -> bool:
-    env = os.environ if env is None else env
-    return any(env.get(v) for v in ("GAMESCOPE_WAYLAND_DISPLAY", "SteamGamepadUI", "SteamDeck"))

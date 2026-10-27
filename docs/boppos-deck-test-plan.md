@@ -35,6 +35,13 @@ Add the app via `bopp-steam-shortcut add` with Steam closed, then start Steam.
 - [ ] Decky: Steam restarts, the Decky menu appears; *Uninstall* removes the service. A tampered download (wrong hash) is refused.
 - [ ] Kernel arguments: toggling a preset changes `/proc/cmdline` after a reboot; toggling it back removes only what it added. With an update staged the page shows the *reboot first* banner and the switches are disabled.
 
+## 3c. Steam library page
+- [ ] **Steam library** lists BoppOS Settings and every installed Flatpak app; switches reflect what is already in Steam (apps added by hand with the same `flatpak run <id>` count).
+- [ ] Desktop, Steam closed: toggling and *Apply* changes the library at once; open Steam: the app appears under Games > non-Steam, starts, and has its icon. Toggling off removes only that shortcut; your own shortcuts and `shortcuts.vdf.bak-*` backups are intact.
+- [ ] Desktop, Steam running: *Apply* warns, Steam closes, the change lands, Steam reopens by itself.
+- [ ] **Gaming Mode** (the risky one): *Apply* closes Steam; check that (a) the changes appear after Steam is back, (b) boppos-deck is not left half-done if the session restarts (`bopp-steam-pending.service` should pick up anything unfinished at the next login), (c) a running game is closed with the warning shown first. Record what actually happens here.
+- [ ] A Flatpak app installed after the page was opened shows up after leaving and re-entering the page.
+
 ## 3a. Presets, custom arguments and apps
 - [ ] Kernel arguments lists the presets in categories with a Low/Medium/High risk label and "Adds:" and "Risk:" lines. High-risk presets appear only with Advanced on.
 - [ ] Turning on a medium or high preset shows its risk text with Cancel as default; cancelling puts the switch back; confirming asks for the password and applies.
