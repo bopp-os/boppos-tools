@@ -48,3 +48,16 @@ def test_detect_laptop_desktop_and_vm(tmp_path):
 def test_detect_on_an_empty_root(tmp_path):
     hw = hwprofiles.detect(tmp_path)
     assert hw.kind == "desktop" and hw.label == "Unknown device" and not (hw.tpm or hw.camera)
+
+
+def test_device_fix_presets_are_on_for_their_own_profile_only():
+
+    from boppos import kargs
+
+    found = kargs.load_dropins("/")
+    fixes = {n: d for n, d in found.items() if d.category == "Device fixes"}
+    expected = {"onexplayer-f1": "90-onexplayer-f1-panel", "ayaneo-slide": "91-ayaneo-slide-acpi-strict",
+                "framework-intel": "92-framework-intel-keyboard"}
+    for key, hw in hwprofiles.PROFILES.items():
+        hit = {n for n, d in fixes.items() if kargs.matches_device(d, hw.dmi)}
+        assert hit == ({expected[key]} if key in expected else set()), key
