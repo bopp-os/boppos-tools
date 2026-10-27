@@ -810,7 +810,7 @@ class DeckApp(Adw.Application):
 
     def run_test_mode(self, win: DeckWindow, mode: str) -> None:
         """BOPPOS_DECK_TEST=keyboard | keyboard-retry | text: open the on-screen keyboard on its own, with a
-        pretend request, print what was typed and exit. For trying the keyboard and the controller without
+        pretend request, print how many characters were typed (never the text) and exit. For trying the keyboard and the controller without
         polkit, sudo or a password (nothing typed here is checked against anything)."""
         attempts = {"n": 0}
         who = os.environ.get("USER", "you")
@@ -821,7 +821,7 @@ class DeckApp(Adw.Application):
                 print("attempt 1: pretending the password was wrong", flush=True)
                 ask("Wrong password. Try again.")
                 return
-            print(f"OK: typed {len(text)} character(s): {text!r}", flush=True)
+            print(f"OK: typed {len(text)} character(s)", flush=True)
             self.quit()
 
         def cancel() -> None:

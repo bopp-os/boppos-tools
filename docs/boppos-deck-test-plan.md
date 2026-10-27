@@ -86,7 +86,7 @@ Add the app via `bopp-steam-shortcut add` with Steam closed, then start Steam.
 
 ## 3b-0. Gaming Mode keyboard, three ways (least to most real)
 1. **The keyboard alone, anywhere:** `BOPPOS_DECK_TEST=keyboard-retry bin/boppos-deck`. A pretend prompt: type with a controller or
-   keyboard, press OK, see the "Wrong password" retry, then `OK: typed N character(s)` on the terminal. No sudo, no polkit.
+   keyboard, press OK, see the "Wrong password" retry (always shown for your first answer, on purpose), then `OK: typed N character(s)` on the terminal. No sudo, no polkit.
    Add `SteamDeck=1` to make it full screen with controller prompts, like Gaming Mode.
 2. **Gaming Mode look, real actions, no password:** `SteamDeck=1 BOPPOS_HELPER_ESCALATE=sudo ...` after `sudo -v`. The password
    screen does not appear here (sudo replaces polkit); this is for checking everything else.
