@@ -2,40 +2,40 @@
 # '## Name' starts a category (shown in boppos-deck); '#' alone is a comment.
 
 ## Gaming & Streaming
-com.vysp3r.ProtonPlus
-com.moonlight_stream.Moonlight
-com.obsproject.Studio
+com.vysp3r.ProtonPlus  # name: ProtonPlus
+com.moonlight_stream.Moonlight  # name: Moonlight
+com.obsproject.Studio  # name: OBS Studio
 
 ## Internet & Communication
-net.mullvad.MullvadBrowser
-com.discordapp.Discord
-org.mozilla.thunderbird
-org.localsend.localsend_app
-org.qbittorrent.qBittorrent
+net.mullvad.MullvadBrowser  # name: Mullvad Browser
+com.discordapp.Discord  # name: Discord
+org.mozilla.thunderbird  # name: Thunderbird
+org.localsend.localsend_app  # name: LocalSend
+org.qbittorrent.qBittorrent  # name: qBittorrent
 
 ## Media & Creative
-org.inkscape.Inkscape
-org.gimp.GIMP
-org.kde.kdenlive
-org.audacityteam.Audacity
-com.github.wwmm.easyeffects
-org.jeffvli.feishin
+org.inkscape.Inkscape  # name: Inkscape
+org.gimp.GIMP  # name: GIMP
+org.kde.kdenlive  # name: Kdenlive
+org.audacityteam.Audacity  # name: Audacity
+com.github.wwmm.easyeffects  # name: Easy Effects
+org.jeffvli.feishin  # name: Feishin
 
 ## Office & Productivity
-com.calibre_ebook.calibre
-org.libreoffice.LibreOffice
-com.bitwarden.desktop
-org.gnome.SimpleScan
+com.calibre_ebook.calibre  # name: calibre
+org.libreoffice.LibreOffice  # name: LibreOffice
+com.bitwarden.desktop  # name: Bitwarden Desktop
+org.gnome.SimpleScan  # name: Document Scanner
 
 ## System & Tools
-io.github.kolunmi.Bazaar
-com.github.tchx84.Flatseal
-it.mijorus.gearlever
-io.github.flattool.Warehouse
-io.gitlab.adhami3310.Impression
-org.gnome.World.PikaBackup
-io.github.dvlv.boxbuddyrs
-org.virt_manager.virt-manager
+io.github.kolunmi.Bazaar  # name: Bazaar
+com.github.tchx84.Flatseal  # name: Flatseal
+it.mijorus.gearlever  # name: Gear Lever
+io.github.flattool.Warehouse  # name: Warehouse
+io.gitlab.adhami3310.Impression  # name: Impression
+org.gnome.World.PikaBackup  # name: Pika Backup
+io.github.dvlv.boxbuddyrs  # name: BoxBuddy
+org.virt_manager.virt-manager  # name: Virtual Machine Manager
 org.virt_manager.virt_manager.Extension.Qemu
 
 ## Themes

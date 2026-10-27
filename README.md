@@ -166,7 +166,7 @@ Install adds `libadwaita` (about 5 MiB); `gtk4`, `python-gobject` and `sdl3` (th
 bopp-system [--json] status | check | upgrade [--only os,fw,flatpak,brew] | rollback | pin N | unpin N | switch TAG | tags | reboot | about | support-report
 ```
 
-`upgrade` defaults to OS, Flatpaks and Homebrew (same as `boppos-update`). With `--json`, actions print one JSON event per line (`log`, `step`, `done`) and keep the last 20 logs in `~/.local/state/boppos-deck/logs/`. `switch` only changes the tag of the booted image, never the registry or repository.
+`upgrade` defaults to OS, Flatpaks and Homebrew (same as `boppos-update`). With `--json`, actions print one JSON event per line (`log`, `step`, `done`) and keep the last 20 logs in `~/.local/state/boppos-deck/logs/`. `switch` only changes the tag of the booted image, never the registry or repository. `tags` lists the update channels (`latest` = v3, `v4`, `znver4`), recent dated builds of the channel in use (`v4-20260409`) and published test builds (`v4-test`); other tags can be typed in boppos-deck. App names in the Flatpak list come from a `# name: ...` comment on each line (looked up on Flathub); installed apps show the name they call themselves.
 
 ### `bopp-decky` (Decky Loader)
 

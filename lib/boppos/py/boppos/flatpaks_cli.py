@@ -51,8 +51,9 @@ def main(argv: list[str] | None = None) -> int:
             default_ids = {a.id for a in flatpaks.parse_list(Path(flatpaks.DEFAULTS_LIST).read_text())}
         except (OSError, flatpaks.ListError):
             default_ids = set()
+        names = flatpaks.installed_names()
         rows = [
-            {"id": a.id, "name": flatpaks.display_name(a.id), "ref": a.ref, "kind": a.kind,
+            {"id": a.id, "name": flatpaks.best_name(a, names), "ref": a.ref, "kind": a.kind,
              "category": a.category, "default": a.id in default_ids, "installed": a.id in installed}
             for a in apps
         ]

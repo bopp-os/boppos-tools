@@ -35,6 +35,10 @@ Add the app via `bopp-steam-shortcut add` with Steam closed, then start Steam.
 - [ ] Decky: Steam restarts, the Decky menu appears; *Uninstall* removes the service. A tampered download (wrong hash) is refused.
 - [ ] Kernel arguments: toggling a preset changes `/proc/cmdline` after a reboot; toggling it back removes only what it added. With an update staged the page shows the *reboot first* banner and the switches are disabled.
 
+## 3d. Update channels and names
+- [ ] Advanced > System: *Channel* offers v3 (default), v4 and znver4 with the current one selected (a system on `v3` or `latest` shows v3). *Earlier build* lists dated builds of your channel, newest first; *Test build* lists the published `-test` tags; *Use another tag…* accepts e.g. `v4-20260301` and rejects spaces or odd characters. Each switch warns before running, and a tag that does not exist fails without changing anything.
+- [ ] Apps page names are proper names (Bitwarden Desktop, Easy Effects, Virtual Machine Manager...), and installed apps use the name Flatpak reports.
+
 ## 3c. Steam library page
 - [ ] **Steam library** lists BoppOS Settings and every installed Flatpak app; switches reflect what is already in Steam (apps added by hand with the same `flatpak run <id>` count).
 - [ ] Desktop, Steam closed: toggling and *Apply* changes the library at once; open Steam: the app appears under Games > non-Steam, starts, and has its icon. Toggling off removes only that shortcut; your own shortcuts and `shortcuts.vdf.bak-*` backups are intact.

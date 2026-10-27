@@ -106,3 +106,28 @@ def test_defaults_flag_installs_only_missing_default_apps(tmp_path, monkeypatch)
     monkeypatch.setattr(flatpaks, "installed_ids", lambda: {"io.github.kolunmi.Bazaar"})
     ran.clear()
     assert flatpaks_cli.main(["--defaults", "--yes", "--json"]) == 0 and ran == []
+
+
+def test_names_come_from_the_list_comment_and_installed_apps_win():
+    apps = flatpaks.parse_list("org.a.A  # name: Proper A\norg.b.B\norg.c.C  # just a comment\n")
+    assert [a.name for a in apps] == ["Proper A", "", ""]
+    assert flatpaks.best_name(apps[0], {}) == "Proper A"
+    assert flatpaks.best_name(apps[0], {"org.a.A": "Installed A"}) == "Installed A"  # its own metadata wins
+    assert flatpaks.best_name(apps[1], {}) == "B"  # last resort: tidied id
+
+
+def test_extensions_are_not_listed_as_apps():
+    apps = flatpaks.parse_list("org.virt_manager.virt_manager.Extension.Qemu\norg.a.A\n")
+    assert [a.kind for a in apps] == ["runtime", "app"]
+
+
+def test_every_shipped_app_has_a_proper_name_and_the_interactive_installer_still_sees_29_refs():
+    from pathlib import Path
+
+    text = (Path(__file__).parent.parent / "share/boppos/boppos-flatpaks.txt").read_text()
+    apps = [a for a in flatpaks.parse_list(text) if a.kind == "app"]
+    assert len(apps) == 26 and all(a.name for a in apps)
+    names = {a.id: a.name for a in apps}
+    assert names["com.bitwarden.desktop"] == "Bitwarden Desktop" and names["io.github.kolunmi.Bazaar"] == "Bazaar"
+    refs = [ln.split("#")[0].strip() for ln in text.splitlines() if ln.split("#")[0].strip()]
+    assert len(set(refs)) == 29 and all(" " not in r for r in refs)  # what `sed 's/#.*//'` leaves behind

@@ -167,15 +167,43 @@ class SystemPage(Page):
                              self.rollback, destructive=True))
         self.box.append(g)
 
-        names = tags.get("tags") or []
-        if names:
-            g = group("Update channel", "Advanced. Changes which tag of this image BoppOS follows.")
-            cur = tags.get("current")
-            combo = combo_row("Tag", names, names.index(cur) if cur in names else 0)
-            g.add(combo)
-            g.add(button_row("Switch to the selected tag", "Downloads that tag on the next update", "Switch",
-                             lambda: self.switch(names[combo.get_selected()]), destructive=True))
-            self.box.append(g)
+        channels = tags.get("channels") or []
+        if channels:
+            self.build_channels(tags)
+
+    def build_channels(self, tags: dict) -> None:
+        channels = tags["channels"]
+        cur = tags.get("current")
+        g = group("Update channel", "Advanced. Which build of BoppOS this system follows. Pick the one made for "
+                  "your CPU; v3 works everywhere.")
+        labels = [c["label"] for c in channels]
+        picked = next((i for i, c in enumerate(channels) if c["tag"] == tags.get("current_channel")), 0)
+        combo = combo_row("Channel", labels, picked)
+        g.add(combo)
+        g.add(info_row("What the channels are", "", "\n".join(f"{c['label']}: {c['description']}" for c in channels)))
+        g.add(info_row("Following now", cur or "unknown",
+                       "" if tags.get("current_channel") else "A custom tag, not one of the channels above."))
+        g.add(button_row("Switch to the selected channel", "Downloads it on the next update", "Switch",
+                         lambda: self.switch(channels[combo.get_selected()]["tag"]), destructive=True))
+        self.box.append(g)
+
+        builds = tags.get("builds") or []
+        test = tags.get("test") or []
+        g = group("Older builds and test builds", "Advanced. Go back to a specific earlier build, or try a test "
+                  "build. Neither is supported: a test build can be broken, and an older one can miss fixes.")
+        if builds:
+            older = combo_row("Earlier build of this channel", builds, 0)
+            g.add(older)
+            g.add(button_row("Switch to the selected build", "Pins this system to that day's image", "Switch",
+                             lambda: self.switch(builds[older.get_selected()], kind="build"), destructive=True))
+        if test:
+            tested = combo_row("Test build", test, 0)
+            g.add(tested)
+            g.add(button_row("Switch to the selected test build", "May be unfinished", "Switch",
+                             lambda: self.switch(test[tested.get_selected()], kind="test"), destructive=True))
+        g.add(button_row("Use another tag…", "Type any tag of this image, for example v4-20260301", "Enter…",
+                         self.custom_tag))
+        self.box.append(g)
 
     # actions
     def do_check(self) -> None:
@@ -212,9 +240,28 @@ class SystemPage(Page):
                          lambda: self.win.run_job("Rolling back", [[tool("bopp-system"), "--json", "rollback"]],
                                                   lambda ok, final: self.refresh()), destructive=True)
 
-    def switch(self, tag: str) -> None:
-        self.win.confirm(f"Follow the “{tag}” tag?", "The next update will download that tag. "
-                         "Switching to an older tag can downgrade the system.", "Switch",
+    def custom_tag(self) -> None:
+        import re
+
+        def typed(text: str) -> None:
+            tag = text.strip()
+            if not re.match(r"^[A-Za-z0-9_][A-Za-z0-9._-]{0,127}$", tag):
+                self.win.toast("Not a valid tag: use letters, digits, dot, dash and underscore")
+                return
+            self.switch(tag, kind="test" if tag.endswith("-test") else "build")
+
+        self.win.ask_text("Use another tag", "Tag (for example v4-20260301 or v4-test):", typed)
+
+    def switch(self, tag: str, kind: str = "channel") -> None:
+        warning = {
+            "channel": "The next update will download that channel.",
+            "build": "This pins the system to one earlier build. It will not follow new updates until you switch "
+                     "back to a channel, and it can miss security fixes.",
+            "test": "Test builds are not meant for daily use and can be broken. You can switch back to a channel "
+                    "later.",
+        }[kind]
+        self.win.confirm(f"Follow “{tag}”?", f"{warning} Switching to an older tag can downgrade the system.",
+                         "Switch",
                          lambda: self.win.run_job(f"Switching to {tag}",
                                                   [[tool("bopp-system"), "--json", "switch", tag]],
                                                   lambda ok, final: self.refresh()), destructive=True)

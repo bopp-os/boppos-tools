@@ -158,8 +158,9 @@ def main(argv: list[str] | None = None) -> int:
         booted = st.get("booted") or {}
         repo = (booted.get("ref") or "").split("@", 1)[0]
         repo = repo.rsplit(":", 1)[0] if system.booted_tag(st) else repo
-        tags = system.list_tags(repo, system.booted_tag(st)) if repo else []
-        _print(args, {"current": system.booted_tag(st), "tags": tags}, "\n".join(tags))
+        data = system.tag_choices(repo, system.booted_tag(st)) if repo else system.classify_tags([], None)
+        lines = [f"{c['tag']}  {c['description']}" for c in data["channels"]]
+        _print(args, data, "\n".join(lines + data["builds"] + data["test"]))
         return 0
     if cmd == "reboot":
         return subprocess.run(["systemctl", "reboot"], check=False).returncode

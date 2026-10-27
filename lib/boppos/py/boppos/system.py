@@ -159,21 +159,56 @@ def get_status() -> dict:
     return st
 
 
-def list_tags(repo: str, current: str | None, limit: int = 25) -> list[str]:
-    """Known tags of the booted image's repository (via skopeo), always including the current."""
+CHANNELS = (
+    {"tag": "latest", "label": "v3 (default)", "family": "v3",
+     "description": "Works on most modern x86-64 CPUs. The default and the most compatible."},
+    {"tag": "v4", "label": "v4", "family": "v4",
+     "description": "Built for x86-64-v4 CPUs, which means AVX-512 support."},
+    {"tag": "znver4", "label": "znver4", "family": "znver4",
+     "description": "Built for AMD Zen 4 and newer (Ryzen 7000 and later)."},
+)
+_TAG_PARTS = re.compile(r"^(latest|v3|v4|znver4)(?:-(\d{8}|test))?$")
+
+
+def tag_family(tag: str | None) -> str | None:
+    """v3, v4 or znver4 for a channel tag, a dated build (v4-20260409) or a test build (v4-test)."""
+    m = _TAG_PARTS.match(tag or "")
+    if not m:
+        return None
+    return "v3" if m.group(1) in ("latest", "v3") else m.group(1)
+
+
+def classify_tags(all_tags: list[str], current: str | None, limit: int = 14) -> dict:
+    """What the update-channel screen offers: the fixed channels, recent dated builds of the channel in
+    use (newest first), and published test builds. Signature tags and anything else are left out."""
+    family = tag_family(current)
+    dated: list[tuple[str, str]] = []
+    tests: list[str] = []
+    for tag in set(all_tags):
+        m = _TAG_PARTS.match(tag)
+        if not m or not m.group(2):
+            continue
+        if m.group(2) == "test":
+            tests.append(tag)
+        elif family and tag_family(tag) == family:
+            dated.append((m.group(2), tag))
+    return {
+        "current": current,
+        "current_channel": next((c["tag"] for c in CHANNELS if c["family"] == family), None),
+        "channels": [dict(c) for c in CHANNELS],
+        "builds": [t for _, t in sorted(dated, reverse=True)[:limit]],
+        "test": sorted(tests, key=lambda t: (tag_family(t) != family, t)),  # your channel's test build first
+    }
+
+
+def tag_choices(repo: str, current: str | None) -> dict:
+    """classify_tags over the registry's tag list (needs skopeo and network; the channels work without)."""
     tags: list[str] = []
     if shutil.which("skopeo"):
-        proc = run_capture(["skopeo", "list-tags", f"docker://{repo}"], timeout=30)
+        proc = run_capture(["skopeo", "list-tags", f"docker://{repo}"], timeout=45)
         if proc.returncode == 0:
             try:
                 tags = json.loads(proc.stdout).get("Tags", [])
             except json.JSONDecodeError:
                 tags = []
-    clean = sorted({t for t in tags if re.match(r"^[A-Za-z0-9_][A-Za-z0-9._-]{0,127}$", t)
-                    and not t.startswith("sha256-") and not t.endswith((".sig", ".att", ".sbom"))})
-    stable = [t for t in clean if t in ("stable", "latest", "testing", "unstable")]
-    rest = [t for t in reversed(clean) if t not in stable][:limit]
-    out = stable + rest
-    if current and current not in out:
-        out.insert(0, current)
-    return out
+    return classify_tags(tags, current)
