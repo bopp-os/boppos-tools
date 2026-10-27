@@ -17,11 +17,7 @@ FLAG = "welcome-done"
 # the Finish button does not write the done flag, until the apply step exists and this is turned off.
 DRY_RUN = True
 
-KARGS_WARNING = (
-    "Only switch these on if you have the exact problem a preset fixes. Kernel arguments change how the "
-    "system starts, a wrong one can cause crashes, a black screen or a machine that will not boot, and "
-    "most systems are best left alone. Every preset here is off by default."
-)
+KARGS_WARNING = kargs.KARGS_WARNING
 
 
 @dataclass(frozen=True)
@@ -92,12 +88,17 @@ class KargOption:
     category: str
     risk_level: str
     risk: str
-    fit: str  # "fits" (about this hardware), "optional" (could apply to anything) or "unsupported" (cannot work here)
+    fit: str  # kargs.fit: "fits", "optional", "risky" or "unsupported"
     reason: str = ""  # why it is unsupported
 
     @property
     def suggested(self) -> bool:
         return self.fit == "fits"
+
+    @property
+    def locked(self) -> bool:
+        """The wizard does not offer it: it cannot work here, or it is too risky to switch on from a wizard."""
+        return self.fit in ("risky", "unsupported")
 
 
 def default_flatpak_ids() -> set[str]:
@@ -141,7 +142,7 @@ def karg_options(hw: hwprofiles.Hardware | None = None) -> list[KargOption]:
         if not d.error:
             fit, reason = karg_fit(d, hw)
             opts.append(KargOption(d.name, d.description, d.category, d.risk_level, d.risk, fit, reason))
-    order = {"fits": 0, "optional": 1, "unsupported": 2}
+    order = {"fits": 0, "optional": 1, "risky": 2, "unsupported": 3}
     return sorted(opts, key=lambda o: (order[o.fit], o.name))
 
 

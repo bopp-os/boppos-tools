@@ -471,4 +471,17 @@ def test_fit_risky_presets_that_apply_anywhere(tmp_path):
     assert kargs.fit(_preset(tmp_path, "kargs = foo=1\nrisk_level = low\n"), {}, ())[0] == "optional"
     for level in ("medium", "high"):
         got = kargs.fit(_preset(tmp_path, f"kargs = foo=1\nrisk_level = {level}\n"), {}, ())
-        assert got[0] == "unsupported" and level.capitalize() in got[1]
+        assert got[0] == "risky" and level.capitalize() in got[1]
+
+
+def test_sections_order_and_what_counts_as_on():
+    def d(name, fit, enabled=False, matches=True, error=""):
+        return {"name": name, "fit": fit, "enabled": enabled, "matches_device": matches, "error": error}
+
+    items = [d("c", "optional"), d("a", "fits"), d("on-risky", "risky", enabled=True), d("u", "unsupported"),
+             d("enabled-elsewhere", "unsupported", enabled=True, matches=False), d("bad", "", error="x"),
+             d("b", "fits"), d("r", "risky")]
+    got = {k: [x["name"] for x in v] for k, v in kargs.sections(items).items()}
+    assert list(got) == ["on", "fits", "optional", "risky", "unsupported", "invalid"]
+    assert got == {"on": ["on-risky"], "fits": ["a", "b"], "optional": ["c"], "risky": ["r"],
+                   "unsupported": ["enabled-elsewhere", "u"], "invalid": ["bad"]}

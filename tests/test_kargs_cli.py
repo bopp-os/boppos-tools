@@ -51,3 +51,22 @@ def test_invalid_argument_error_code(tmp_path, capsys):
 def test_add_dry_run_reports_plan(tmp_path, capsys):
     rc, out = run_cli(make_root(tmp_path), capsys, "--json", "add", "--dry-run", "foo=1")
     assert rc == 0 and json.loads(out)["added"] == ["foo=1"]
+
+
+def test_dropins_json_carries_the_fit_and_the_graphics_vendors(tmp_path, capsys):
+    root = tmp_path
+    (root / "sys/class/drm/card0/device").mkdir(parents=True)
+    (root / "sys/class/drm/card0/device/vendor").write_text("0x1002\n")
+    usr = root / "usr/lib/bopp-kargs.d"
+    usr.mkdir(parents=True)
+    (usr / "amd.conf").write_text("kargs = amdgpu.runpm=0\n")
+    (usr / "nv.conf").write_text("kargs = nvidia-drm.modeset=1\n")
+    (usr / "risky.conf").write_text("kargs = pci=noaer\nrisk_level = medium\n")
+    (usr / "plain.conf").write_text("kargs = threadirqs\n")
+    (usr / "bad.conf").write_text("nonsense\n")
+    _, out = run_cli(root, capsys, "--json", "dropins")
+    data = json.loads(out)
+    by = {d["name"]: d for d in data["dropins"]}
+    assert data["gpus"] == ["amd"]
+    assert [by[n]["fit"] for n in ("amd", "nv", "risky", "plain")] == ["fits", "unsupported", "risky", "optional"]
+    assert "NVIDIA" in by["nv"]["fit_reason"] and by["bad"]["fit"] == ""

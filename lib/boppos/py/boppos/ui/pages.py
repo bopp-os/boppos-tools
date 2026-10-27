@@ -348,23 +348,7 @@ class KargsPage(Page):
             banner.set_revealed(True)
             self.box.append(banner)
         items = dropins.get("dropins", [])
-        usable = [d for d in items if d["matches_device"] and not d["error"]]
-        # High-risk presets stay hidden until Advanced is on, unless one is already enabled.
-        shown = [d for d in usable if d.get("risk_level") != "high" or self.win.advanced or d["enabled"]]
-        categories: dict[str, list[dict]] = {}
-        for d in shown:
-            categories.setdefault(d.get("category") or "Other", []).append(d)
-        if not categories:
-            g = group("Presets")
-            g.add(message_row("No presets are installed on this system." if not items else
-                              "No presets are available for this device."))
-            self.box.append(g)
-        for cat, group_items in categories.items():
-            g = group(cat, "Each preset changes kernel arguments. Changes take effect after a reboot."
-                      if cat == next(iter(categories)) else None)
-            for d in group_items:
-                g.add(self.preset_row(d))
-            self.box.append(g)
+        self.build_presets(items)
 
         self.preset_text = {t: d["description"] for d in items for t in d["kargs"] if d["description"]}
         if self.win.advanced:
@@ -374,9 +358,47 @@ class KargsPage(Page):
         g.add(info_row("Command line", "", data["cmdline"] or "unavailable"))
         self.box.append(g)
 
+    SECTION_TEXT = {
+        "on": ("Switched on", "Presets that are on now. Switch one off to stop using it after the next reboot."),
+        "fits": ("Presets for this hardware", "Listed because they fit this hardware's graphics or model, not "
+                 "because you need them."),
+        "optional": ("Other presets", "Not recommended. Only for a problem you actually have."),
+        "risky": ("Risky presets", "Not specific to this hardware, and medium or high risk. Each asks you to "
+                  "confirm."),
+        "unsupported": ("Unsupported", "Locked: they are for other hardware, so they cannot work here."),
+        "invalid": ("Invalid presets", "These could not be read and are never applied."),
+    }
+
+    def build_presets(self, items: list[dict]) -> None:
+        """Presets by how well they fit this hardware (kargs.fit), not by category. The category is on each row."""
+        from .. import kargs
+
+        if not items:
+            g = group("Presets")
+            g.add(message_row("No presets are installed on this system."))
+            self.box.append(g)
+            return
+        warn = group("Kernel arguments: best left alone", kargs.KARGS_WARNING)
+        warn.add_css_class("warning")
+        self.box.append(warn)
+        for key, rows in kargs.sections(items).items():
+            if not rows:
+                continue
+            title, text = self.SECTION_TEXT[key]
+            g = group(title, text + " Changes take effect after a reboot." if key in ("on", "fits") else text)
+            for d in rows:
+                if key == "invalid":
+                    g.add(info_row(d["name"], "invalid", d["error"]))
+                elif key == "unsupported":
+                    g.add(info_row(d["description"] or d["name"], "", d.get("fit_reason") or " ".join(d["kargs"]),
+                                   tag=("Unsupported", "dim-label")))
+                else:
+                    g.add(self.preset_row(d))
+            self.box.append(g)
+
     def preset_row(self, d: dict) -> Adw.SwitchRow:
         level = d.get("risk_level", "low")
-        lines = [d["description"] or d["name"], "Adds: " + " ".join(d["kargs"])]
+        lines = [d["description"] or d["name"], f"{d.get('category') or 'Other'}  ·  Adds: " + " ".join(d["kargs"])]
         if d.get("risk"):
             lines.append(f"Risk: {d['risk']}")
         row = switch_row(d["description"] or d["name"], "\n".join(lines[1:]), d["enabled"],
@@ -408,14 +430,6 @@ class KargsPage(Page):
                 if tok.split("=", 1)[0] in ("ostree", "root"):
                     continue
                 g.add(self.argument_row(d))
-            self.box.append(g)
-
-        others = [d for d in items if not d["matches_device"] or d["error"]]
-        if others:
-            g = group("Other presets", "These do not match this device and are never applied.")
-            for d in others:
-                g.add(info_row(d["name"], "invalid" if d["error"] else "other device",
-                               d["error"] or " ".join(d["kargs"])))
             self.box.append(g)
 
     def argument_row(self, d: dict):

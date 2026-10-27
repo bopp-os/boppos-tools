@@ -158,7 +158,7 @@ class WelcomeFlow(Gtk.Box):
         options = [o for o in options if o is not oc]
         for o in options:
             subtitle = o.description + (f"  {o.risk}" if o.risk else "")
-            if o.fit == "unsupported":
+            if o.locked:
                 row = switch_row(o.name, f"{o.reason}  {o.description}", False, lambda _a: None)
                 row.set_sensitive(False)
                 gone.add_row(row)
@@ -170,7 +170,7 @@ class WelcomeFlow(Gtk.Box):
         if oc:
             overclock = group("AMD GPU overclocking", "For tools such as LACT. Leave this off unless you will "
                               "overclock or undervolt. Takes effect after a reboot.")
-            ok = oc.fit != "unsupported"
+            ok = not oc.locked
             row = switch_row("Unlock overclocking, undervolting and fan control",
                              f"{oc.risk}" if ok else oc.reason, ok and oc.name in c.kargs, toggle(c.kargs, oc.name))
             row.set_sensitive(ok)
@@ -182,7 +182,7 @@ class WelcomeFlow(Gtk.Box):
             groups.append(suggested)
         if any(o.fit == "optional" for o in options):
             groups.append(others)
-        if any(o.fit == "unsupported" for o in options):
+        if any(o.locked for o in options):
             groups.append(never)
         return page(*groups)
 

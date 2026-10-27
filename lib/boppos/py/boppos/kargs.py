@@ -285,7 +285,8 @@ def fit(dropin: Dropin, dmi: dict[str, str], gpus: tuple[str, ...]) -> tuple[str
     """How a preset relates to this hardware, as (fit, reason). The one rule the wizard and the deck share.
 
     "fits": it is about this model or this graphics vendor. "optional": it could apply to anything.
-    "unsupported": it is for another model or graphics vendor, or it could apply anywhere but is risky.
+    "risky": it could apply anywhere but is medium or high risk. "unsupported": it is for another model or
+    graphics vendor, so it cannot work here.
     """
     gpu = gpu_of(dropin)
     if dropin.match and not matches_device(dropin, dmi):
@@ -295,7 +296,7 @@ def fit(dropin: Dropin, dmi: dict[str, str], gpus: tuple[str, ...]) -> tuple[str
     if dropin.match or gpu:
         return "fits", ""
     if dropin.risk_level in ("medium", "high"):  # it could apply anywhere, which is exactly why it is not offered
-        return "unsupported", (f"{dropin.risk_level.capitalize()} risk and not specific to this hardware. Only "
+        return "risky", (f"{dropin.risk_level.capitalize()} risk and not specific to this hardware. Only "
                                "change it from Kernel arguments in boppos-deck, and only if you need it.")
     return "optional", ""
 
@@ -456,3 +457,30 @@ def _commit(root, entry, to_add, to_remove, run, dry_run, managed, force=False):
         "reboot_required": changed and not dry_run,
         "dry_run": dry_run,
     }
+
+
+KARGS_WARNING = (
+    "Only switch these on if you have the exact problem a preset fixes. Kernel arguments change how the "
+    "system starts, a wrong one can cause crashes, a black screen or a machine that will not boot, and "
+    "most systems are best left alone. Every preset here is off by default."
+)
+
+SECTIONS = ("on", "fits", "optional", "risky", "unsupported", "invalid")
+
+
+def sections(items: list[dict]) -> dict[str, list[dict]]:
+    """Sort the presets of `bopp-kargs --json dropins` into the groups both apps show, in display order.
+
+    on: switched on and applied here (always switchable, so it can be turned off); then by fit; invalid last.
+    """
+    out: dict[str, list[dict]] = {k: [] for k in SECTIONS}
+    for d in items:
+        if d.get("error"):
+            out["invalid"].append(d)
+        elif d.get("enabled") and d.get("matches_device"):
+            out["on"].append(d)
+        else:
+            out[d.get("fit") or "unsupported"].append(d)
+    for rows in out.values():
+        rows.sort(key=lambda d: d["name"])
+    return out
