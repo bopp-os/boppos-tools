@@ -45,6 +45,7 @@ def tray(monkeypatch, tmp_path):
     for name in ("PIL", "PIL.Image", "PIL.ImageDraw", "PIL.ImageFont"):
         monkeypatch.setitem(sys.modules, name, MagicMock())
     monkeypatch.setenv("PATH", str(tmp_path) + ":/usr/bin")
+    monkeypatch.setattr(sys, "dont_write_bytecode", True)  # never leave a bin/__pycache__ behind
     loader = importlib.machinery.SourceFileLoader("bopp_tray", str(SCRIPT))
     spec = importlib.util.spec_from_loader("bopp_tray", loader)
     mod = importlib.util.module_from_spec(spec)

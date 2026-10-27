@@ -6,7 +6,7 @@ all:
 
 install-tools:
 	install -d $(DESTDIR)$(PREFIX)/bin
-	install -m 755 bin/* $(DESTDIR)$(PREFIX)/bin/
+	find bin -maxdepth 1 -type f -exec install -m 755 {} $(DESTDIR)$(PREFIX)/bin/ \;
 	
 	install -d $(DESTDIR)$(PREFIX)/lib/boppos
 	find lib/boppos -maxdepth 1 -type f -exec install -m 755 {} $(DESTDIR)$(PREFIX)/lib/boppos/ \;
@@ -36,7 +36,7 @@ install-tools:
 	install -m 644 kargs.d/*.conf $(DESTDIR)$(PREFIX)/lib/bopp-kargs.d/
 	
 	install -d $(DESTDIR)$(PREFIX)/libexec/boppos
-	install -m 755 libexec/boppos/* $(DESTDIR)$(PREFIX)/libexec/boppos/
+	find libexec/boppos -maxdepth 1 -type f -exec install -m 755 {} $(DESTDIR)$(PREFIX)/libexec/boppos/ \;
 	
 	install -d $(DESTDIR)$(PREFIX)/share/polkit-1/rules.d
 	install -m 644 polkit/rules.d/* $(DESTDIR)$(PREFIX)/share/polkit-1/rules.d/
