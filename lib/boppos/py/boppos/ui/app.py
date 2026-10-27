@@ -17,7 +17,7 @@ from gi.repository import Adw, Gdk, GLib, GObject, Gtk  # noqa: E402
 
 from . import agent as polkit_agent  # noqa: E402
 from . import backend  # noqa: E402
-from .controller import DIRECTIONS, Action, InputMapper, Sdl3Gamepads  # noqa: E402
+from .controller import DIRECTIONS, PAGES, Action, InputMapper, Sdl3Gamepads  # noqa: E402
 from .hints import hint_items  # noqa: E402
 from .osk import PasswordBuffer  # noqa: E402
 from .pages import ALL_PAGES  # noqa: E402
@@ -75,6 +75,10 @@ class DeckWindow(Adw.ApplicationWindow):
         self.input_mode = "pad" if self.pad_available() else "kb"
         self._hint_key: tuple | None = None
         self._used_keyboard = False
+        # page key -> the row that had focus there. A strong reference on purpose: a weakref to a PyGObject
+        # wrapper dies as soon as Python drops the wrapper, although the row itself is still there.
+        self._last_focus: dict[str, Gtk.Widget] = {}
+        self._probing = False  # true while a focus move is being tried (sidebar rows must not react)
         self.pw = PasswordBuffer()
         self.auth_req: dict | None = None
         self.auth_queue: list[dict] = []
@@ -100,6 +104,7 @@ class DeckWindow(Adw.ApplicationWindow):
         keys.connect("key-pressed", self.on_key)
         self.add_controller(keys)
         self.connect("close-request", self.on_close_request)
+        self.connect("notify::focus-widget", self.on_focus_changed)
 
         if gaming:
             self.fullscreen()
@@ -129,7 +134,7 @@ class DeckWindow(Adw.ApplicationWindow):
             row = Gtk.ListBoxRow()
             row.set_child(box)
             focus = Gtk.EventControllerFocus()
-            focus.connect("enter", lambda _c, idx=i: self.select_page(idx, move_focus=False))
+            focus.connect("enter", lambda _c, idx=i: None if self._probing else self.select_page(idx, move_focus=False))
             row.add_controller(focus)
             self.sidebar_list.append(row)
             self.sidebar_rows.append(row)
@@ -377,14 +382,94 @@ class DeckWindow(Adw.ApplicationWindow):
         if move_focus:
             self.sidebar_rows[idx].grab_focus()
 
+    def on_focus_changed(self, *_args) -> None:
+        f = self.get_focus()
+        if f is None or self.stack.get_visible_child_name() != "main":
+            return
+        page = self.pages[self.current_index]
+        if f.is_ancestor(page.widget):
+            self._last_focus[page.key] = f
+
     def enter_content(self, idx: int | None = None) -> None:
+        """Move into the page. An accidental Left (or B) must not cost you your place: go back to the
+        row that had focus, and only start from the top when there is none."""
         if idx is not None and idx != self.current_index:
             self.select_page(idx, move_focus=False)
         if self.split.get_collapsed():
             self.split.set_show_content(True)
         page = self.pages[self.current_index]
+        last = self._last_focus.get(page.key)
+        if last is not None and last.get_mapped() and last.is_ancestor(page.widget) and last.get_sensitive():
+            last.grab_focus()
+            return
         if not page.widget.child_focus(Gtk.DirectionType.TAB_FORWARD):
             page.widget.grab_focus()
+
+    def step_inside(self, scope: Gtk.Widget, direction: Gtk.DirectionType) -> bool:
+        """Try one focus move and keep it only if focus stays inside `scope`.
+
+        GTK's spatial focus happily leaves a page for the sidebar at the last row (and the sidebar rows
+        switch pages), so a move that lands outside is undone and reported as "at the edge".
+        """
+        before = self.get_focus()
+        self._probing = True
+        try:
+            scope.child_focus(direction)
+            after = self.get_focus()
+            if after is not None and after is not before and not after.is_ancestor(scope):
+                if before is not None:
+                    before.grab_focus()
+                return False
+            return after is not before
+        finally:
+            self._probing = False
+
+    def move_focus(self, a: Action) -> None:
+        """One D-pad step, kept inside whatever has focus: the page, or the sidebar list. Spatial focus
+        would otherwise slip from the last row of a page into the sidebar, whose rows switch pages."""
+        direction = DIRECTION_MAP[a]
+        if self.focus_in_sidebar():
+            if a == Action.RIGHT:
+                self.enter_content()
+            elif a in (Action.UP, Action.DOWN):
+                self.step_inside(self.sidebar_list, direction)
+            return
+        page = self.pages[self.current_index]
+        if not self.step_inside(page.widget, direction) and a == Action.LEFT:
+            self.sidebar_rows[self.current_index].grab_focus()  # the only way out of a page is Left or B
+
+    def jump(self, a: Action) -> None:
+        """Move focus about a screenful (or to the very top/bottom) by stepping through the rows, so the
+        focus stays on a real row and the view follows it."""
+        page = self.pages[self.current_index]
+        sw = page.widget
+        f = self.get_focus()
+        if f is None or not f.is_ancestor(sw):
+            return
+        adj = sw.get_vadjustment()
+
+        def y_of(widget: Gtk.Widget) -> float | None:
+            ok, rect = widget.compute_bounds(sw)
+            return rect.get_y() + adj.get_value() if ok else None
+
+        down = a in (Action.PAGE_DOWN, Action.BOTTOM)
+        direction = Gtk.DirectionType.DOWN if down else Gtk.DirectionType.UP
+        start = y_of(f)
+        if start is None:
+            return
+        whole = a in (Action.TOP, Action.BOTTOM)
+        step = adj.get_page_size() * 0.85
+        target = start + step if down else start - step
+        for _ in range(400 if whole else 80):
+            if not self.step_inside(sw, direction):
+                break
+            f = self.get_focus()
+            if f is None:
+                break
+            if not whole:
+                y = y_of(f)
+                if y is None or (down and y >= target) or (not down and y <= target):
+                    break
 
     def focus_in_sidebar(self) -> bool:
         f = self.get_focus()
@@ -562,6 +647,11 @@ class DeckWindow(Adw.ApplicationWindow):
         if keyval == Gdk.KEY_Escape and not self.dialog:
             self.handle_action(Action.BACK)
             return True
+        keys = {Gdk.KEY_Page_Up: Action.PAGE_UP, Gdk.KEY_Page_Down: Action.PAGE_DOWN,
+                Gdk.KEY_Home: Action.TOP, Gdk.KEY_End: Action.BOTTOM}
+        if not ctrl and not self.dialog and keyval in keys and self.stack.get_visible_child_name() == "main":
+            self.handle_action(keys[keyval])
+            return True
         if ctrl and keyval in (Gdk.KEY_Tab, Gdk.KEY_ISO_Left_Tab, Gdk.KEY_Page_Down, Gdk.KEY_Page_Up):
             back = keyval in (Gdk.KEY_ISO_Left_Tab, Gdk.KEY_Page_Up) or (keyval == Gdk.KEY_Tab and shift)
             self.handle_action(Action.PREV if back else Action.NEXT)
@@ -619,15 +709,16 @@ class DeckWindow(Adw.ApplicationWindow):
             elif a in DIRECTIONS:
                 self.child_focus(DIRECTION_MAP[a])
             return
+        if a in PAGES or a in (Action.TOP, Action.BOTTOM):
+            if not self.focus_in_sidebar():
+                self.jump(a)
+            return
         exp = None if self.focus_in_sidebar() else header_expander(self.get_focus())
         if exp is not None and (a == Action.ACCEPT or (a == Action.RIGHT and not exp.get_expanded())
                                 or (a == Action.LEFT and exp.get_expanded())):
             exp.set_expanded(a == Action.RIGHT or (a == Action.ACCEPT and not exp.get_expanded()))
         elif a in DIRECTIONS:
-            if self.focus_in_sidebar() and a == Action.RIGHT:
-                self.enter_content()
-            else:
-                self.child_focus(DIRECTION_MAP[a])
+            self.move_focus(a)
         elif a == Action.ACCEPT:
             f = self.get_focus()
             if f is None:

@@ -35,6 +35,13 @@ Add the app via `bopp-steam-shortcut add` with Steam closed, then start Steam.
 - [ ] Decky: Steam restarts, the Decky menu appears; *Uninstall* removes the service. A tampered download (wrong hash) is refused.
 - [ ] Kernel arguments: toggling a preset changes `/proc/cmdline` after a reboot; toggling it back removes only what it added. With an update staged the page shows the *reboot first* banner and the switches are disabled.
 
+## 3f. Moving through long pages
+- [ ] On a long page (Kernel arguments with Advanced on, Apps with a category open): right stick down/up and `LT`/`RT` jump roughly a screen; keep it flicked and it repeats steadily. `PgUp`/`PgDn`/`Home`/`End` do the same on a keyboard.
+- [ ] Holding the D-pad or left stick moves one row at first, then speeds up the longer it is held.
+- [ ] Pushing the left stick down while your thumb drifts sideways never produces a Left or Right, and a clean diagonal does nothing. If a real controller still gives stray input, note the model and what it does (the thresholds are constants in `ui/controller.py`).
+- [ ] Press Down many times at the end of a page: focus stays on the last row, the page does not change. Press Left by accident and then Right: you are back on the same row, not at the top.
+- [ ] Check that the right stick and triggers really are axes 2/3 and 4/5 on your pad (SDL3 numbering); if not, say which pad.
+
 ## 3e. Controller focus is always visible
 - [ ] With a controller: every confirmation dialog shows a thick ring on the selected button (Cancel first), Left/Right moves it, A activates it, B cancels. The on-screen keyboard shows a ring on the selected key. Rows, switches and buttons all show a ring after the first D-pad press, not only after a key press.
 

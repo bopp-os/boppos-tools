@@ -30,10 +30,11 @@ def hint_items(mode: str, family: str = "generic", auth: bool = False) -> list[t
     if mode != "pad":
         if auth:
             return [("Enter", "OK", ""), ("Esc", "Cancel", ""), ("Backspace", "Delete", "")]
-        return [("Enter", "Select", ""), ("Esc", "Back", ""), ("Ctrl+Tab", "Page", "")]
+        return [("Enter", "Select", ""), ("Esc", "Back", ""), ("Ctrl+Tab", "Page", ""), ("PgUp / PgDn", "Jump", "")]
     g = GLYPHS.get(family, GLYPHS["generic"])
     south, east, lb, rb, start = g["south"], g["east"], g["lb"], g["rb"], g["start"]
     if auth:
         return [(south[0], "Type", south[1]), (east[0], "Cancel", east[1]), (lb[0], "Delete", lb[1]),
                 (rb[0], "Shift", rb[1]), (start[0], "OK", start[1])]
-    return [(south[0], "Select", south[1]), (east[0], "Back", east[1]), (f"{lb[0]} / {rb[0]}", "Page", "")]
+    return [(south[0], "Select", south[1]), (east[0], "Back", east[1]), (f"{lb[0]} / {rb[0]}", "Page", ""),
+            ("R Stick", "Jump", "")]

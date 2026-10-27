@@ -113,3 +113,78 @@ def test_gaming_mode_detection():
     assert backend.gaming_mode({"SteamDeck": "1"})
     assert backend.gaming_mode({"GAMESCOPE_WAYLAND_DISPLAY": "gamescope-0"})
     assert not backend.gaming_mode({"HOME": "/x"})
+
+
+# --- diagonals, page jumps and acceleration -----------------------------------------------------------
+
+from boppos.ui.controller import (  # noqa: E402
+    AXIS_LTRIG,
+    AXIS_RIGHTX,
+    AXIS_RIGHTY,
+    AXIS_RTRIG,
+    PAGES,
+    page_direction,
+    stick_direction,
+)
+
+
+def test_a_diagonal_stick_push_does_nothing_but_a_clear_one_moves():
+    assert stick_direction(20000, 19000, None) is None  # diagonal: no stray Right
+    assert stick_direction(-18000, -17000, None) is None
+    assert stick_direction(2000, 20000, None) == Action.DOWN
+    assert stick_direction(-25000, 5000, None) == Action.LEFT
+
+
+def test_drift_while_pushing_down_is_not_read_as_left_or_right():
+    m = InputMapper()
+    assert m.feed(("axis", AXIS_LEFTY, 22000, 1), 0) == [Action.DOWN]
+    for drift in (3000, 8000, 14000, 19000):  # the thumb slides sideways while still pushing down
+        assert m.feed(("axis", AXIS_LEFTX, drift, 1), 0) == []
+    assert m.tick(0.5) == [Action.DOWN]  # still just repeating Down
+
+
+def test_a_clear_change_of_direction_still_works():
+    m = InputMapper()
+    m.feed(("axis", AXIS_LEFTY, 22000, 1), 0)
+    m.feed(("axis", AXIS_LEFTY, 0, 1), 0)
+    assert m.feed(("axis", AXIS_LEFTX, 25000, 1), 0) == [Action.RIGHT]
+
+
+def test_right_stick_flicks_page_up_and_down_only_when_clearly_vertical():
+    m = InputMapper()
+    assert m.feed(("axis", AXIS_RIGHTY, 25000, 1), 0) == [Action.PAGE_DOWN]
+    assert m.feed(("axis", AXIS_RIGHTY, 0, 1), 0) == []
+    assert m.feed(("axis", AXIS_RIGHTY, -25000, 1), 0) == [Action.PAGE_UP]
+    m.feed(("axis", AXIS_RIGHTY, 0, 1), 0)
+    assert m.feed(("axis", AXIS_RIGHTX, 25000, 1), 0) == []  # sideways on the right stick: ignored
+    assert page_direction(22000, 24000, None) is None  # too diagonal
+    assert m.tick(10) == []  # released: nothing keeps repeating
+
+
+def test_triggers_page_too_and_release_stops_the_repeat():
+    m = InputMapper()
+    assert m.feed(("axis", AXIS_LTRIG, 30000, 1), 0) == [Action.PAGE_UP]
+    assert m.feed(("axis", AXIS_RTRIG, 30000, 1), 0) == [Action.PAGE_DOWN]
+    assert m.feed(("axis", AXIS_LTRIG, 20000, 1), 0) == []  # still held (hysteresis)
+    m.feed(("axis", AXIS_LTRIG, 0, 1), 0)
+    m.feed(("axis", AXIS_RTRIG, 0, 1), 0)
+    assert m.tick(10) == []
+
+
+def test_page_jumps_repeat_steadily_while_directions_speed_up():
+    m = InputMapper(Repeater(delay=0.4, interval=0.11, page_delay=0.35, page_interval=0.28))
+    m.feed(("axis", AXIS_RIGHTY, 25000, 1), 0)
+    pages = [t / 100 for t in range(0, 300) if m.tick(t / 100) == [Action.PAGE_DOWN]]
+    gaps = [round(b - a, 2) for a, b in zip(pages, pages[1:], strict=False)]
+    assert pages[0] == 0.35 and set(gaps) <= {0.28, 0.29}
+    m2 = InputMapper(Repeater(delay=0.4, interval=0.11))
+    m2.feed(("button", 12, True, 1), 0)
+    ticks = [t / 100 for t in range(0, 330) if m2.tick(t / 100) == [Action.DOWN]]
+    early = len([t for t in ticks if t < 1.0])
+    late = len([t for t in ticks if 2.0 <= t < 3.0])
+    assert late > early * 1.8  # holding longer repeats clearly faster
+    assert min(b - a for a, b in zip(ticks, ticks[1:], strict=False)) >= 0.04  # but never absurdly fast
+
+
+def test_page_actions_are_not_directions():
+    assert not set(PAGES) & {Action.UP, Action.DOWN, Action.LEFT, Action.RIGHT}

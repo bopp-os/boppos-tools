@@ -14,7 +14,7 @@ def test_family_from_sdl_gamepad_type():
 
 def test_playstation_uses_shapes_and_shoulder_names():
     items = hint_items("pad", "playstation")
-    assert labels(items) == [("✕", "Select"), ("○", "Back"), ("L1 / R1", "Page")]
+    assert labels(items) == [("✕", "Select"), ("○", "Back"), ("L1 / R1", "Page"), ("R Stick", "Jump")]
     assert items[0][2] == "glyph-cross" and items[1][2] == "glyph-circle"
     assert labels(hint_items("pad", "playstation", auth=True))[-1] == ("Options", "OK")
 
@@ -28,7 +28,8 @@ def test_xbox_and_generic_and_nintendo_labels():
 
 
 def test_keyboard_prompts_ignore_the_controller_family():
-    assert labels(hint_items("kb", "playstation")) == [("Enter", "Select"), ("Esc", "Back"), ("Ctrl+Tab", "Page")]
+    assert labels(hint_items("kb", "playstation")) == [("Enter", "Select"), ("Esc", "Back"), ("Ctrl+Tab", "Page"),
+                                                       ("PgUp / PgDn", "Jump")]
     assert labels(hint_items("kb", "xbox", auth=True)) == [("Enter", "OK"), ("Esc", "Cancel"),
                                                            ("Backspace", "Delete")]
 
