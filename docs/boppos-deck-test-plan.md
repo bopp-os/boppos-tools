@@ -77,6 +77,7 @@ Add the app via `bopp-steam-shortcut add` with Steam closed, then start Steam.
 
 ## 3a. Presets, custom arguments and apps
 - [ ] Kernel arguments (Advanced on) opens with the "best left alone" warning, then Switched on, Presets for this hardware, Other presets, Risky presets and Unsupported (locked, with the reason). Each preset has a Low/Medium/High risk label, its category and "Adds:" and "Risk:" lines.
+- [ ] The Command line group shows Running now, Next boot and Changes after reboot. Before any change it says there are none; switch a preset on or off and the difference lists `+` and `−` arguments straight away (no reboot needed to see it). After the reboot the difference is empty again. It works in normal mode too.
 - [ ] Turning on a medium or high preset shows its risk text with Cancel as default; cancelling puts the switch back; confirming asks for the password and applies.
 - [ ] Advanced: *Add an argument* opens the keyboard with the text visible; `pci=noaer` is accepted; `init=/bin/sh`, `rd.break`, `ostree=x` and `a b` are rejected with a message. *Remove* on a listed argument asks first; arguments set by a preset show "preset" instead of a button.
 - [ ] Current arguments each show a description (or the "no description yet" text); `rw`, `rootflags=`, `rd.luks.uuid=` show *Required to boot* and have no Remove button; image defaults show *Image default*. `sudo bopp-kargs remove rootflags=subvol=root` is refused; `sudo bopp-kargs --dry-run remove --force ...` shows the plan.

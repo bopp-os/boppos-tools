@@ -317,8 +317,11 @@ class KargsPage(Page):
                 return ""
 
         if not self.win.advanced:  # normal mode only looks: the presets are listed, locked, and nothing else is asked
-            return {"dropins": run_json([tool("bopp-kargs"), "--json", "dropins"]), "cmdline": cmdline(),
-                    "advanced": False}
+            with ThreadPoolExecutor(max_workers=2) as pool:
+                dropins = pool.submit(run_json, [tool("bopp-kargs"), "--json", "dropins"])
+                listing = pool.submit(run_json, [tool("bopp-kargs"), "--json", "list"])
+                return {"dropins": dropins.result(), "list": listing.result(), "cmdline": cmdline(),
+                        "advanced": False}
         with ThreadPoolExecutor(max_workers=3) as pool:  # three separate tools: no reason to wait in a queue
             dropins = pool.submit(run_json, [tool("bopp-kargs"), "--json", "dropins"])
             status = pool.submit(run_json, [tool("bopp-kargs"), "--json", "status"])
@@ -339,9 +342,7 @@ class KargsPage(Page):
                 self.box.append(g)
             else:
                 self.build_presets(dropins.get("dropins", []), locked=True)
-            g = group("Running kernel")
-            g.add(info_row("Command line", "", data.get("cmdline") or "unavailable"))
-            self.box.append(g)
+            self.box.append(self.cmdline_group(data))
             return
         dropins = data["dropins"]
         if "error" in dropins:
@@ -366,9 +367,27 @@ class KargsPage(Page):
         if self.win.advanced:
             self.build_advanced(data, items)
 
-        g = group("Running kernel")
-        g.add(info_row("Command line", "", data["cmdline"] or "unavailable"))
-        self.box.append(g)
+        self.box.append(self.cmdline_group(data))
+
+    def cmdline_group(self, data: dict) -> Adw.PreferencesGroup:
+        """The command line now, the one the next boot will use, and the difference between them."""
+        from .. import kargs
+
+        g = group("Command line", "What is running, and what the next boot will use. Changes you make above show up "
+                  "as the difference.")
+        running = data.get("cmdline") or ""
+        g.add(info_row("Running now", "", running or "unavailable"))
+        listing = data.get("list")
+        if not isinstance(listing, dict) or "error" in listing or "options" not in listing:
+            reason = listing.get("error", "unavailable") if isinstance(listing, dict) else "unavailable"
+            g.add(info_row("Next boot", "", reason))
+            return g
+        g.add(info_row("Next boot", "", " ".join(listing["options"])))
+        diff = kargs.diff_cmdline(running, listing["options"])
+        lines = [f"+ {t}" for t in diff["added"]] + [f"− {t}" for t in diff["removed"]]
+        g.add(info_row("Changes after reboot", "", "\n".join(lines) if lines else "None: the next boot uses the "
+                       "same arguments as now."))
+        return g
 
     SECTION_TEXT = {
         "on": ("Switched on", "Presets that are on now. Switch one off to stop using it after the next reboot."),

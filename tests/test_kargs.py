@@ -486,3 +486,16 @@ def test_sections_order_and_what_counts_as_on():
     assert list(got) == ["on", "fits", "optional", "risky", "unsupported", "invalid"]
     assert got == {"on": ["image-set", "on-risky"], "fits": ["a", "b"], "optional": ["c"], "risky": ["r"],
                    "unsupported": ["enabled-elsewhere", "u"], "invalid": ["bad"]}
+
+
+def test_diff_cmdline_shows_only_what_the_user_changed():
+    running = "BOOT_IMAGE=/vmlinuz root=UUID=1 ostree=/ostree/boot.1/a rw quiet amdgpu.ppfeaturemask=0xffffffff"
+    nxt = ["root=UUID=1", "ostree=/ostree/boot.0/b", "rw", "quiet", "amdgpu.runpm=0", "initrd=/x"]
+    assert kargs.diff_cmdline(running, nxt) == {"added": ["amdgpu.runpm=0"],
+                                                "removed": ["amdgpu.ppfeaturemask=0xffffffff"]}
+
+
+def test_diff_cmdline_is_token_exact_and_empty_when_equal():
+    assert kargs.diff_cmdline("quiet rd.quiet", ["rd.quiet"]) == {"added": [], "removed": ["quiet"]}
+    assert kargs.diff_cmdline("a b=1", ["a", "b=1"]) == {"added": [], "removed": []}
+    assert kargs.diff_cmdline("", []) == {"added": [], "removed": []}

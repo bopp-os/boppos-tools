@@ -484,3 +484,17 @@ def sections(items: list[dict]) -> dict[str, list[dict]]:
     for rows in out.values():
         rows.sort(key=lambda d: d["name"])
     return out
+
+
+# Not changes anybody made: the bootloader adds BOOT_IMAGE and initrd, and ostree= names the deployment.
+TRANSIENT_KEYS = frozenset({"BOOT_IMAGE", "initrd", "ostree"})
+
+
+def diff_cmdline(running: str, next_boot: list[str]) -> dict[str, list[str]]:
+    """What the next boot adds to and drops from the running command line, token-exact, in command-line order."""
+
+    def keep(tokens: list[str]) -> list[str]:
+        return [t for t in tokens if key_of(t) not in TRANSIENT_KEYS]
+
+    now, nxt = keep(tokenize(running)), keep(list(next_boot))
+    return {"added": [t for t in nxt if t not in now], "removed": [t for t in now if t not in nxt]}
