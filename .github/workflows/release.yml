@@ -53,3 +53,24 @@ jobs:
             --title "${TAG}" \
             --generate-notes \
             --target "${GITHUB_SHA}"
+
+      # Publish the source archive and its checksum with the release. GitHub's auto-generated tag archive has no
+      # published hash, and it contains the PKGBUILD, so the PKGBUILD cannot carry its hash. An uploaded asset
+      # is a fixed file and gets a sha256 digest in the API, which packaging repos can read.
+      # Also backfills a release that has none: run this workflow by hand (workflow_dispatch).
+      - name: Attach the source archive and SHA256SUMS
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          PKGVER=$(grep -E '^pkgver=' packaging/arch/PKGBUILD | cut -d= -f2 | tr -d '[:space:]"')
+          TAG="v${PKGVER}"
+          NAME="boppos-tools-${PKGVER}.tar.gz"
+          if gh release view "${TAG}" --json assets --jq '.assets[].name' | grep -qx "${NAME}"; then
+            echo "${TAG} already has ${NAME}. Nothing to attach."
+            exit 0
+          fi
+          git fetch --tags --force origin
+          # The folder prefix is what the PKGBUILD's package() cd's into (${pkgbase}-${pkgver})
+          git archive --format=tar --prefix="boppos-tools-${PKGVER}/" "${TAG}" | gzip -n -9 > "${NAME}"
+          sha256sum "${NAME}" | tee SHA256SUMS
+          gh release upload "${TAG}" "${NAME}" SHA256SUMS

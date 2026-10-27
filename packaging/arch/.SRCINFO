@@ -6,7 +6,7 @@ pkgbase = boppos-tools
 	license = GPL3
 	makedepends = git
 	makedepends = make
-	source = boppos-tools-1.2.0.tar.gz::https://github.com/bopp-os/boppos-tools/archive/refs/tags/v1.2.0.tar.gz
+	source = boppos-tools-1.2.0.tar.gz::https://github.com/bopp-os/boppos-tools/releases/download/v1.2.0/boppos-tools-1.2.0.tar.gz
 	sha256sums = SKIP
 
 pkgname = boppos-tools
