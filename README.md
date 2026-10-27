@@ -304,4 +304,18 @@ sudo -E bin/bopp-kargs --dry-run add foo=1          # read-only/--dry-run first 
 
 `BOPPOS_HELPER_ESCALATE=sudo` swaps `pkexec` for `sudo -n`, so run `sudo -v` first and again whenever the sudo timestamp expires. It skips the polkit agent and password screen, so test those through `pkexec` (see `docs/boppos-deck-test-plan.md`).
 
+### Trying the on-screen keyboard (no sudo, no password)
+
+`BOPPOS_HELPER_ESCALATE=sudo` replaces polkit, so with it the password screen never appears. To try the keyboard on its own:
+
+```bash
+BOPPOS_DECK_TEST=keyboard bin/boppos-deck          # a pretend password prompt; prints what you typed and exits
+BOPPOS_DECK_TEST=keyboard-retry bin/boppos-deck    # the first attempt is "wrong", to see the retry message
+BOPPOS_DECK_TEST=text bin/boppos-deck              # the text-entry variant (used for custom kernel arguments)
+SteamDeck=1 BOPPOS_DECK_TEST=keyboard bin/boppos-deck   # same, looking and behaving like Gaming Mode (full screen)
+```
+
+Nothing typed there is checked or sent anywhere. To test the **real** thing (our polkit agent answering a real
+`pkexec` request), see "Gaming Mode keyboard" in `docs/boppos-deck-test-plan.md`.
+
 The tests need no root and touch nothing real: `pytest`.

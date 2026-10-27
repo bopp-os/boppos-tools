@@ -808,9 +808,38 @@ class DeckApp(Adw.Application):
         except OSError as exc:
             print(f"boppos-deck: no gamepad support ({exc}); keyboard and mouse only", file=sys.stderr)
 
+    def run_test_mode(self, win: DeckWindow, mode: str) -> None:
+        """BOPPOS_DECK_TEST=keyboard | keyboard-retry | text: open the on-screen keyboard on its own, with a
+        pretend request, print what was typed and exit. For trying the keyboard and the controller without
+        polkit, sudo or a password (nothing typed here is checked against anything)."""
+        attempts = {"n": 0}
+        who = os.environ.get("USER", "you")
+
+        def answer(text: str) -> None:
+            attempts["n"] += 1
+            if mode == "keyboard-retry" and attempts["n"] == 1:
+                print("attempt 1: pretending the password was wrong", flush=True)
+                ask("Wrong password. Try again.")
+                return
+            print(f"OK: typed {len(text)} character(s): {text!r}", flush=True)
+            self.quit()
+
+        def cancel() -> None:
+            print("cancelled", flush=True)
+            self.quit()
+
+        def ask(error: str = "") -> None:
+            win.ask_password("Test prompt: nothing here is checked", "Type anything:", mode == "text",
+                             "" if mode == "text" else who, error, answer, cancel)
+
+        GLib.timeout_add(300, lambda: (ask(), GLib.SOURCE_REMOVE)[1])
+
     def do_activate(self) -> None:
         win = self.props.active_window or DeckWindow(self, self.gaming, self.pad)
         win.present()
+        test_mode = os.environ.get("BOPPOS_DECK_TEST")
+        if test_mode in ("keyboard", "keyboard-retry", "text"):
+            self.run_test_mode(win, test_mode)
         # Gaming Mode has no polkit agent of its own; BOPPOS_DECK_AGENT=1 forces it for testing.
         if self.agent is None and (self.gaming or os.environ.get("BOPPOS_DECK_AGENT")):
             self.agent = polkit_agent.start_agent(win.ask_password)

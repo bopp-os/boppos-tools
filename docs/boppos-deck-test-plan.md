@@ -84,6 +84,25 @@ Add the app via `bopp-steam-shortcut add` with Steam closed, then start Steam.
 - [ ] Apps: with a controller, A (and Right) expands a category, Left collapses it, Down walks into its apps. Bazaar is present after the first login of a wheel user (`boppos-default-flatpaks.service`), the row *Open Bazaar* starts it on the desktop, and in Gaming Mode the row is replaced by a note.
 - [ ] Apps: categories are collapsed; *Only show installed apps* hides the rest and keeps the pending selection; Apply installs and removes.
 
+## 3b-0. Gaming Mode keyboard, three ways (least to most real)
+1. **The keyboard alone, anywhere:** `BOPPOS_DECK_TEST=keyboard-retry bin/boppos-deck`. A pretend prompt: type with a controller or
+   keyboard, press OK, see the "Wrong password" retry, then `OK: typed N character(s)` on the terminal. No sudo, no polkit.
+   Add `SteamDeck=1` to make it full screen with controller prompts, like Gaming Mode.
+2. **Gaming Mode look, real actions, no password:** `SteamDeck=1 BOPPOS_HELPER_ESCALATE=sudo ...` after `sudo -v`. The password
+   screen does not appear here (sudo replaces polkit); this is for checking everything else.
+3. **The real thing (our polkit agent + `pkexec`)** needs a session where no desktop agent is running, because only one agent can
+   register per login session. A text login on another TTY is one:
+   - Ctrl+Alt+F3, log in as your normal user.
+   - `cd` to the checkout, then:
+     `SteamDeck=1 BOPPOS_HELPER_DIR="$PWD/libexec/boppos" gamescope -W 1280 -H 800 -f -- bin/boppos-deck`
+     (do **not** set `BOPPOS_HELPER_ESCALATE`).
+   - From a checkout the read-only calls are not waived either (the polkit rule only knows `/usr`), so the first page already asks
+     for your password: that is the keyboard test. Then try an Advanced action (a preset switch). Type your real password with
+     the controller. A wrong one should say "Wrong password. Try again."; B cancels and the action reports it was not authorised.
+   - Ctrl+Alt+F1/F2 (or `exit`) returns to the desktop.
+   - If it never prompts, look at the first lines the app printed: "polkit agent not registered (...)" means another agent
+     already owns that session.
+
 ## 3b. Desktop session with its own agent (KDE/GNOME)
 - [ ] boppos-deck starts without registering an agent; a changing action shows the desktop's own password dialog; cancelling it fails the action with a readable message.
 
