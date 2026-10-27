@@ -14,7 +14,8 @@ from .runner import make_emitter, open_log, run_stream
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="install-optional-flatpaks",
-        description="Install or remove the curated BoppOS Flatpaks without prompting (for the current user unless --system).",
+        description="Install or remove the curated BoppOS Flatpaks without prompting "
+        "(for the current user unless --system).",
     )
     p.add_argument("--list", default=None, metavar="FILE",
                    help="use only this list file (default: the curated list plus the extras)")
