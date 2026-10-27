@@ -4,22 +4,29 @@
 
 set -euo pipefail
 
-# Any option selects the non-interactive mode (system scope), implemented in Python.
-if [ $# -gt 0 ]; then
+# The installing itself is the Python code boppos-deck uses (per user unless --system; skips what is installed).
+run_python() {
     for dir in "$(dirname "$(readlink -f "$0")")/../lib/boppos/py" /usr/lib/boppos/py; do
         if [ -d "$dir/boppos" ]; then
-            PYTHONPATH="$dir" exec python3 -m boppos.flatpaks_cli "$@"
+            PYTHONPATH="$dir" python3 -m boppos.flatpaks_cli "$@"
+            return
         fi
     done
     echo "[!] Error: boppos Python package not found." >&2
-    exit 1
+    return 1
+}
+
+# Any option selects the non-interactive mode.
+if [ $# -gt 0 ]; then
+    run_python "$@"
+    exit
 fi
 
 echo "=========================================="
 echo " BoppOS Optional Flatpak Installer"
 echo "=========================================="
 
-BOPPOS_LIST="/usr/share/boppos/boppos-flatpaks.txt"
+BOPPOS_LIST="${BOPPOS_FLATPAK_LIST:-/usr/share/boppos/boppos-flatpaks.txt}"
 TMP_LIST=$(mktemp /tmp/boppos_flatpaks.XXXXXX)
 trap 'rm -f "$TMP_LIST"' EXIT
 
@@ -44,27 +51,21 @@ if [[ "$EDIT_CHOICE" =~ ^[Yy]$ ]]; then
     ${EDITOR:-nano} "$TMP_LIST"
 fi
 
-# Read the (potentially edited) list into an array, stripping comments/blanks again just in case
-mapfile -t FLATPAKS < <(sed 's/#.*//' "$TMP_LIST" | grep -v '^\s*$')
-
-if [ ${#FLATPAKS[@]} -eq 0 ]; then
+if ! grep -q '[^[:space:]]' "$TMP_LIST"; then
     echo "[*] No Flatpaks selected for installation. Exiting."
     exit 0
 fi
 
-echo "[*] Ensuring Flathub remote is configured..."
-# Use system-wide flatpak if run as root, otherwise user-level
+# As root the apps go to everyone (system); as a normal user they are installed for you only.
+SCOPE=()
 if [ "$(id -u)" -eq 0 ]; then
-    FLATPAK_CMD="flatpak install --system -y flathub"
-    flatpak remote-add --system --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
-else
-    FLATPAK_CMD="flatpak install --user -y flathub"
-    flatpak remote-add --user --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
+    SCOPE=(--system)
 fi
 
-echo "[*] Found ${#FLATPAKS[@]} Flatpaks to install."
-echo "[*] Starting installation (this may take a while)..."
-
-$FLATPAK_CMD "${FLATPAKS[@]}"
-
-echo "[*] All optional Flatpaks have been installed successfully!"
+echo "[*] Starting installation (this may take a while; apps already installed are skipped)..."
+if run_python --list "$TMP_LIST" --yes "${SCOPE[@]}"; then
+    echo "[*] All selected Flatpaks are installed."
+else
+    echo "[!] Some Flatpaks failed to install; see the messages above." >&2
+    exit 1
+fi

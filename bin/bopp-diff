@@ -105,8 +105,8 @@ comm -13 "$TMP_DIR/curr_names.txt" "$TMP_DIR/tgt_names.txt" > "$TMP_DIR/added_na
 comm -23 "$TMP_DIR/curr_names.txt" "$TMP_DIR/tgt_names.txt" > "$TMP_DIR/removed_names.txt"
 comm -12 "$TMP_DIR/curr_names.txt" "$TMP_DIR/tgt_names.txt" > "$TMP_DIR/common_names.txt"
 
-> "$TMP_DIR/upgraded.txt"
-> "$TMP_DIR/downgraded.txt"
+: > "$TMP_DIR/upgraded.txt"
+: > "$TMP_DIR/downgraded.txt"
 
 join "$TMP_DIR/common_names.txt" "$TMP_DIR/current_pkgs.txt" > "$TMP_DIR/curr_common.txt"
 join "$TMP_DIR/common_names.txt" "$TMP_DIR/target_pkgs.txt" > "$TMP_DIR/tgt_common.txt"

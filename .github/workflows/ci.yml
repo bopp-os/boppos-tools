@@ -56,9 +56,7 @@ jobs:
 
       - name: Lint shell scripts (shellcheck)
         run: |
-          # bopp-diff and update-check.sh predate shellcheck in CI and still have warnings
           for f in bin/* lib/boppos/* libexec/boppos/* share/boppos/*.sh tools/*; do
-            case "$f" in bin/bopp-diff|lib/boppos/update-check.sh) continue ;; esac
             if [ -f "$f" ] && head -n 1 "$f" | grep -E -q 'bash|/sh'; then
               shellcheck -S warning "$f"
             fi
@@ -67,9 +65,7 @@ jobs:
       - name: Lint and test Python (ruff, pytest)
         run: |
           pip install pytest ruff
-          # bopp-tray predates ruff in CI
-          py=$(grep -lE '^#!.*python' bin/* libexec/boppos/* lib/boppos/* boot/grub/* 2>/dev/null \
-            | grep -v -e bin/bopp-tray || true)
+          py=$(grep -lE '^#!.*python' bin/* libexec/boppos/* lib/boppos/* boot/grub/* 2>/dev/null || true)
           # shellcheck disable=SC2086
           ruff check lib/boppos/py tests $py
           pytest -q
@@ -79,6 +75,12 @@ jobs:
           echo "Testing Makefile installation targets..."
           TMP_DEST=$(mktemp -d)
           make DESTDIR="$TMP_DEST" install
+          # The Makefile installs by glob, so a stray file in the repo would ship: fail on the usual suspects.
+          stray=$(find "$TMP_DEST" \( -name '__pycache__' -o -name '*.pyc' -o -name '*~' -o -name '*.bak' \
+            -o -name '*.orig' -o -name '*.swp' -o -name 'uv.lock' -o -name '.DS_Store' \))
+          if [ -n "$stray" ]; then
+            echo "::error::unexpected files in the installed tree:"; echo "$stray"; exit 1
+          fi
           rm -rf "$TMP_DEST"
 
       - name: Validate PKGBUILD & .SRCINFO consistency

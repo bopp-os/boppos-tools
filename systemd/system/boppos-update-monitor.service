@@ -7,7 +7,7 @@ ConditionPathExists=/usr/bin/bootc
 
 [Service]
 Type=oneshot
-ExecStart=/usr/lib/boppos/update-check.sh
+ExecStart=/usr/lib/boppos/update-check
 # Write status to /run so it's tmpfs (ephemeral, world-readable)
 RuntimeDirectory=boppos
 RuntimeDirectoryMode=0755

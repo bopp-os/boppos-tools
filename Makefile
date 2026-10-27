@@ -50,8 +50,7 @@ install-tools:
 install-artwork:
 	install -d $(DESTDIR)$(PREFIX)/share/icons
 	cp -r artwork/icons/* $(DESTDIR)$(PREFIX)/share/icons/
-	find $(DESTDIR)$(PREFIX)/share/icons -type d -exec chmod 755 {} \;
-	find $(DESTDIR)$(PREFIX)/share/icons -type f -exec chmod 644 {} \;
+	chmod -R a-x,u=rwX,go=rX $(DESTDIR)$(PREFIX)/share/icons
 
 # Boot artwork: the Plymouth splash and the GRUB theme (activation is up to the image: see docs/boot-theme.md)
 install-boot-theme:

@@ -15,7 +15,7 @@ image system.
 │  boppos-update-monitor.service                                  │
 │          │                                                      │
 │          ▼                                                      │
-│  /usr/lib/boppos/update-check.sh                                │
+│  /usr/lib/boppos/update-check                                │
 │    1. bootc status --format=json   → parse current/staged       │
 │    2. bootc upgrade --check        → fetch upstream if needed   │
 │    3. bopp-diff --staged           → package diff text          │
@@ -48,7 +48,7 @@ image system.
 | Path | Purpose |
 |------|---------|
 | `usr/bin/bopp-tray` | User-space tray app (Python) |
-| `usr/lib/boppos/update-check.sh` | Privileged check script |
+| `usr/lib/boppos/update-check` | Privileged check script |
 | `usr/lib/systemd/system/boppos-update-monitor.service` | System oneshot |
 | `usr/lib/systemd/system/boppos-update-monitor.timer` | Hourly trigger |
 | `usr/lib/systemd/user/bopp-tray.service` | User session service |
@@ -57,13 +57,13 @@ image system.
 
 ## Integration with bopp-diff
 
-`update-check.sh` calls `bopp-diff --staged` if the binary exists on PATH.
+`update-check` calls `bopp-diff --staged` if the binary exists on PATH.
 The `bopp-diff` script should accept a `--staged` flag and write a human-readable
 package diff to stdout comparing the currently booted image against the staged one.
 If your current `bopp-diff` doesn't support `--staged`, you can either:
 
 - Add the flag to bopp-diff, or
-- Have update-check.sh invoke it differently and adjust the call in update-check.sh.
+- Have update-check invoke it differently and adjust the call in update-check.
 
 The diff text is embedded in the JSON status file and surfaced via the
 "View changes" menu item (written to a temp file and opened in `less`).
