@@ -45,6 +45,7 @@ Add the app via `bopp-steam-shortcut add` with Steam closed, then start Steam.
 - [ ] The Steam library page still lists every installed app and says it never installs or removes anything.
 
 ## 3g. Switching tabs
+- [ ] With the D-pad in the tab bar: Up/Down changes the tab and the page on the right changes with it; **A enters the tab you are on** (focus lands on its first row, or the row you left); **B** returns to the tab bar. The highlighted tab and the shown page are never different.
 - [ ] Switch between tabs with LB/RB and with the D-pad in the sidebar: the new tab appears at once. A tab you have seen before shows its content immediately (no blank "Loading…") and updates in place only if something actually changed, never while you are using a row on it.
 - [ ] Moving quickly down the sidebar does not start loads for every tab you pass, only the one you stop on.
 - [ ] After start-up the other tabs fill in by themselves, so a first visit is usually instant too. (Not when running from a checkout with polkit prompts: there every read would ask for a password.)

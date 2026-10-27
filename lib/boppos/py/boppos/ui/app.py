@@ -425,8 +425,11 @@ class DeckWindow(Adw.ApplicationWindow):
     def enter_content(self, idx: int | None = None) -> None:
         """Move into the page. An accidental Left (or B) must not cost you your place: go back to the
         row that had focus, and only start from the top when there is none."""
-        if idx is not None and idx != self.current_index:
-            self.select_page(idx, move_focus=False)
+        if idx is None:
+            focused = self.get_focus()
+            row = focused if focused in self.sidebar_rows else None
+            idx = self.sidebar_rows.index(row) if row is not None else self.current_index
+        self.select_page(idx, move_focus=False)  # whatever is highlighted must also be what is shown
         if self.split.get_collapsed():
             self.split.set_show_content(True)
         page = self.pages[self.current_index]
@@ -437,14 +440,15 @@ class DeckWindow(Adw.ApplicationWindow):
         if not page.widget.child_focus(Gtk.DirectionType.TAB_FORWARD):
             page.widget.grab_focus()
 
-    def step_inside(self, scope: Gtk.Widget, direction: Gtk.DirectionType) -> bool:
+    def step_inside(self, scope: Gtk.Widget, direction: Gtk.DirectionType, quiet: bool = True) -> bool:
         """Try one focus move and keep it only if focus stays inside `scope`.
 
         GTK's spatial focus happily leaves a page for the sidebar at the last row (and the sidebar rows
-        switch pages), so a move that lands outside is undone and reported as "at the edge".
+        switch pages), so a move that lands outside is undone and reported as "at the edge". While probing
+        out of a page the sidebar must not react (quiet); a real move within the sidebar must (not quiet).
         """
         before = self.get_focus()
-        self._probing = True
+        self._probing = quiet
         try:
             scope.child_focus(direction)
             after = self.get_focus()
@@ -464,7 +468,7 @@ class DeckWindow(Adw.ApplicationWindow):
             if a == Action.RIGHT:
                 self.enter_content()
             elif a in (Action.UP, Action.DOWN):
-                self.step_inside(self.sidebar_list, direction)
+                self.step_inside(self.sidebar_list, direction, quiet=False)  # the row you land on selects its page
             return
         page = self.pages[self.current_index]
         if not self.step_inside(page.widget, direction) and a == Action.LEFT:
