@@ -3,8 +3,9 @@
  "http://www.freedesktop.org/standards/PolicyKit/1/policyconfig.dtd">
 <!--
   Fixed-path helpers used by bopp-kargs, bopp-system and bopp-decky (and so by boppos-deck).
-  The rule in rules.d/51-boppos-deck.rules lets the active local wheel user run them without
-  a password; everyone else falls back to auth_admin, which fails when no agent is running.
+  Changing the system asks for an administrator password (auth_admin_keep). boppos-deck brings its own
+  polkit agent with a gamepad keyboard, because Gaming Mode has none. The rule in
+  rules.d/51-boppos-deck.rules waives the password only for fixed read-only command lines.
 -->
 <policyconfig>
   <vendor>BoppOS</vendor>
@@ -16,7 +17,7 @@
     <defaults>
       <allow_any>auth_admin</allow_any>
       <allow_inactive>auth_admin</allow_inactive>
-      <allow_active>auth_admin</allow_active>
+      <allow_active>auth_admin_keep</allow_active>
     </defaults>
     <annotate key="org.freedesktop.policykit.exec.path">/usr/libexec/boppos/kargs-helper</annotate>
   </action>
@@ -27,7 +28,7 @@
     <defaults>
       <allow_any>auth_admin</allow_any>
       <allow_inactive>auth_admin</allow_inactive>
-      <allow_active>auth_admin</allow_active>
+      <allow_active>auth_admin_keep</allow_active>
     </defaults>
     <annotate key="org.freedesktop.policykit.exec.path">/usr/libexec/boppos/bootc-helper</annotate>
   </action>
@@ -38,7 +39,7 @@
     <defaults>
       <allow_any>auth_admin</allow_any>
       <allow_inactive>auth_admin</allow_inactive>
-      <allow_active>auth_admin</allow_active>
+      <allow_active>auth_admin_keep</allow_active>
     </defaults>
     <annotate key="org.freedesktop.policykit.exec.path">/usr/libexec/boppos/decky-helper</annotate>
   </action>

@@ -24,19 +24,25 @@ gamescope -W 1280 -H 800 -f -- boppos-deck       # then repeat with -W 2560 -H 1
 - [ ] With the controller unplugged or SDL3 missing, the app still starts and keyboard works (a warning is printed).
 - [ ] Steam Input keyboard template: arrows, Enter, Esc work the same.
 
-## 3. On the device (no polkit agent) as a `wheel` user in Gaming Mode
+## 3. On the device in Gaming Mode as a `wheel` user (no other polkit agent)
 Add the app via `bopp-steam-shortcut add` with Steam closed, then start Steam.
-- [ ] A "BoppOS" shortcut is in the library; running `bopp-steam-shortcut add` again changes nothing; a `shortcuts.vdf.bak-*` exists.
-- [ ] `bopp-steam-shortcut add` while Steam is running exits 3 and changes nothing.
-- [ ] **No password prompt** and success for each: System *Check*, *Update OS*, Pin/Unpin and Roll back (Advanced), kernel-argument switch, Apps apply (install and remove), Decky install, Support report, Reboot.
+- [ ] A "BoppOS" shortcut is in the library; running `bopp-steam-shortcut add` again changes nothing; a `shortcuts.vdf.bak-*` exists. While Steam is running it exits 3 and changes nothing.
+- [ ] The app prints no "polkit agent not registered" warning (check by starting it from a terminal on a TTY session), so the agent registered.
+- [ ] Reading never asks: System page loads, *Check for updates*, Kernel page lists presets.
+- [ ] Every changing action shows the password screen with the action's text: Update OS, Pin/Unpin and Roll back (Advanced), kernel-argument switch, Decky install/uninstall. Flatpak apply and firmware update do not ask (their own rules).
+- [ ] Typing with the controller works: D-pad moves, `A` types, `RB` shift, `LB` delete, `Start` OK, `B` cancel, Show/Hide, the 123 layer (`!@#$%^&*()-_=+[]{}\|;:'"/?<>`~,.@` all reachable). A correct password runs the action; a wrong one shows "Wrong password. Try again." and allows 2 more tries; Cancel aborts the action cleanly with a readable message.
+- [ ] After a successful password a second action within a few minutes: note whether it asks again (`auth_admin_keep` retention depends on polkit's subject) and record the result here.
 - [ ] Decky: Steam restarts, the Decky menu appears; *Uninstall* removes the service. A tampered download (wrong hash) is refused.
 - [ ] Kernel arguments: toggling a preset changes `/proc/cmdline` after a reboot; toggling it back removes only what it added. With an update staged the page shows the *reboot first* banner and the switches are disabled.
 
+## 3b. Desktop session with its own agent (KDE/GNOME)
+- [ ] boppos-deck starts without registering an agent; a changing action shows the desktop's own password dialog; cancelling it fails the action with a readable message.
+
 ## 4. Same actions as a user outside `wheel`
 Create a test user, log in on a local session (not wheel).
-- [ ] Each privileged action from step 3 **fails** with a clear message (not authorized), without hanging on a prompt; nothing changed.
-- [ ] `pkexec /usr/libexec/boppos/bootc-helper status` is refused for that user, and `bootc-helper pin 99`, `kargs-helper add init=/bin/sh` and `decky-helper foo` are rejected even for a wheel user (usage error, exit 2).
-- [ ] Over SSH (not an active local session) as a wheel user the actions also fail rather than succeed.
+- [ ] Each changing action fails after the password screen (the wrong-password path, since only administrators can authorize), with a clear message and nothing changed.
+- [ ] `bootc-helper pin 99`, `kargs-helper add init=/bin/sh` and `decky-helper foo` are rejected even for an administrator (usage error, exit 2), before any prompt matters.
+- [ ] Over SSH (not an active local session) as a wheel user, the read-only calls are not waived and the changing actions fail instead of succeeding.
 
 ## 5. Kernel-argument safety (VM)
 - [ ] `sudo bopp-kargs remove quiet` on a cmdline containing `rd.quiet`: `rd.quiet` survives.

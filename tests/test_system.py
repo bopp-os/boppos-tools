@@ -15,7 +15,8 @@ def test_helper_cmd_uses_pkexec_unless_root():
 
 
 def test_pkexec_hints():
-    assert "wheel" in system.explain_pkexec(126, "")
+    assert "not authorized" in system.explain_pkexec(126, "")
+    assert "cancelled" in system.explain_pkexec(127, "")
     assert system.explain_pkexec(1, "") is None
 
 

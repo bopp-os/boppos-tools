@@ -149,7 +149,7 @@ A full-screen GTK4/libadwaita app for the things you would otherwise do in a ter
 * Controller (SDL3, read directly): D-pad or left stick moves, `A` selects, `B` goes back, `LB`/`RB` switch pages, `Start` asks to exit (Gaming Mode).
 * Risky actions (rollback, pin, switch update tag, Decky uninstall) are hidden until **Advanced options** is switched on in *About*, and always ask first.
 * Everything it does is one of the CLIs below, so scripts and a future Decky plugin can share the same backend. Set `BOPPOS_DECK_BIN_DIR` to point it at other copies of those tools (testing).
-* Privileged actions go through `pkexec` helpers in `/usr/libexec/boppos/` and a polkit rule that lets the **active, local `wheel` user** run them without a password (there is no polkit agent in Gaming Mode). Other users get `auth_admin`, which fails without an agent.
+* Privileged actions go through `pkexec` helpers in `/usr/libexec/boppos/`. Changing the system asks for an administrator password (`auth_admin_keep`); only fixed read-only calls (`status`, `check`, `dropins`) are waived by `polkit/rules.d/51-boppos-deck.rules`. Gaming Mode has no polkit agent, so boppos-deck registers its own for the login session and shows a built-in gamepad keyboard: D-pad moves, `A` types, `RB` shift, `LB` delete, `Start` confirms, `B` cancels; a physical or Steam Input keyboard works too. On the desktop the desktop's own agent is used and boppos-deck does not register (set `BOPPOS_DECK_AGENT=1` to force it, with no other agent running).
 
 Install adds `libadwaita` (about 5 MiB); `gtk4`, `python-gobject` and `sdl3` (through gamescope) are already in the image.
 
@@ -204,7 +204,7 @@ sudo bopp-kargs COMMAND [ARGS]
 * **`apply`**: make the system match the enabled, matching drop-ins. Idempotent. Only arguments listed in `/var/lib/bopp-kargs/managed` (the ones it added itself) are ever removed.
 * **`enable <name>`** / **`disable <name>`**: switch a drop-in on or off (writes an override in `/etc/bopp-kargs.d`) and apply.
 
-`apply`, `enable`, `disable` and `status` also work without `sudo`: they run the polkit-gated helper `/usr/libexec/boppos/kargs-helper`, which only exposes those verbs (never free-form arguments).
+`apply`, `enable`, `disable` and `status` also work without `sudo`: they run the polkit-gated helper `/usr/libexec/boppos/kargs-helper` (password for the changing verbs), which only exposes those verbs and never free-form arguments.
 
 #### Drop-in files
 

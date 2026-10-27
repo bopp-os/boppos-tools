@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import sys
 import threading
 import time
@@ -14,8 +15,10 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 from gi.repository import Adw, Gdk, GLib, GObject, Gtk  # noqa: E402
 
+from . import agent as polkit_agent  # noqa: E402
 from . import backend  # noqa: E402
 from .controller import DIRECTIONS, Action, InputMapper, Sdl3Gamepads  # noqa: E402
+from .osk import PasswordBuffer  # noqa: E402
 from .pages import ALL_PAGES  # noqa: E402
 
 APP_ID = "org.boppos.Deck"
@@ -28,11 +31,21 @@ DIRECTION_MAP = {
 HINTS = {
     "pad": [("A", "Select"), ("B", "Back"), ("LB / RB", "Page")],
     "kb": [("Enter", "Select"), ("Esc", "Back"), ("Ctrl+Tab", "Page")],
+    "pad-auth": [("A", "Type"), ("B", "Cancel"), ("LB", "Delete"), ("RB", "Shift"), ("Start", "OK")],
+    "kb-auth": [("Enter", "OK"), ("Esc", "Cancel"), ("Backspace", "Delete")],
 }
 
 
 def on_main(fn: Callable[[], None]) -> None:
     GLib.idle_add(lambda: (fn(), GLib.SOURCE_REMOVE)[1])
+
+
+def activate(widget: Gtk.Widget) -> None:
+    """Press a focused widget now. Gtk.Button.activate() delays the click for its press animation."""
+    if isinstance(widget, Gtk.Button):
+        widget.emit("clicked")
+    else:
+        widget.activate()
 
 
 def bool_value(v: bool) -> GObject.Value:
@@ -53,11 +66,16 @@ class DeckWindow(Adw.ApplicationWindow):
         self.job: backend.Job | None = None
         self.input_mode = "pad" if gaming else "kb"
         self.pad, self.mapper = pad, InputMapper()
+        self.pw = PasswordBuffer()
+        self.auth_req: dict | None = None
+        self.auth_queue: list[dict] = []
+        self.auth_prev = "main"
 
         self.toasts = Adw.ToastOverlay()
         self.stack = Gtk.Stack(transition_type=Gtk.StackTransitionType.CROSSFADE)
         self.stack.add_named(self.build_main(), "main")
         self.stack.add_named(self.build_progress(), "progress")
+        self.stack.add_named(self.build_auth(), "auth")
         self.toasts.set_child(self.stack)
 
         view = Adw.ToolbarView()
@@ -156,6 +174,131 @@ class DeckWindow(Adw.ApplicationWindow):
             box.append(w)
         return box
 
+    def build_auth(self) -> Gtk.Widget:
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=14)
+        for side in ("top", "bottom", "start", "end"):
+            getattr(box, f"set_margin_{side}")(28)
+        self.a_title = Gtk.Label(xalign=0, wrap=True)
+        self.a_title.add_css_class("progress-title")
+        self.a_sub = Gtk.Label(xalign=0, wrap=True)
+        self.a_error = Gtk.Label(xalign=0, wrap=True)
+        self.a_error.add_css_class("error")
+        self.a_display = Gtk.Label(xalign=0.5, label="")
+        self.a_display.add_css_class("osk-display")
+        self.a_display.set_size_request(-1, 56)
+        for w in (self.a_title, self.a_sub, self.a_error, self.a_display):
+            box.append(w)
+
+        self.osk_keys: list[list[Gtk.Button]] = []
+        widths = [10, 10, 10, 9]
+        keys = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6, halign=Gtk.Align.CENTER)
+        for n in widths:
+            row = Gtk.Box(spacing=6, halign=Gtk.Align.CENTER, homogeneous=True)
+            buttons = []
+            for _ in range(n):
+                b = Gtk.Button()
+                b.add_css_class("osk-key")
+                b.connect("clicked", lambda btn: self.osk_press(btn.char))
+                row.append(b)
+                buttons.append(b)
+            self.osk_keys.append(buttons)
+            keys.append(row)
+        bottom = Gtk.Box(spacing=6, halign=Gtk.Align.CENTER)
+        self.osk_shift = self.osk_button("Shift", lambda: self.osk_action("shift"), bottom)
+        self.osk_sym = self.osk_button("123", lambda: self.osk_action("symbols"), bottom)
+        space = self.osk_button("Space", lambda: self.osk_press(" "), bottom)
+        space.set_size_request(260, -1)
+        self.osk_button("Delete", lambda: self.osk_action("backspace"), bottom)
+        self.osk_show = self.osk_button("Show", lambda: self.osk_action("visible"), bottom)
+        ok = self.osk_button("OK", self.auth_submit, bottom)
+        ok.add_css_class("suggested-action")
+        self.osk_button("Cancel", self.auth_cancel, bottom)
+        keys.append(bottom)
+        box.append(keys)
+        self.osk_refresh()
+        return box
+
+    def osk_button(self, label: str, fn: Callable[[], None], parent: Gtk.Box) -> Gtk.Button:
+        b = Gtk.Button(label=label)
+        b.add_css_class("osk-key")
+        b.connect("clicked", lambda _b: fn())
+        parent.append(b)
+        return b
+
+    def osk_refresh(self) -> None:
+        rows = self.pw.rows()
+        for buttons, chars in zip(self.osk_keys, rows, strict=True):
+            for i, b in enumerate(buttons):
+                b.set_visible(i < len(chars))
+                if i < len(chars):
+                    b.set_label(chars[i])
+                    b.char = chars[i]
+        self.osk_sym.set_label("abc" if self.pw.symbols else "123")
+        self.osk_show.set_label("Hide" if self.pw.visible else "Show")
+        if self.pw.shift:
+            self.osk_shift.add_css_class("suggested-action")
+        else:
+            self.osk_shift.remove_css_class("suggested-action")
+        echo = bool(self.auth_req and self.auth_req["echo"])
+        self.a_display.set_label(self.pw.display(echo) or " ")
+
+    def osk_press(self, ch: str) -> None:
+        self.pw.type(ch)
+        self.osk_refresh()
+
+    def osk_action(self, name: str) -> None:
+        {"shift": self.pw.toggle_shift, "symbols": self.pw.toggle_symbols,
+         "backspace": self.pw.backspace, "visible": self.pw.toggle_visible}[name]()
+        self.osk_refresh()
+
+    def ask_password(self, message: str, prompt: str, echo: bool, user: str, error: str,
+                     answer: Callable[[str], None], cancel: Callable[[], None]) -> None:
+        """Called by the polkit agent on the main loop. Requests are shown one at a time."""
+        req = {"message": message, "prompt": prompt, "echo": echo, "user": user, "error": error,
+               "answer": answer, "cancel": cancel}
+        if self.auth_req is not None:
+            self.auth_queue.append(req)
+            return
+        self.show_auth(req)
+
+    def show_auth(self, req: dict) -> None:
+        self.auth_req = req
+        self.pw.clear()
+        self.a_title.set_label(req["message"] or "Authentication required")
+        self.a_sub.set_label(f"{req['prompt'].strip() or 'Password:'}  (for {req['user']})")
+        self.a_error.set_label(req["error"])
+        self.a_error.set_visible(bool(req["error"]))
+        current = self.stack.get_visible_child_name()
+        self.auth_prev = current if current != "auth" else self.auth_prev
+        self.stack.set_visible_child_name("auth")
+        self.osk_refresh()
+        self.render_hints()
+        self.osk_keys[1][0].grab_focus()
+
+    def auth_done(self) -> dict | None:
+        req, self.auth_req = self.auth_req, None
+        self.pw.clear()
+        self.stack.set_visible_child_name(self.auth_prev)
+        self.render_hints()
+        if self.auth_queue:
+            self.show_auth(self.auth_queue.pop(0))
+        return req
+
+    def auth_submit(self) -> None:
+        if self.auth_req is None:
+            return
+        text = self.pw.take()
+        req = self.auth_done()
+        if req:
+            req["answer"](text)
+
+    def auth_cancel(self) -> None:
+        if self.auth_req is None:
+            return
+        req = self.auth_done()
+        if req:
+            req["cancel"]()
+
     def build_hints(self) -> Gtk.Widget:
         self.hint_box = Gtk.Box(spacing=0)
         self.hint_box.add_css_class("hint-bar")
@@ -168,7 +311,8 @@ class DeckWindow(Adw.ApplicationWindow):
             nxt = child.get_next_sibling()
             self.hint_box.remove(child)
             child = nxt
-        for key, label in HINTS[self.input_mode]:
+        auth = self.stack.get_visible_child_name() == "auth"
+        for key, label in HINTS[self.input_mode + ("-auth" if auth else "")]:
             k = Gtk.Label(label=key)
             k.add_css_class("hint-key")
             t = Gtk.Label(label=label)
@@ -346,6 +490,8 @@ class DeckWindow(Adw.ApplicationWindow):
         self.set_input_mode("kb")
         ctrl = bool(state & Gdk.ModifierType.CONTROL_MASK)
         shift = bool(state & Gdk.ModifierType.SHIFT_MASK)
+        if self.stack.get_visible_child_name() == "auth":
+            return self.on_auth_key(keyval, ctrl or bool(state & Gdk.ModifierType.ALT_MASK))
         if keyval == Gdk.KEY_Escape and not self.dialog:
             self.handle_action(Action.BACK)
             return True
@@ -355,10 +501,41 @@ class DeckWindow(Adw.ApplicationWindow):
             return True
         return False
 
+    def on_auth_key(self, keyval: int, modified: bool) -> bool:
+        """Physical (or Steam Input) keyboard while the password prompt is up."""
+        if keyval == Gdk.KEY_Escape:
+            self.auth_cancel()
+        elif keyval in (Gdk.KEY_Return, Gdk.KEY_KP_Enter):
+            self.auth_submit()
+        elif keyval == Gdk.KEY_BackSpace:
+            self.osk_action("backspace")
+        elif not modified and (cp := Gdk.keyval_to_unicode(keyval)) and chr(cp).isprintable():
+            self.pw.type(chr(cp))
+            self.osk_refresh()
+        else:
+            return False  # arrows and Tab move between keys
+        return True
+
     def handle_action(self, a: Action) -> None:
+        if self.stack.get_visible_child_name() == "auth":
+            if a in DIRECTIONS:
+                self.child_focus(DIRECTION_MAP[a])
+            elif a == Action.ACCEPT:
+                f = self.get_focus()
+                if f is not None:
+                    activate(f)
+            elif a == Action.BACK:
+                self.auth_cancel()
+            elif a == Action.PREV:
+                self.osk_action("backspace")
+            elif a == Action.NEXT:
+                self.osk_action("shift")
+            elif a == Action.MENU:
+                self.auth_submit()
+            return
         if self.stack.get_visible_child_name() == "progress":
             if a == Action.ACCEPT and self.p_done.get_sensitive():
-                self.p_done.activate()
+                activate(self.p_done)
             elif a == Action.BACK and self.p_done.get_sensitive():
                 self.close_progress()
             elif a in DIRECTIONS:
@@ -370,7 +547,7 @@ class DeckWindow(Adw.ApplicationWindow):
             elif a == Action.ACCEPT:
                 f = self.get_focus()
                 if f is not None:
-                    f.activate()
+                    activate(f)
             elif a in DIRECTIONS:
                 self.child_focus(DIRECTION_MAP[a])
             return
@@ -386,7 +563,7 @@ class DeckWindow(Adw.ApplicationWindow):
             elif self.focus_in_sidebar():
                 self.enter_content()
             else:
-                f.activate()
+                activate(f)
         elif a == Action.BACK:
             if self.focus_in_sidebar():
                 if self.gaming:
@@ -414,6 +591,7 @@ class DeckApp(Adw.Application):
         super().__init__(application_id=APP_ID)
         self.gaming = backend.gaming_mode()
         self.pad: Sdl3Gamepads | None = None
+        self.agent = None
 
     def do_startup(self) -> None:
         Adw.Application.do_startup(self)
@@ -429,6 +607,9 @@ class DeckApp(Adw.Application):
     def do_activate(self) -> None:
         win = self.props.active_window or DeckWindow(self, self.gaming, self.pad)
         win.present()
+        # Gaming Mode has no polkit agent of its own; BOPPOS_DECK_AGENT=1 forces it for testing.
+        if self.agent is None and (self.gaming or os.environ.get("BOPPOS_DECK_AGENT")):
+            self.agent = polkit_agent.start_agent(win.ask_password)
 
     def do_shutdown(self) -> None:
         if self.pad:

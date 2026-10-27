@@ -32,9 +32,9 @@ def explain_pkexec(returncode: int, stderr: str) -> str | None:
     if "No such file" in stderr:
         return None
     if returncode == 126:
-        return "not authorized (polkit): the user must be an active local member of wheel"
-    if returncode == 127 and "pkexec" in stderr.lower():
-        return "no polkit agent is available and the action needs authentication"
+        return "not authorized: wrong password, or this account may not do that"
+    if returncode == 127:
+        return "authentication was cancelled, or no authentication agent is running"
     return None
 
 
