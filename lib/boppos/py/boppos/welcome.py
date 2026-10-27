@@ -92,7 +92,12 @@ class KargOption:
     category: str
     risk_level: str
     risk: str
-    suggested: bool  # fits this hardware: its DMI match, or its graphics vendor
+    fit: str  # "fits" (about this hardware), "optional" (could apply to anything) or "unsupported" (cannot work here)
+    reason: str = ""  # why it is unsupported
+
+    @property
+    def suggested(self) -> bool:
+        return self.fit == "fits"
 
 
 def default_flatpak_ids() -> set[str]:
@@ -116,31 +121,45 @@ def app_options() -> dict[str, list[flatpaks.App]]:
     return out
 
 
+GPU_NAMES = {"amd": "AMD", "intel": "Intel", "nvidia": "NVIDIA"}
+
+
 def karg_gpu(tokens: list[str]) -> str | None:
     """Which graphics vendor a preset is about, from its arguments (None: not about graphics)."""
     for t in tokens:
         if t.startswith("amdgpu."):
             return "amd"
-        if t.startswith(("i915.", "xe.", "intel_iommu")):
+        if t.startswith(("i915.", "xe.")):
             return "intel"
         if t.startswith("nvidia"):
             return "nvidia"
     return None
 
 
+def karg_fit(d: kargs.Dropin, hw: hwprofiles.Hardware) -> tuple[str, str]:
+    """(fit, reason) of one preset on this hardware: a model or graphics vendor it is not for cannot work."""
+    gpu = karg_gpu(d.kargs)
+    if d.match and not kargs.matches_device(d, hw.dmi):
+        return "unsupported", "Only for other models than this one."
+    if gpu and gpu not in hw.gpus:
+        return "unsupported", f"Needs {GPU_NAMES[gpu]} graphics, which this hardware does not have."
+    return ("fits", "") if (d.match or gpu) else ("optional", "")
+
+
 def karg_options(hw: hwprofiles.Hardware | None = None) -> list[KargOption]:
-    """Every kargs preset; the ones that fit this hardware (its DMI or its graphics vendor) come first."""
+    """Every kargs preset, the ones that fit this hardware first and the ones that cannot work here last."""
     hw = hwprofiles.detect() if hw is None else hw
     try:
         dropins = kargs.load_dropins()
     except OSError:
         return []
-    opts = [
-        KargOption(d.name, d.description, d.category, d.risk_level, d.risk,
-                   (bool(d.match) and kargs.matches_device(d, hw.dmi)) or karg_gpu(d.kargs) in hw.gpus)
-        for d in dropins.values() if not d.error
-    ]
-    return sorted(opts, key=lambda o: (not o.suggested, o.name))
+    opts = []
+    for d in dropins.values():
+        if not d.error:
+            fit, reason = karg_fit(d, hw)
+            opts.append(KargOption(d.name, d.description, d.category, d.risk_level, d.risk, fit, reason))
+    order = {"fits": 0, "optional": 1, "unsupported": 2}
+    return sorted(opts, key=lambda o: (order[o.fit], o.name))
 
 
 def has_tpm(root: str | Path = "/") -> bool:

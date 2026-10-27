@@ -45,7 +45,6 @@ def test_app_options_are_grouped_apps_only():
 def test_karg_options_suggest_by_device():
     opts = welcome.karg_options(hwprofiles.PROFILES["vm"])
     assert opts and not any(o.suggested for o in opts)
-    assert [o.name for o in opts] == sorted(o.name for o in opts)
 
 
 def test_hardware_detection_uses_the_given_root(tmp_path):
@@ -145,3 +144,31 @@ def test_recommended_follows_the_kind_and_belongs_to_a_step():
     laptop = welcome.recommended(hwprofiles.PROFILES["intel-laptop"])
     assert ("updates", "auto_updates") in {(r.step, r.key) for r in laptop}
     assert all(r.key != "firmware_check" for r in welcome.recommended(hwprofiles.PROFILES["vm"]))
+
+
+def test_presets_that_cannot_work_go_last_and_say_why():
+    opts = welcome.karg_options(hwprofiles.PROFILES["amd-desktop"])
+    fit = {o.name: o.fit for o in opts}
+    assert fit["70-amdgpu-no-runpm"] == "fits"
+    assert fit["71-nvidia-drm-modeset"] == fit["41-intel-psr-off"] == "unsupported"
+    assert fit["20-sleep-deep"] == "optional"
+    assert [o.fit for o in opts] == sorted((o.fit for o in opts), key=["fits", "optional", "unsupported"].index)
+    why = {o.name: o.reason for o in opts}
+    assert "NVIDIA" in why["71-nvidia-drm-modeset"] and why["20-sleep-deep"] == ""
+
+
+def test_a_vm_has_no_supported_graphics_presets():
+    fit = {o.name: o.fit for o in welcome.karg_options(hwprofiles.PROFILES["vm"])}
+    assert fit["70-amdgpu-no-runpm"] == fit["71-nvidia-drm-modeset"] == "unsupported"
+    assert "fits" not in fit.values()
+
+
+def test_a_model_match_that_misses_is_unsupported(tmp_path):
+    from boppos import kargs
+
+    path = tmp_path / "90-x.conf"
+    path.write_text("kargs = foo=1\nmatch.sys_vendor = Valve\n")
+    d = kargs.parse_dropin("90-x", "usr", path)
+    assert d.match and not d.error
+    assert welcome.karg_fit(d, hwprofiles.PROFILES["amd-desktop"])[0] == "unsupported"
+    assert welcome.karg_fit(d, hwprofiles.PROFILES["steam-deck"])[0] == "fits"

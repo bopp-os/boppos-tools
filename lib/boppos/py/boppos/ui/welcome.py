@@ -150,18 +150,28 @@ class WelcomeFlow(Gtk.Box):
         warn.add_css_class("warning")
         suggested = group("Presets for this hardware", "Listed because they fit this hardware's graphics or "
                           "model, not because you need them. They take effect after a reboot.")
-        others = group("Other presets")
+        others = group("Other presets", "Not recommended. Only for a problem you actually have.")
+        never = group("Not for this hardware", "These cannot work here, so they are switched off and locked.")
+        gone = expander_row("Show presets that do not apply", "")
         for o in options:
             subtitle = o.description + (f"  {o.risk}" if o.risk else "")
+            if o.fit == "unsupported":
+                row = switch_row(o.name, f"{o.reason}  {o.description}", False, lambda _a: None)
+                row.set_sensitive(False)
+                gone.add_row(row)
+                continue
             row = switch_row(o.name, subtitle, o.name in c.kargs, toggle(c.kargs, o.name))
-            (suggested if o.suggested else others).add(row)
+            (suggested if o.fit == "fits" else others).add(row)
+        never.add(gone)
         groups = ([rec] if rec else []) + [here]
         if options:
             groups.append(warn)
         if any(o.suggested for o in options):
             groups.append(suggested)
-        if any(not o.suggested for o in options):
+        if any(o.fit == "optional" for o in options):
             groups.append(others)
+        if any(o.fit == "unsupported" for o in options):
+            groups.append(never)
         return page(*groups)
 
     def security_page(self) -> Gtk.Widget:
