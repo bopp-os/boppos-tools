@@ -57,7 +57,7 @@ jobs:
       - name: Lint shell scripts (shellcheck)
         run: |
           # bopp-diff and update-check.sh predate shellcheck in CI and still have warnings
-          for f in bin/* lib/boppos/* libexec/boppos/* share/boppos/*.sh; do
+          for f in bin/* lib/boppos/* libexec/boppos/* share/boppos/*.sh tools/*; do
             case "$f" in bin/bopp-diff|lib/boppos/update-check.sh) continue ;; esac
             if [ -f "$f" ] && head -n 1 "$f" | grep -E -q 'bash|/sh'; then
               shellcheck -S warning "$f"
