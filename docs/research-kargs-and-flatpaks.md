@@ -33,6 +33,8 @@ Nothing else Bazzite or CachyOS sets statically is missing from the image.
 | Watchdog fully off | `modprobe.blacklist=iTCO_wdt` (Intel CPU) or `sp5100_tco` (AMD CPU) | by CPU vendor | low | Bazzite `configure-watchdog` pairs these with `nowatchdog`. The image's `nowatchdog` alone leaves those modules loaded. Needs CPU vendor detection, which `kargs.fit` does not have. |
 | NVIDIA: resume fixes | `nvidia-drm.fbdev=1`; `nvidia.NVreg_PreserveVideoMemoryAllocations=1` | NVIDIA graphics | medium | Forum reports only. Gentoo notes call `fbdev` experimental. The second also needs the `nvidia-suspend`, `-resume` and `-hibernate` services; check the image has them first. |
 
+**Status of 1b:** shipped as `kargs.d/73` to `79` and `81`, `82`, all off. Not shipped: the watchdog modules (needs CPU vendor detection). Bazzite's `bazzite-hardware-setup` sets only the 1c kargs; its other model fixes are modprobe and udev files, not kargs.
+
 ### 1c. Per-model fixes Bazzite applies on its own (use `match.*` presets with `enabled = true`)
 
 `bopp-kargs apply` already applies enabled presets that match this device, so these need no new mechanism.
