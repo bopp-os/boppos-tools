@@ -56,7 +56,7 @@ bopp-dev-setup [OPTIONS]
 
 ### `boppos-update` (Update Manager)
 
-A comprehensive update manager that updates your OS (`bootc`), firmware, Flatpaks, Homebrew, and all Distrobox and Litterbox containers. If an OS update is available, it displays a package diff preview to show you exactly what is changing.
+A comprehensive update manager that updates your OS (`bootc`), firmware, Flatpaks, Homebrew, and all Distrobox and Litterbox containers. If an OS update is available, it displays a package diff preview to show you exactly what is changing. The OS step runs through `bopp-system upgrade --only os` (the same polkit-checked helper the settings app uses, so no sudo password) when `bopp-system` is installed, and falls back to `sudo bootc upgrade` otherwise. Firmware still uses sudo.
 
 ```bash
 boppos-update [OPTIONS]
