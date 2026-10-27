@@ -415,14 +415,17 @@ class KargsPage(Page):
         lines = [d["description"] or d["name"], f"{d.get('category') or 'Other'}  ·  Adds: " + " ".join(d["kargs"])]
         if d.get("risk"):
             lines.append(f"Risk: {d['risk']}")
+        if d.get("already_active") and not d["enabled"]:
+            # Running now but not set by this preset (the image's own arguments, or added by hand). The switch shows
+            # that it is on; switching it off removes the arguments one by one.
+            row = switch_row(d["description"] or d["name"],
+                             "Active now, set by the image or by hand. Switch off to remove it.\n"
+                             + "\n".join(lines[1:]), True, lambda on, dd=d: None if on else self.deactivate(dd))
+            row.add_suffix(tag_label("Active", "success"))
+            row.set_sensitive(not (locked or self.blocked))
+            return row
         row = switch_row(d["description"] or d["name"], "\n".join(lines[1:]), d["enabled"],
                          lambda on, dd=d: self.toggle(dd, on))
-        if d.get("already_active") and not d["enabled"]:
-            row.set_subtitle("Already active on this system, set by the image or by hand.\n"
-                             + "\n".join(lines[1:]))
-            row.add_suffix(tag_label("Active", "success"))
-            row.set_sensitive(False)
-            return row
         row.add_suffix(tag_label(self.RISK_LABEL.get(level, level), self.RISK_CLASS.get(level, "dim-label")))
         row.set_sensitive(not (locked or self.blocked))
         return row
@@ -485,6 +488,33 @@ class KargsPage(Page):
                              destructive=level == "high", on_cancel=self.refresh)
         else:
             self.run_verb("enable" if on else "disable", d["name"])
+
+    def deactivate(self, d: dict) -> None:
+        """Take out the arguments of a preset that is running without having been switched on here."""
+        if not self.win.advanced:
+            return
+        toks = list(d["kargs"])
+
+        def step(rest: list[str]) -> None:
+            if not rest:
+                self.win.toast("Saved. Reboot to apply.")
+                self.refresh()
+                return
+
+            def done(res):
+                if isinstance(res, dict) and "error" in res:
+                    self.win.toast(f"Could not remove {rest[0]}: {res['error']}")
+                    self.refresh()
+                else:
+                    step(rest[1:])
+
+            self.win.load(lambda: run_json([tool("bopp-kargs"), "--json", "remove", rest[0]], timeout=180), done)
+
+        risk = f"\n\nRisk: {d['risk']}" if d.get("risk") else ""
+        self.win.confirm(f"Turn off “{d['description'] or d['name']}”?",
+                         f"Removes {' '.join(toks)} from the kernel arguments. The image sets this by default."
+                         f"{risk}\n\nThe previous deployment stays available to roll back to.",
+                         "Turn off", lambda: step(toks), on_cancel=self.refresh)
 
     def run_verb(self, verb: str, arg: str) -> None:
         def done(res):

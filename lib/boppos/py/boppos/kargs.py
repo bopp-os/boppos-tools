@@ -471,14 +471,14 @@ SECTIONS = ("on", "fits", "optional", "risky", "unsupported", "invalid")
 def sections(items: list[dict]) -> dict[str, list[dict]]:
     """Sort the presets of `bopp-kargs --json dropins` into the groups both apps show, in display order.
 
-    on: switched on and applied here (always switchable, so it can be turned off); then by fit; invalid last.
+    on: switched on or already running here (switchable, so it can be turned off); then by fit; invalid last.
     """
     out: dict[str, list[dict]] = {k: [] for k in SECTIONS}
     for d in items:
         if d.get("error"):
             out["invalid"].append(d)
-        elif d.get("enabled") and d.get("matches_device"):
-            out["on"].append(d)
+        elif (d.get("enabled") or d.get("already_active")) and d.get("matches_device"):
+            out["on"].append(d)  # already_active: running now, set by the image or by hand
         else:
             out[d.get("fit") or "unsupported"].append(d)
     for rows in out.values():

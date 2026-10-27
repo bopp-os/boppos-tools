@@ -475,13 +475,14 @@ def test_fit_risky_presets_that_apply_anywhere(tmp_path):
 
 
 def test_sections_order_and_what_counts_as_on():
-    def d(name, fit, enabled=False, matches=True, error=""):
-        return {"name": name, "fit": fit, "enabled": enabled, "matches_device": matches, "error": error}
+    def d(name, fit, enabled=False, matches=True, error="", active=False):
+        return {"name": name, "fit": fit, "enabled": enabled, "matches_device": matches, "error": error,
+                "already_active": active}
 
     items = [d("c", "optional"), d("a", "fits"), d("on-risky", "risky", enabled=True), d("u", "unsupported"),
              d("enabled-elsewhere", "unsupported", enabled=True, matches=False), d("bad", "", error="x"),
-             d("b", "fits"), d("r", "risky")]
+             d("b", "fits"), d("r", "risky"), d("image-set", "fits", active=True)]
     got = {k: [x["name"] for x in v] for k, v in kargs.sections(items).items()}
     assert list(got) == ["on", "fits", "optional", "risky", "unsupported", "invalid"]
-    assert got == {"on": ["on-risky"], "fits": ["a", "b"], "optional": ["c"], "risky": ["r"],
+    assert got == {"on": ["image-set", "on-risky"], "fits": ["a", "b"], "optional": ["c"], "risky": ["r"],
                    "unsupported": ["enabled-elsewhere", "u"], "invalid": ["bad"]}
