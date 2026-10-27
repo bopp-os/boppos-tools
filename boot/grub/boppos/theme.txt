@@ -1,0 +1,55 @@
+# BoppOS GRUB theme: black, the white mark above the menu, the small wordmark at the bottom.
+# Needs the files next to it (mark.png, lockup.png) to be readable by GRUB, which usually means copying
+# the directory to /boot (see docs/boot-theme.md); GRUB cannot read /usr.
+
+title-text: ""
+desktop-color: "#000000"
+terminal-font: "Unifont Regular 16"
+terminal-left: "0"
+terminal-top: "0"
+terminal-width: "100%"
+terminal-height: "100%"
+
++ image {
+    top = 7%
+    left = 50%-81
+    width = 162
+    height = 192
+    file = "mark.png"
+}
+
++ boot_menu {
+    left = 50%-280
+    top = 38%
+    width = 560
+    height = 40%
+    item_font = "Unifont Regular 16"
+    item_color = "#8d8d99"
+    selected_item_color = "#ffffff"
+    icon_width = 0
+    icon_height = 0
+    item_height = 34
+    item_padding = 8
+    item_icon_space = 0
+    item_spacing = 6
+    scrollbar = false
+}
+
++ label {
+    id = "__timeout__"
+    top = 100%-130
+    left = 0
+    width = 100%
+    align = "center"
+    text = "Starting in %d seconds"
+    color = "#8d8d99"
+    font = "Unifont Regular 16"
+}
+
++ image {
+    top = 100%-80
+    left = 50%-130
+    width = 260
+    height = 79
+    file = "lockup.png"
+}

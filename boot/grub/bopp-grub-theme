@@ -1,0 +1,213 @@
+#!/usr/bin/env python3
+"""bopp-grub-theme: install the BoppOS GRUB theme on the boot partition.
+
+GRUB cannot read /usr, so the theme from /usr/share/grub/themes/boppos is copied to <boot>/grub2/themes
+and switched on from <boot>/grub2/user.cfg, which Fedora-style grub.cfg files source before the menu is
+drawn. Everything is reversible (`remove`), `--dry-run` shows what would happen, and nothing is written
+unless grub.cfg really sources user.cfg: on a layout this tool does not recognise it says so and stops.
+"""
+
+from __future__ import annotations
+
+import argparse
+import hashlib
+import os
+import re
+import shutil
+import sys
+import tempfile
+import time
+from pathlib import Path
+
+SOURCE = Path("/usr/share/grub/themes/boppos")
+BEGIN = "# >>> BoppOS GRUB theme (managed by bopp-grub-theme; undo with: bopp-grub-theme remove) >>>"
+END = "# <<< BoppOS GRUB theme <<<"
+_BLOCK = re.compile(re.escape(BEGIN.split(" (")[0]) + r".*?" + re.escape(END) + r"\n?", re.S)
+_USER_CFG_HOOK = re.compile(r"^\s*(?:source|\.)\s+\$?\{?prefix\}?/user\.cfg", re.M)
+
+
+class ThemeError(Exception):
+    pass
+
+
+def find_grub_dir(boot: Path) -> Path:
+    for name in ("grub2", "grub"):
+        if (boot / name / "grub.cfg").is_file():
+            return boot / name
+    raise ThemeError(f"no grub.cfg under {boot}/grub2 or {boot}/grub (is /boot the boot partition?)")
+
+
+def check_layout(grub_dir: Path) -> str:
+    """Return grub.cfg's text, or raise with a reason when this tool must not touch the bootloader."""
+    cfg = (grub_dir / "grub.cfg").read_text(errors="replace")
+    if not _USER_CFG_HOOK.search(cfg):
+        raise ThemeError(
+            f"{grub_dir}/grub.cfg does not source ${{prefix}}/user.cfg, so a theme cannot be switched on from "
+            "there. On a conventional GRUB set GRUB_THEME in /etc/default/grub and regenerate grub.cfg instead "
+            "(see docs/boot-theme.md). Nothing was changed.")
+    return cfg
+
+
+def theme_block(cfg: str) -> str:
+    video = "load_video" if re.search(r"^\s*function\s+load_video\b", cfg, re.M) else "insmod all_video"
+    return "\n".join([
+        BEGIN,
+        "# Falls back to the plain menu by itself if the font or the theme cannot be loaded.",
+        "if loadfont unicode ; then",
+        "  set gfxmode=auto",
+        f"  {video}",
+        "  insmod gfxterm",
+        "  insmod gfxmenu",
+        "  insmod png",
+        "  terminal_output gfxterm",
+        "  set theme=${prefix}/themes/boppos/theme.txt",
+        "  export theme",
+        "fi",
+        END, ""])
+
+
+def theme_files(source: Path) -> list[Path]:
+    """The files of the theme, after checking that everything theme.txt points at is there."""
+    theme = source / "theme.txt"
+    if not theme.is_file():
+        raise ThemeError(f"theme source {source} has no theme.txt")
+    missing = [n for n in re.findall(r'file = "([^"]+)"', theme.read_text()) if not (source / n).is_file()]
+    if missing:
+        raise ThemeError(f"theme source {source} is missing: {', '.join(missing)}")
+    return sorted(p for p in source.iterdir() if p.is_file())
+
+
+def digest(paths: list[Path]) -> str:
+    h = hashlib.sha256()
+    for p in sorted(paths):
+        h.update(p.name.encode() + p.read_bytes())
+    return h.hexdigest()
+
+
+def atomic_write(path: Path, text: str) -> None:
+    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.")
+    try:
+        with os.fdopen(fd, "w") as fh:
+            fh.write(text)
+            fh.flush()
+            os.fsync(fh.fileno())
+        os.chmod(tmp, 0o644)
+        os.replace(tmp, path)
+    except BaseException:
+        Path(tmp).unlink(missing_ok=True)
+        raise
+
+
+def status(boot: Path, source: Path) -> dict:
+    grub = find_grub_dir(boot)
+    cfg = (grub / "grub.cfg").read_text(errors="replace")
+    installed = grub / "themes/boppos"
+    user_cfg = grub / "user.cfg"
+    block = bool(user_cfg.exists() and BEGIN.split(" (")[0] in user_cfg.read_text())
+    try:
+        up_to_date = digest(theme_files(source)) == digest([p for p in installed.iterdir() if p.is_file()])
+    except (ThemeError, OSError):
+        up_to_date = False
+    return {
+        "grub_dir": str(grub),
+        "user_cfg_sourced": bool(_USER_CFG_HOOK.search(cfg)),
+        "theme_installed": installed.is_dir(),
+        "theme_up_to_date": up_to_date,
+        "switched_on": block,
+        "font_available": (grub / "fonts/unicode.pf2").is_file(),
+    }
+
+
+def install(boot: Path, source: Path, dry_run: bool, say=print) -> bool:
+    grub = find_grub_dir(boot)
+    cfg = check_layout(grub)
+    files = theme_files(source)
+    if not dry_run and not os.access(grub, os.W_OK):
+        raise ThemeError(f"{grub} is not writable (run as root; is /boot mounted read-only?)")
+    if not (grub / "fonts/unicode.pf2").is_file():
+        say(f"note: {grub}/fonts/unicode.pf2 not found; the theme switches itself off if GRUB cannot load a font")
+    user_cfg = grub / "user.cfg"
+    old = user_cfg.read_text() if user_cfg.exists() else ""
+    stripped = _BLOCK.sub("", old)
+    new = (stripped.rstrip("\n") + "\n\n" if stripped.strip() else "") + theme_block(cfg)
+    target = grub / "themes/boppos"
+    same_theme = target.is_dir() and digest(files) == digest([p for p in target.iterdir() if p.is_file()])
+    changed = not same_theme or new != old
+    say(f"theme   : {'already installed' if same_theme else 'copy'} {source} -> {target}")
+    say(f"user.cfg: {'unchanged' if new == old else ('update' if user_cfg.exists() else 'create')} {user_cfg}")
+    if old.strip() and BEGIN.split(" (")[0] not in old:
+        say("          existing content is kept; a backup is saved as user.cfg.bopp-backup-<time>")
+    if dry_run or not changed:
+        say("(dry run: nothing written)" if dry_run else "nothing to do")
+        return changed
+    if not same_theme:
+        tmp, old_dir = grub / "themes/.boppos.new", grub / "themes/.boppos.old"
+        (grub / "themes").mkdir(exist_ok=True)
+        shutil.rmtree(tmp, ignore_errors=True)
+        tmp.mkdir()
+        for p in files:
+            shutil.copy2(p, tmp / p.name)
+            os.chmod(tmp / p.name, 0o644)
+        shutil.rmtree(old_dir, ignore_errors=True)
+        if target.exists():
+            os.replace(target, old_dir)
+        os.replace(tmp, target)
+        shutil.rmtree(old_dir, ignore_errors=True)
+    if new != old:
+        if old.strip() and BEGIN.split(" (")[0] not in old:
+            shutil.copy2(user_cfg, grub / f"user.cfg.bopp-backup-{time.strftime('%Y%m%d-%H%M%S')}")
+        atomic_write(user_cfg, new)
+        if BEGIN.split(" (")[0] not in user_cfg.read_text():
+            raise ThemeError("user.cfg did not contain the theme block after writing it")
+    say("done. The theme shows at the next boot. Undo with: bopp-grub-theme remove")
+    return True
+
+
+def remove(boot: Path, dry_run: bool, say=print) -> bool:
+    grub = find_grub_dir(boot)
+    user_cfg, target = grub / "user.cfg", grub / "themes/boppos"
+    old = user_cfg.read_text() if user_cfg.exists() else ""
+    new = _BLOCK.sub("", old)
+    changed = new != old or target.exists()
+    say(f"user.cfg: {'remove the BoppOS block from' if new != old else 'no BoppOS block in'} {user_cfg}")
+    say(f"theme   : {'delete' if target.exists() else 'not installed:'} {target}")
+    if dry_run or not changed:
+        say("(dry run: nothing written)" if dry_run else "nothing to do")
+        return changed
+    if new != old:
+        if new.strip():
+            atomic_write(user_cfg, new.rstrip("\n") + "\n")
+        else:
+            user_cfg.unlink()  # the block was all there was
+    shutil.rmtree(target, ignore_errors=True)
+    try:
+        (grub / "themes").rmdir()  # only if we were the last theme in it
+    except OSError:
+        pass
+    say("done. The plain GRUB menu is back at the next boot.")
+    return True
+
+
+def main(argv: list[str] | None = None) -> int:
+    p = argparse.ArgumentParser(prog="bopp-grub-theme", description=__doc__.split("\n\n")[0])
+    p.add_argument("command", choices=["status", "install", "remove"])
+    p.add_argument("--boot", default="/boot", type=Path, help="the boot partition (default /boot)")
+    p.add_argument("--source", default=SOURCE, type=Path, help=f"theme to install (default {SOURCE})")
+    p.add_argument("--dry-run", action="store_true", help="show what would change, write nothing")
+    args = p.parse_args(argv)
+    try:
+        if args.command == "status":
+            for key, value in status(args.boot, args.source).items():
+                print(f"{key:18}: {value}")
+        elif args.command == "install":
+            install(args.boot, args.source, args.dry_run)
+        else:
+            remove(args.boot, args.dry_run)
+    except (ThemeError, OSError) as exc:
+        print(f"bopp-grub-theme: {exc}", file=sys.stderr)
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

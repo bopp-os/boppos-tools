@@ -1,0 +1,26 @@
+#!/usr/bin/python3 -I
+"""Root helper for boppos-deck: fixed bootc/ostree verbs, validated arguments (see privileged.py)."""
+
+import os
+import sys
+from pathlib import Path
+
+# libexec/boppos/<helper> -> ../../lib/boppos/py: /usr/lib/boppos/py when installed, the repo's lib/ in a checkout
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "lib/boppos/py"))
+
+from boppos.privileged import UsageError, system_command  # noqa: E402
+
+
+def main(argv):
+    os.environ.clear()
+    os.environ.update(PATH="/usr/sbin:/usr/bin", LANG="C.UTF-8")
+    try:
+        cmd = system_command(argv)
+    except UsageError as exc:
+        print(f"bootc-helper: {exc}", file=sys.stderr)
+        return 2
+    os.execv(cmd[0], cmd)
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

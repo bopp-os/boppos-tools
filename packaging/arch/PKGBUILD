@@ -1,6 +1,6 @@
 # Maintainer: BoppOS Team
 pkgbase=boppos-tools
-pkgname=('boppos-tools' 'boppos-artwork')
+pkgname=('boppos-tools' 'boppos-artwork' 'boppos-boot-theme')
 pkgver=1.1.1
 pkgrel=1
 arch=('any')
@@ -16,8 +16,8 @@ build() {
 }
 
 package_boppos-tools() {
-  pkgdesc="Custom tools and utilities for BoppOS"
-  depends=('bash' 'python' 'boppos-artwork' 'jq' 'cosign' 'pacman' 'bootc' 'python-pystray' 'python-pillow' 'python-gobject' 'libappindicator' 'libnotify' 'polkit' 'ostree' 'curl' 'flatpak' 'skopeo' 'fwupd' 'distrobox' 'podman' 'docker')
+  pkgdesc="Custom tools and utilities for BoppOS (incl. boppos-deck, a controller-friendly settings app)"
+  depends=('bash' 'python' 'boppos-artwork' 'jq' 'cosign' 'pacman' 'bootc' 'python-pystray' 'python-pillow' 'python-gobject' 'libappindicator' 'libnotify' 'polkit' 'ostree' 'curl' 'flatpak' 'skopeo' 'fwupd' 'distrobox' 'podman' 'docker' 'libadwaita' 'sdl3')
   optdepends=('litterbox-sandbox: update Litterbox containers with boppos-update --litterbox'
               'litterbox-sandbox-addons: per-distro Litterbox updates via litterbox-update')
 
@@ -31,4 +31,14 @@ package_boppos-artwork() {
 
   cd "${srcdir}/${pkgbase}-${pkgver}"
   make DESTDIR="${pkgdir}" PREFIX=/usr SYSCONFDIR=/etc install-artwork
+}
+
+package_boppos-boot-theme() {
+  pkgdesc="BoppOS boot artwork: Plymouth splash and GRUB theme"
+  depends=('python')
+  optdepends=('plymouth: boot splash (select it with plymouth-set-default-theme boppos)'
+              'grub: boot menu theme (put it on /boot with: sudo bopp-grub-theme install)')
+
+  cd "${srcdir}/${pkgbase}-${pkgver}"
+  make DESTDIR="${pkgdir}" PREFIX=/usr SYSCONFDIR=/etc install-boot-theme
 }

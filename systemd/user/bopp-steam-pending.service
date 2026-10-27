@@ -1,0 +1,15 @@
+[Unit]
+Description=Apply queued Steam library changes from boppos-deck
+# Safety net: normally a background helper applies them as soon as Steam closes. If the session restarted
+# before that finished, this applies them once Steam is not running.
+ConditionPathExists=%S/boppos-deck/steam-pending.json
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/bopp-steam-shortcut apply-pending
+# Exit 3: Steam is running. 4: Steam has no library yet. Try again later.
+Restart=on-failure
+RestartSec=30
+
+[Install]
+WantedBy=default.target

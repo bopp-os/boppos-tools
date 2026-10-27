@@ -1,0 +1,2 @@
+# Installed for every user by boppos-default-flatpaks.service (once). Must also be in boppos-flatpaks.txt.
+io.github.kolunmi.Bazaar

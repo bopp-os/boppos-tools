@@ -39,7 +39,12 @@ update_os() {
     fi
 
     echo -e "\n${GREEN}==> Updating OS image (bootc)...${NC}"
-    run_cmd sudo bootc upgrade
+    if command -v bopp-system &> /dev/null; then
+        # The same path the settings app and the tray use: a polkit-checked helper, no sudo password
+        run_cmd bopp-system upgrade --only os
+    else
+        run_cmd sudo bootc upgrade
+    fi
 }
 
 update_fw() {
@@ -217,8 +222,8 @@ fi
 
 echo -e "${BLUE}Starting CachyOS BoppOS System Update...${NC}\n"
 
-# Pre-authenticate sudo if OS or Firmware is being updated
-if [ "$RUN_OS" = true ] || [ "$RUN_FW" = true ]; then
+# Pre-authenticate sudo if firmware is being updated, or the OS without bopp-system
+if [ "$RUN_FW" = true ] || { [ "$RUN_OS" = true ] && ! command -v bopp-system &> /dev/null; }; then
     sudo -v
 fi
 

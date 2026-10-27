@@ -1,0 +1,25 @@
+// /usr/share/polkit-1/rules.d/51-boppos-deck.rules
+//
+// The boppos-deck helpers change the system, so by default they ask for an administrator password
+// (see actions/org.boppos.deck.policy). boppos-deck registers its own polkit agent in Gaming Mode so
+// that prompt can be answered with a controller. Only these exact read-only command lines are
+// allowed without a password, for the active local wheel user.
+
+var READ_ONLY = [
+    "/usr/libexec/boppos/bootc-helper status",
+    "/usr/libexec/boppos/bootc-helper check",
+    "/usr/libexec/boppos/kargs-helper status",
+    "/usr/libexec/boppos/kargs-helper list",
+    "/usr/libexec/boppos/kargs-helper dropins"
+];
+
+polkit.addRule(function(action, subject) {
+    if ((action.id === "org.boppos.deck.system" || action.id === "org.boppos.deck.kargs") &&
+        READ_ONLY.indexOf(action.lookup("command_line")) !== -1 &&
+        subject.local &&
+        subject.active &&
+        subject.isInGroup("wheel"))
+    {
+        return polkit.Result.YES;
+    }
+});

@@ -1,0 +1,15 @@
+#!/usr/bin/env python3
+"""bopp-steam-shortcut: add a "BoppOS" non-Steam shortcut to the Steam library (only while Steam is stopped)."""
+
+import sys
+from pathlib import Path
+
+for _p in (Path(__file__).resolve().parent.parent / "lib/boppos/py", Path("/usr/lib/boppos/py")):
+    if (_p / "boppos").is_dir():
+        sys.path.insert(0, str(_p))
+        break
+
+from boppos.steam_shortcut_cli import main  # noqa: E402
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -30,13 +30,16 @@ image system.
 │    • reads /run/boppos/update-status.json                       │
 │    • shows blue icon (idle) or orange icon (update available)   │
 │    • sends notify-send desktop notification (once per digest)   │
-│    • right-click menu:                                          │
-│        – Check now            → pkexec systemctl start ...      │
-│        – View changes         → opens bopp-diff in terminal     │
-│        – Apply update & reboot → opens boppos-update in term    │
-│        – Update containers    → boppos-update -dl in term       │
-│        – Last checked: HH:MM  (disabled label)                  │
-│        – Quit                                                   │
+│    • menu (state, then actions):                                │
+│        – status line (up to date / update available / restart)  │
+│        – Restart to Finish Update…   (only when one is pending) │
+│        – Open BoppOS Settings        → boppos-deck              │
+│        – Check for Updates           → pkexec systemctl start … │
+│        – Install Updates ▸  bopp-system upgrade in background   │
+│            Everything · Operating System · Flatpak Apps ·       │
+│            Firmware · Containers… (terminal)                    │
+│        – Review Changes…             → bopp-diff in a terminal  │
+│        – Last checked: HH:MM, Quit                              │
 └─────────────────────────────────────────────────────────────────┘
 ```
 

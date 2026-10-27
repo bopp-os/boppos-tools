@@ -1,29 +1,43 @@
-net.mullvad.MullvadBrowser
-com.calibre_ebook.calibre
-it.mijorus.gearlever
-org.inkscape.Inkscape
-com.obsproject.Studio
-com.discordapp.Discord
-io.github.flattool.Warehouse
-com.github.tchx84.Flatseal
-com.bitwarden.desktop
-com.vysp3r.ProtonPlus
-io.github.kolunmi.Bazaar
-org.jeffvli.feishin
-org.virt_manager.virt-manager
+# BoppOS curated Flatpaks (Flathub). One reference per line.
+# '## Name' starts a category (shown in boppos-deck); '#' alone is a comment.
+
+## Gaming & Streaming
+com.vysp3r.ProtonPlus  # name: ProtonPlus
+com.moonlight_stream.Moonlight  # name: Moonlight
+com.obsproject.Studio  # name: OBS Studio
+
+## Internet & Communication
+net.mullvad.MullvadBrowser  # name: Mullvad Browser
+com.discordapp.Discord  # name: Discord
+org.mozilla.thunderbird  # name: Thunderbird
+org.localsend.localsend_app  # name: LocalSend
+org.qbittorrent.qBittorrent  # name: qBittorrent
+
+## Media & Creative
+org.inkscape.Inkscape  # name: Inkscape
+org.gimp.GIMP  # name: GIMP
+org.kde.kdenlive  # name: Kdenlive
+org.audacityteam.Audacity  # name: Audacity
+com.github.wwmm.easyeffects  # name: Easy Effects
+org.jeffvli.feishin  # name: Feishin
+
+## Office & Productivity
+com.calibre_ebook.calibre  # name: calibre
+org.libreoffice.LibreOffice  # name: LibreOffice
+com.bitwarden.desktop  # name: Bitwarden Desktop
+org.gnome.SimpleScan  # name: Document Scanner
+
+## System & Tools
+io.github.kolunmi.Bazaar  # name: Bazaar
+com.github.tchx84.Flatseal  # name: Flatseal
+it.mijorus.gearlever  # name: Gear Lever
+io.github.flattool.Warehouse  # name: Warehouse
+io.gitlab.adhami3310.Impression  # name: Impression
+org.gnome.World.PikaBackup  # name: Pika Backup
+io.github.dvlv.boxbuddyrs  # name: BoxBuddy
+org.virt_manager.virt-manager  # name: Virtual Machine Manager
 org.virt_manager.virt_manager.Extension.Qemu
-org.libreoffice.LibreOffice
-org.gimp.GIMP
-org.kde.kdenlive
-com.github.wwmm.easyeffects
-org.localsend.localsend_app
-org.qbittorrent.qBittorrent
-io.github.dvlv.boxbuddyrs
+
+## Themes
 runtime/org.gtk.Gtk3theme.adw-gtk3/x86_64/3.22
 runtime/org.gtk.Gtk3theme.adw-gtk3-dark/x86_64/3.22
-org.mozilla.thunderbird
-com.moonlight_stream.Moonlight
-io.gitlab.adhami3310.Impression
-org.gnome.World.PikaBackup
-org.gnome.SimpleScan
-org.audacityteam.Audacity

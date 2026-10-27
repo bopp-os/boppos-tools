@@ -1,0 +1,121 @@
+# boppos-deck manual test plan
+
+The unit tests (`pytest`) cover the parsing, kernel-argument logic, VDF handling, Decky checks and input mapping
+against fixtures. They never touch the real `/boot`, `/sys` or Steam. The steps below cover what they cannot.
+Tick each box on a real BoppOS install (a VM is fine for 1 and 2).
+
+## 1. Keyboard and mouse on the desktop
+- [ ] `boppos-deck` opens a normal window; the sidebar shows six pages.
+- [ ] Arrow keys move the focus ring between rows (thick outline, always visible). `Enter` toggles a switch or presses a row's button. `Esc` from a page returns to the sidebar.
+- [ ] `Ctrl+Tab` / `Ctrl+Shift+Tab` change page. The hint bar shows Enter / Esc / Ctrl+Tab.
+- [ ] Mouse: every row and button works by clicking.
+- [ ] Narrow the window below 900 px: the sidebar collapses; selecting a page opens it, `Esc` goes back.
+- [ ] System: *Check for updates* fills the status of each row. *Update* on a row opens the progress page; *Back* returns.
+- [ ] About: switch **Advanced options** on; System shows Deployments and Update channel; off hides them.
+
+## 2. Nested gamescope with a controller
+```bash
+gamescope -W 1280 -H 800 -f -- boppos-deck       # then repeat with -W 2560 -H 1600
+```
+- [ ] Window is full screen. The hint bar switches to A / B / LB RB when the controller is used, and back to keyboard hints after a key press.
+- [ ] D-pad and left stick move focus; holding repeats after a short delay. `A` selects, `B` goes back, `LB`/`RB` change page.
+- [ ] On the sidebar, `B` or `Start` asks *Exit BoppOS settings?*; confirming exits with status 0 (back to the shell/Steam).
+- [ ] Text and the focus ring are readable at 1280×800 and at 2560×1600 (text should be visibly larger there).
+- [ ] With the controller unplugged or SDL3 missing, the app still starts and keyboard works (a warning is printed).
+- [ ] Steam Input keyboard template: arrows, Enter, Esc work the same.
+
+## 3. On the device in Gaming Mode as a `wheel` user (no other polkit agent)
+Add the app via `bopp-steam-shortcut add` with Steam closed, then start Steam.
+- [ ] A "BoppOS" shortcut is in the library; running `bopp-steam-shortcut add` again changes nothing; a `shortcuts.vdf.bak-*` exists. While Steam is running it exits 3 and changes nothing.
+- [ ] The app prints no "polkit agent not registered" warning (check by starting it from a terminal on a TTY session), so the agent registered.
+- [ ] Reading never asks: System page loads, *Check for updates*, Kernel page lists presets.
+- [ ] Every changing action shows the password screen with the action's text: Update OS, Pin/Unpin and Roll back (Advanced), kernel-argument switch, Decky install/uninstall. Flatpak apply and firmware update do not ask (their own rules).
+- [ ] Typing with the controller works: D-pad moves, `A` types, `RB` shift, `LB` delete, `Start` OK, `B` cancel, Show/Hide, the 123 layer (`!@#$%^&*()-_=+[]{}\|;:'"/?<>`~,.@` all reachable). A correct password runs the action; a wrong one shows "Wrong password. Try again." and allows 2 more tries; Cancel aborts the action cleanly with a readable message.
+- [ ] After a successful password a second action within a few minutes: note whether it asks again (`auth_admin_keep` retention depends on polkit's subject) and record the result here.
+- [ ] Decky: Steam restarts, the Decky menu appears; *Uninstall* removes the service. A tampered download (wrong hash) is refused.
+- [ ] Kernel arguments: toggling a preset changes `/proc/cmdline` after a reboot; toggling it back removes only what it added. With an update staged the page shows the *reboot first* banner and the switches are disabled.
+
+## 3i. Extra apps
+- [ ] The Apps page has Emulators and Music & Video categories and the extra launchers under Gaming & Streaming; installing one works (a large emulator takes a while) and it can get its Steam shortcut with the separate switch. RetroDECK and RetroArch started from Steam are the ones worth trying with a controller.
+- [ ] `install-optional-flatpaks` with no arguments still lists only the original 29 entries.
+
+## 3h. Normal vs Advanced
+- [ ] Normal mode: Kernel arguments shows only the running command line and a note; no switches, no add/remove. Advanced on: the preset switches (by category), custom arguments and the argument list appear; off again: they disappear.
+- [ ] Apps: each installed app has a separate **Steam shortcut** switch under its install switch (not for apps that are not installed). Toggle one, press Apply: the shortcut appears in Steam (see 3c for what Steam does while it is open). Uninstalling an app removes its shortcut. Neither switch changes what the other does.
+- [ ] The Steam library page still lists every installed app and says it never installs or removes anything.
+
+## 3g. Switching tabs
+- [ ] With the D-pad in the tab bar: Up/Down changes the tab and the page on the right changes with it; **A enters the tab you are on** (focus lands on its first row, or the row you left); **B** returns to the tab bar. The highlighted tab and the shown page are never different.
+- [ ] Switch between tabs with LB/RB and with the D-pad in the sidebar: the new tab appears at once. A tab you have seen before shows its content immediately (no blank "Loading…") and updates in place only if something actually changed, never while you are using a row on it.
+- [ ] Moving quickly down the sidebar does not start loads for every tab you pass, only the one you stop on.
+- [ ] After start-up the other tabs fill in by themselves, so a first visit is usually instant too. (Not when running from a checkout with polkit prompts: there every read would ask for a password.)
+- [ ] A tab whose tool fails shows the error, and one that breaks while being drawn shows "Something went wrong" with a Retry button; neither stays on "Loading…".
+
+## 3f. Moving through long pages
+- [ ] On a long page (Kernel arguments with Advanced on, Apps with a category open): right stick down/up and `LT`/`RT` jump roughly a screen; keep it flicked and it repeats steadily. `PgUp`/`PgDn`/`Home`/`End` do the same on a keyboard.
+- [ ] Holding the D-pad or left stick moves one row at first, then speeds up the longer it is held.
+- [ ] Pushing the left stick down while your thumb drifts sideways never produces a Left or Right, and a clean diagonal does nothing. If a real controller still gives stray input, note the model and what it does (the thresholds are constants in `ui/controller.py`).
+- [ ] Press Down many times at the end of a page: focus stays on the last row, the page does not change. Press Left by accident and then Right: you are back on the same row, not at the top.
+- [ ] Check that the right stick and triggers really are axes 2/3 and 4/5 on your pad (SDL3 numbering); if not, say which pad.
+
+## 3e. Controller focus is always visible
+- [ ] With a controller: every confirmation dialog shows a thick ring on the selected button (Cancel first), Left/Right moves it, A activates it, B cancels. The on-screen keyboard shows a ring on the selected key. Rows, switches and buttons all show a ring after the first D-pad press, not only after a key press.
+
+## 3d. Switching image and kernel-argument limits
+- [ ] There is no channel or tag picker anywhere. Advanced > System > Image shows what the system follows and *Use a different image…*: warning, then the keyboard (type the whole `ghcr.io/bopp-os/cachyos-plasma:v4`), then a from/to confirmation, then the password. `v4`, `cachyos-plasma:v4`, `ghcr.io/bopp-os/cachyos-plasma` (no tag), `oci:/tmp/x` and `docker://…` are rejected with a message, and entering the image you already follow says so.
+- [ ] A real switch to another tag of a signed BoppOS image works and the next boot uses it; a ref that does not exist, or a `ghcr.io/bopp-os` image without a valid signature, fails without changing the staged deployment. Roll back returns.
+- [ ] Add an argument: `pci=noaer` goes through one confirmation; `init=/bin/sh`, `selinux=0`, `systemd.mask=x`, `acpi=off`, `module_blacklist=nvme`, `rd.break`, `rootflags=x` are refused with a reason and a pointer to `sudo bopp-kargs add --force`; an argument nobody described (`foo.bar=1`) first shows the "BoppOS does not recognise" warning, then the usual one.
+- [ ] Remove: `selinux=0` (if you had added it by force) can be removed; `rw`, `rootflags=`, `rd.*` entries show *Required to boot* and have no button; `sudo bopp-kargs remove rootflags=… ` is refused without `--force`.
+- [ ] Apps page names are proper names (Bitwarden Desktop, Easy Effects, Virtual Machine Manager...), and installed apps use the name Flatpak reports.
+
+## 3c. Steam library page
+- [ ] **Steam library** lists BoppOS Settings and every installed Flatpak app; switches reflect what is already in Steam (apps added by hand with the same `flatpak run <id>` count).
+- [ ] Desktop, Steam closed: toggling and *Apply* changes the library at once; open Steam: the app appears under Games > non-Steam, starts, and has its icon. Toggling off removes only that shortcut; your own shortcuts and `shortcuts.vdf.bak-*` backups are intact.
+- [ ] Desktop, Steam running: *Apply* warns, Steam closes, the change lands, Steam reopens by itself.
+- [ ] **Gaming Mode** (the risky one): *Apply* closes Steam; check that (a) the changes appear after Steam is back, (b) boppos-deck is not left half-done if the session restarts (`bopp-steam-pending.service` should pick up anything unfinished at the next login), (c) a running game is closed with the warning shown first. Record what actually happens here.
+- [ ] A Flatpak app installed after the page was opened shows up after leaving and re-entering the page.
+
+## 3a. Presets, custom arguments and apps
+- [ ] Kernel arguments lists the presets in categories with a Low/Medium/High risk label and "Adds:" and "Risk:" lines. High-risk presets appear only with Advanced on.
+- [ ] Turning on a medium or high preset shows its risk text with Cancel as default; cancelling puts the switch back; confirming asks for the password and applies.
+- [ ] Advanced: *Add an argument* opens the keyboard with the text visible; `pci=noaer` is accepted; `init=/bin/sh`, `rd.break`, `ostree=x` and `a b` are rejected with a message. *Remove* on a listed argument asks first; arguments set by a preset show "preset" instead of a button.
+- [ ] Current arguments each show a description (or the "no description yet" text); `rw`, `rootflags=`, `rd.luks.uuid=` show *Required to boot* and have no Remove button; image defaults show *Image default*. `sudo bopp-kargs remove rootflags=subvol=root` is refused; `sudo bopp-kargs --dry-run remove --force ...` shows the plan.
+- [ ] A preset whose argument is already on the command line (for example `preempt=full`) shows *Active* and cannot be toggled.
+- [ ] Apps: with a controller, A (and Right) expands a category, Left collapses it, Down walks into its apps. Bazaar is present for your user after the first login (`boppos-default-flatpaks.service`), the row *Open Bazaar* starts it on the desktop, and in Gaming Mode the row is replaced by a note.
+- [ ] Apps: categories are collapsed; *Only show installed apps* hides the rest and keeps the pending selection; Apply installs and removes.
+
+## 3b-0. Gaming Mode keyboard, three ways (least to most real)
+1. **The keyboard alone, anywhere:** `BOPPOS_DECK_TEST=keyboard-retry bin/boppos-deck`. A pretend prompt: type with a controller or
+   keyboard, press OK, see the "Wrong password" retry (always shown for your first answer, on purpose), then `OK: typed N character(s)` on the terminal. No sudo, no polkit.
+   Add `SteamDeck=1` to make it full screen with controller prompts, like Gaming Mode.
+2. **Gaming Mode look, real actions, no password:** `SteamDeck=1 BOPPOS_HELPER_ESCALATE=sudo ...` after `sudo -v`. The password
+   screen does not appear here (sudo replaces polkit); this is for checking everything else.
+3. **The real thing (our polkit agent + `pkexec`)** needs a login session where no desktop agent is running, because only one
+   agent can serve a session and KDE's already serves yours (that is why a KDE password window appears when you run the app from
+   a terminal inside KDE). Two ways to get such a session:
+   - **From inside KDE, in a window (does not work everywhere):** `tools/dev-gaming`. It starts the app from a new login session
+     with `su -l`; the window still opens on your screen, but `pkexec` requests from that session have no desktop agent and go
+     to the app's keyboard. It needs `su -l` to really open a login session. On the CachyOS/KDE test machine it did **not**
+     (`this session: none`), so the script now says that and stops. Then use the text console below.
+   - **From a text console:** Ctrl+Alt+F3, log in, `cd` to the checkout, then
+     `SteamDeck=1 BOPPOS_HELPER_DIR="$PWD/libexec/boppos" gamescope -W 1280 -H 800 -f -- bin/boppos-deck`.
+     Ctrl+Alt+F1 (or `exit`) returns to the desktop.
+   - Do **not** set `BOPPOS_HELPER_ESCALATE` in either: it replaces polkit with sudo.
+   - From a checkout the read-only calls are not waived either (the polkit rule only knows `/usr`), so the first page already asks
+     for your password: that is the keyboard test. Then try an Advanced action (a preset switch). Type your real password with
+     the controller. A wrong one should say "Wrong password. Try again." once; a second failure stops (so the account is not locked by `pam_faillock`, which locks after 3 failures in a row, `sudo` included; `faillock --user $USER` shows the count and `sudo faillock --user $USER --reset` clears it); B cancels and the action reports it was not authorised.
+   - If it never prompts, look at the first lines the app printed: "polkit agent not registered (...)" means another agent
+     already owns that session.
+
+## 3b. Desktop session with its own agent (KDE/GNOME)
+- [ ] boppos-deck starts without registering an agent; a changing action shows the desktop's own password dialog; cancelling it fails the action with a readable message.
+
+## 4. Same actions as a user outside `wheel`
+Create a test user, log in on a local session (not wheel).
+- [ ] Each changing action fails after the password screen (the wrong-password path, since only administrators can authorize), with a clear message and nothing changed.
+- [ ] `bootc-helper pin 99`, `kargs-helper add init=/bin/sh` and `decky-helper foo` are rejected even for an administrator (usage error, exit 2), before any prompt matters.
+- [ ] Over SSH (not an active local session) as a wheel user, the read-only calls are not waived and the changing actions fail instead of succeeding.
+
+## 5. Kernel-argument safety (VM)
+- [ ] `sudo bopp-kargs remove quiet` on a cmdline containing `rd.quiet`: `rd.quiet` survives.
+- [ ] `ostree admin instutil set-kargs` path: after a removal the machine boots and `ostree admin status` shows the booted and rollback deployments. This path could not be tested without a real ostree system; verify it before relying on it.

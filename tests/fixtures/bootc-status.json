@@ -1,0 +1,5 @@
+{"apiVersion":"org.containers.bootc/v1","kind":"BootcHost","spec":{"image":{"image":"ghcr.io/bopp-os/cachyos-plasma:stable","transport":"registry"}},
+ "status":{
+  "booted":{"image":{"image":{"image":"ghcr.io/bopp-os/cachyos-plasma:stable","transport":"registry"},"version":"43.1","timestamp":"2026-10-20T00:00:00Z","imageDigest":"sha256:aaa"},"pinned":false,"ostree":{"checksum":"c0ffee","deploySerial":0}},
+  "staged":{"image":{"image":{"image":"ghcr.io/bopp-os/cachyos-plasma:stable","transport":"registry"},"version":"43.2","imageDigest":"sha256:bbb"},"pinned":false,"ostree":{"checksum":"decade","deploySerial":0}},
+  "rollback":{"image":{"image":{"image":"ghcr.io/bopp-os/cachyos-plasma:stable","transport":"registry"},"imageDigest":"sha256:000"},"pinned":true,"ostree":{"checksum":"0ldc0de","deploySerial":0}}}}

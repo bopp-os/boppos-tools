@@ -1,0 +1,62 @@
+#!/usr/bin/env bash
+# Run bopp-tray (and the tools it launches) from this checkout instead of the installed copy.
+#
+#   tools/dev-tray          real tools: "Install Updates" really updates this machine
+#   tools/dev-tray --fake   safe: a stand-in bopp-system "installs" an update and a stand-in
+#                           systemctl only logs a reboot, so you can try the whole flow
+#                           (progress notification, Restart now button, restart menu item)
+set -euo pipefail
+
+root=$(cd "$(dirname "$0")/.." && pwd)
+fake=0
+[[ "${1:-}" == "--fake" ]] && fake=1
+
+# The installed tray holds a lock, so a second copy would refuse to start.
+systemctl --user stop bopp-tray.service 2>/dev/null || true
+pkill -f 'bin/bopp-tray' 2>/dev/null || true
+sleep 0.5
+
+export PATH="$root/bin:$PATH"
+export BOPPOS_HELPER_DIR="$root/libexec/boppos"
+
+if [[ $fake -eq 1 ]]; then
+    stub=$(mktemp -d)
+    state="$stub/staged"
+    log="$stub/reboot.log"
+    cat > "$stub/bopp-system" <<STUB
+#!/usr/bin/env python3
+import json, os, sys, time
+args = [a for a in sys.argv[1:] if a != "--json"]
+state = "$state"
+def out(**ev): print(json.dumps(ev), flush=True)
+if args[:1] == ["status"]:
+    staged = os.path.exists(state)
+    print(json.dumps({"booted": {"ref": "ghcr.io/bopp-os/cachyos-plasma:stable", "version": "1", "digest": "sha256:a",
+                                 "pinned": False, "index": 0}, "staged": None, "rollback": None,
+                      "update_available": staged, "rollback_queued": False, "reboot_required": staged,
+                      "tag": "stable", "monitor": None}))
+elif args[:1] == ["upgrade"]:
+    for step in ("os", "flatpak"):
+        out(event="step", id=step, status="start")
+        for i in range(4):
+            out(event="log", line=step + ": downloading layer " + str(i + 1) + "/4"); time.sleep(0.7)
+        out(event="step", id=step, status="ok")
+    open(state, "w").close()
+    out(event="done", ok=True, failed=[], reboot_required=True)
+else:
+    out(event="done", ok=True)
+STUB
+    cat > "$stub/systemctl" <<STUB
+#!/usr/bin/env bash
+if [[ "\${1:-}" == "reboot" ]]; then echo "would reboot at \$(date +%T)" >> "$log"; exit 0; fi
+exec /usr/bin/systemctl "\$@"
+STUB
+    chmod +x "$stub/bopp-system" "$stub/systemctl"
+    export PATH="$stub:$PATH"
+    echo "fake mode: updates are simulated and no reboot will happen."
+    echo "A pretend reboot is logged to $log"
+fi
+
+trap 'echo; echo "Restart the installed tray with: systemctl --user start bopp-tray.service"' EXIT
+echo "Running bopp-tray from $root (Ctrl+C or the tray's Quit stops it)"
+"$root/bin/bopp-tray"

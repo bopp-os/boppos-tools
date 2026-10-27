@@ -1,0 +1,259 @@
+[
+ {
+  "key": "ostree",
+  "summary": "Tells the boot process which deployment (image version) to start.",
+  "critical": true
+ },
+ {
+  "key": "root",
+  "summary": "Where the root filesystem is.",
+  "critical": true
+ },
+ {
+  "key": "rootflags",
+  "summary": "Mount options for the root filesystem, for example the btrfs subvolume.",
+  "critical": true
+ },
+ {
+  "key": "rootfstype",
+  "summary": "Filesystem type of the root filesystem.",
+  "critical": true
+ },
+ {
+  "match": "rw",
+  "summary": "Mounts the root filesystem read-write at start so the system can set up its own read-only view.",
+  "critical": true
+ },
+ {
+  "match": "rd.luks.options=tpm2-device=auto",
+  "summary": "Unlocks the encrypted disk with the TPM automatically. Without it you type the disk passphrase at every boot.",
+  "image_default": true,
+  "risk": "The system still boots, but asks for the passphrase."
+ },
+ {
+  "prefix": "rd.luks.",
+  "summary": "Disk-encryption unlock settings read before the system starts. Removing one can leave the disk locked.",
+  "critical": true
+ },
+ {
+  "prefix": "rd.lvm.",
+  "summary": "Tells early boot which LVM volumes to activate.",
+  "critical": true
+ },
+ {
+  "prefix": "rd.md.",
+  "summary": "Tells early boot which software RAID to assemble.",
+  "critical": true
+ },
+ {
+  "prefix": "rd.dm.",
+  "summary": "Early-boot device-mapper settings.",
+  "critical": true
+ },
+ {
+  "prefix": "luks.",
+  "summary": "Disk-encryption unlock settings. Removing one can leave the disk locked.",
+  "critical": true
+ },
+ {
+  "match": "quiet",
+  "summary": "Hides most boot messages."
+ },
+ {
+  "match": "splash",
+  "summary": "Shows a splash screen during boot."
+ },
+ {
+  "match": "rhgb",
+  "summary": "Graphical boot screen."
+ },
+ {
+  "match": "ro",
+  "summary": "Mounts the root filesystem read-only at start."
+ },
+ {
+  "key": "resume",
+  "summary": "Where to resume from after hibernation.",
+  "risk": "Removing it disables hibernation."
+ },
+ {
+  "key": "resume_offset",
+  "summary": "Offset of the hibernation file inside the resume device.",
+  "risk": "Removing it can break hibernation."
+ },
+ {
+  "match": "nomodeset",
+  "summary": "Turns off the kernel graphics drivers; the screen runs in a basic, slow mode.",
+  "risk": "Usually only for troubleshooting."
+ },
+ {
+  "key": "console",
+  "summary": "Where kernel messages are shown."
+ },
+ {
+  "key": "video",
+  "summary": "Forces a screen mode or output setting."
+ },
+ {
+  "match": "amd_pstate=active",
+  "summary": "Uses the AMD P-State driver in active mode to control CPU frequency.",
+  "image_default": true
+ },
+ {
+  "match": "amdgpu.ppfeaturemask=0xffffffff",
+  "summary": "Unlocks all AMD GPU power features. Needed for overclocking, undervolting and fan control tools such as LACT.",
+  "image_default": true,
+  "risk": "Lets tools set clocks and voltages that can crash the GPU or damage it if misused."
+ },
+ {
+  "match": "amdgpu.gpu_recovery=1",
+  "summary": "Lets the kernel reset a hung AMD GPU instead of freezing the machine.",
+  "image_default": true
+ },
+ {
+  "match": "split_lock_detect=off",
+  "summary": "Stops the kernel from slowing programs that do misaligned atomic operations. Some games depend on this.",
+  "image_default": true
+ },
+ {
+  "match": "nowatchdog",
+  "summary": "Turns off the hardware watchdog timers. Saves a little power and fewer wake-ups.",
+  "image_default": true
+ },
+ {
+  "match": "nmi_watchdog=0",
+  "summary": "Turns off the NMI watchdog, a lockup detector. Saves a little power.",
+  "image_default": true
+ },
+ {
+  "match": "mitigations=off",
+  "summary": "Turns off CPU security mitigations (Spectre, Meltdown and others). Faster, but weaker protection.",
+  "image_default": true,
+  "risk": "Programs you run, including web pages, can attack the system more easily.",
+  "risk_level": "high"
+ },
+ {
+  "match": "sysrq_always_enabled=1",
+  "summary": "Keeps the Magic SysRq key combinations usable for emergencies, such as a safe reboot.",
+  "image_default": true
+ },
+ {
+  "match": "usbcore.autosuspend=-1",
+  "summary": "Never powers down idle USB devices. Avoids dropped controllers and dongles; uses a little more power.",
+  "image_default": true
+ },
+ {
+  "match": "iommu=pt",
+  "summary": "Uses the IOMMU in passthrough mode: fast for normal use, still available for virtual machines.",
+  "image_default": true
+ },
+ {
+  "match": "preempt=full",
+  "summary": "Fully preemptible kernel scheduling: lower latency, slightly lower throughput.",
+  "image_default": true
+ },
+ {
+  "match": "transparent_hugepage=madvise",
+  "summary": "Uses large memory pages only for programs that ask for them.",
+  "image_default": true
+ },
+ {
+  "match": "transparent_hugepage.defrag=defer+madvise",
+  "summary": "Sets how aggressively the kernel defragments memory for large pages, to avoid stalls.",
+  "image_default": true
+ },
+ {
+  "match": "kvm.ignore_msrs=1",
+  "summary": "Ignores unknown CPU registers in virtual machines. Avoids crashes in some guests."
+ },
+ {
+  "match": "kvm.report_ignored_msrs=0",
+  "summary": "Does not log the ignored register accesses."
+ },
+ {
+  "match": "pcie_aspm=off",
+  "summary": "Turns off PCIe link power saving. Avoids hangs on some hardware; uses more power at idle."
+ },
+ {
+  "match": "skew_tick=1",
+  "summary": "Staggers the timer tick across CPUs, which can reduce latency spikes."
+ },
+ {
+  "match": "clearcpuid=umip",
+  "summary": "Hides the UMIP CPU feature so some older Windows games and Wine programs run."
+ },
+ {
+  "match": "acpi_enforce_resources=lax",
+  "summary": "Lets drivers, for example fan and sensor tools, use hardware that the firmware also claims."
+ },
+ {
+  "match": "nvme_core.default_ps_max_latency_us=0",
+  "summary": "Turn off NVMe power-state switching (APST).",
+  "risk": "Uses a little more power when idle. Helps SSDs that freeze, disappear or throw errors under load, which is a known problem on some laptops.",
+  "risk_level": "low",
+  "preset": "10-nvme-no-apst"
+ },
+ {
+  "match": "mem_sleep_default=deep",
+  "summary": "Use deep sleep (S3) instead of s2idle when suspending.",
+  "risk": "If this machine's firmware has no deep sleep, suspend can fail or the system may not wake up. Many newer laptops and handhelds only support s2idle. Test suspend and resume after enabling.",
+  "risk_level": "medium",
+  "preset": "20-sleep-deep"
+ },
+ {
+  "match": "threadirqs",
+  "summary": "Run interrupt handlers as threads.",
+  "risk": "Can lower audio and input latency under heavy load. May slightly reduce throughput; rarely a driver misbehaves.",
+  "risk_level": "low",
+  "preset": "30-threaded-irqs"
+ },
+ {
+  "match": "amdgpu.sg_display=0",
+  "summary": "Turn off scatter-gather display on AMD graphics.",
+  "risk": "Fixes flickering or a blank screen on some AMD laptops and handhelds. Costs a little memory bandwidth. Only useful with AMD graphics.",
+  "risk_level": "low",
+  "preset": "40-amd-sg-display-off"
+ },
+ {
+  "match": "i915.enable_psr=0",
+  "summary": "Turn off Panel Self Refresh on Intel graphics.",
+  "risk": "Fixes flicker or screen freezes on some Intel laptop panels. Uses a little more power. Only useful with Intel graphics.",
+  "risk_level": "low",
+  "preset": "41-intel-psr-off"
+ },
+ {
+  "match": "pci=noaer",
+  "summary": "Hide PCIe Advanced Error Reporting messages.",
+  "risk": "Stops PCIe error messages from flooding the log. Real hardware problems on the PCIe bus will no longer be reported, which makes them harder to diagnose.",
+  "risk_level": "medium",
+  "preset": "50-pci-noaer"
+ },
+ {
+  "match": "usbhid.mousepoll=1",
+  "summary": "Poll USB mice 1000 times a second.",
+  "risk": "Lowers input latency for gaming mice. Uses slightly more CPU time, and a few very old mice misbehave.",
+  "risk_level": "low",
+  "preset": "60-usb-mouse-1khz"
+ },
+ {
+  "match": "amdgpu.runpm=0",
+  "summary": "Keep an AMD graphics card powered instead of letting it sleep.",
+  "risk": "Fixes black screens and hangs after idle on some desktops and laptops. Uses more power at idle. Only useful with AMD graphics.",
+  "risk_level": "low",
+  "preset": "70-amdgpu-no-runpm"
+ },
+ {
+  "match": "nvidia-drm.modeset=1",
+  "summary": "Turn on Nvidia kernel mode setting.",
+  "risk": "Needed for Wayland and tear-free output on older Nvidia drivers; newer drivers may already enable it. Only useful with the Nvidia driver.",
+  "risk_level": "low",
+  "preset": "71-nvidia-drm-modeset"
+ },
+ {
+  "match": "intel_iommu=on",
+  "summary": "Turn on the Intel IOMMU (for passing devices to virtual machines).",
+  "risk": "Needed to give a graphics card or other device to a virtual machine. Can cause problems with some devices and costs a little speed. Only useful on Intel CPUs.",
+  "risk_level": "medium",
+  "preset": "80-intel-iommu-on"
+ }
+]

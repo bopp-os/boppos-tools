@@ -1,0 +1,14 @@
+[Unit]
+Description=Add the BoppOS shortcut to the Steam library
+# Offered once per user; delete the shortcut in Steam and it stays gone.
+ConditionPathExists=!%S/boppos-deck/steam-shortcut-offered
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/bopp-steam-shortcut add
+# Exit 3 = Steam is running, 4 = Steam has not created its user data yet. Try again later.
+Restart=on-failure
+RestartSec=60
+
+[Install]
+WantedBy=default.target

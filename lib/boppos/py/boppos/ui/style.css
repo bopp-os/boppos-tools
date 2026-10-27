@@ -1,0 +1,76 @@
+/* boppos-deck: one look for controller and desktop. Rows are the only focus stops; the focus
+   ring is thick on purpose so it reads from a couch. Size classes are set from the window width. */
+
+window.deck { font-size: 128%; }
+window.deck.size-l { font-size: 165%; }
+window.deck.size-xl { font-size: 210%; }
+
+window.deck row { min-height: 60px; }
+window.deck.size-l row { min-height: 76px; }
+window.deck.size-xl row { min-height: 96px; }
+
+window.deck row:focus,
+window.deck row:focus-visible,
+window.deck row:focus-within {
+  outline: 4px solid @accent_bg_color;
+  outline-offset: -4px;
+  background-color: alpha(@accent_bg_color, 0.18);
+}
+window.deck.size-xl row:focus,
+window.deck.size-xl row:focus-visible { outline-width: 6px; outline-offset: -6px; }
+
+window.deck button:focus,
+window.deck button:focus-visible,
+window.deck switch:focus-visible {
+  outline: 4px solid @accent_bg_color;
+  outline-offset: 2px;
+}
+
+window.deck .navigation-sidebar row { border-radius: 12px; margin: 3px 8px; }
+window.deck .navigation-sidebar row:selected { background-color: alpha(@accent_bg_color, 0.30); }
+window.deck .sidebar-title { font-weight: 800; font-size: 130%; padding: 18px 20px 6px 20px; }
+
+window.deck .hint-bar { padding: 8px 18px; background-color: alpha(@window_fg_color, 0.06); }
+window.deck .hint-key {
+  font-weight: 800;
+  padding: 1px 10px;
+  margin-right: 6px;
+  border-radius: 999px;
+  background-color: alpha(@window_fg_color, 0.18);
+}
+window.deck .hint-label { margin-right: 22px; opacity: 0.85; }
+
+window.deck .progress-title { font-weight: 800; font-size: 160%; }
+window.deck .progress-log { font-family: monospace; font-size: 85%; }
+window.deck .value-label { opacity: 0.7; }
+
+window.deck image { -gtk-icon-size: 1.25em; }
+
+window.deck .osk-key { min-width: 2.6em; min-height: 2.4em; font-weight: 700; }
+window.deck .osk-display {
+  font-size: 160%;
+  letter-spacing: 4px;
+  padding: 8px 16px;
+  border-radius: 12px;
+  background-color: alpha(@window_fg_color, 0.10);
+}
+
+/* Controller glyph colours (PlayStation shapes, Xbox letters) */
+window.deck .glyph-cross { color: #7aa2ff; }
+window.deck .glyph-circle { color: #ff7a7a; }
+window.deck .glyph-a { color: #6fd36f; }
+window.deck .glyph-b { color: #ff7a7a; }
+
+/* Confirmation dialogs are drawn outside the window's style scope, so they get the same look explicitly */
+.deck-dialog { font-size: 128%; }
+.deck-dialog.size-l { font-size: 165%; }
+.deck-dialog.size-xl { font-size: 210%; }
+.deck-dialog button { min-height: 2.4em; min-width: 6em; }
+.deck-dialog button:focus,
+.deck-dialog button:focus-visible {
+  outline: 4px solid @accent_bg_color;
+  outline-offset: 2px;
+}
+
+/* the separate Steam shortcut switch under an app's install switch */
+window.deck row.steam-row { background-color: alpha(@window_fg_color, 0.045); }

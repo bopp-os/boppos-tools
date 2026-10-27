@@ -1,0 +1,56 @@
+#!/usr/bin/python3 -I
+"""Root helper for bopp-decky: install or remove plugin_loader.service for the calling user.
+
+The user comes from pkexec (PKEXEC_UID) and the unit is a fixed template; the only variable is the
+home directory from the passwd entry. Nothing else is accepted from the caller.
+"""
+
+import os
+import pwd
+import subprocess
+import sys
+from pathlib import Path
+
+# libexec/boppos/<helper> -> ../../lib/boppos/py: /usr/lib/boppos/py when installed, the repo's lib/ in a checkout
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "lib/boppos/py"))
+
+from boppos.decky import SERVICE_NAME, UNIT_PATH, DeckyError, check_binary, unit_text  # noqa: E402
+from boppos.kargs import atomic_write  # noqa: E402
+
+
+def systemctl(*args, check=True):
+    subprocess.run(["/usr/bin/systemctl", *args], check=check)
+
+
+def main(argv):
+    # pkexec scrubs the environment and sets PKEXEC_UID; sudo sets SUDO_UID itself (development use)
+    raw_uid = os.environ.get("PKEXEC_UID") or os.environ.get("SUDO_UID", "")
+    os.environ.clear()
+    os.environ.update(PATH="/usr/sbin:/usr/bin", LANG="C.UTF-8")
+    if len(argv) != 1 or argv[0] not in ("install", "uninstall"):
+        print("usage: decky-helper install|uninstall", file=sys.stderr)
+        return 2
+    if not raw_uid.isdigit() or int(raw_uid) == 0:
+        print("decky-helper: must be started through pkexec by a normal user", file=sys.stderr)
+        return 2
+    uid = int(raw_uid)
+    try:
+        home = pwd.getpwuid(uid).pw_dir
+        if argv[0] == "install":
+            check_binary(Path(home) / "homebrew/services/PluginLoader", uid)
+            atomic_write(Path(UNIT_PATH), unit_text(home))
+            systemctl("daemon-reload")
+            systemctl("enable", SERVICE_NAME)
+            systemctl("restart", SERVICE_NAME)
+        else:
+            systemctl("disable", "--now", SERVICE_NAME, check=False)
+            Path(UNIT_PATH).unlink(missing_ok=True)
+            systemctl("daemon-reload")
+    except (DeckyError, KeyError, OSError, subprocess.CalledProcessError) as exc:
+        print(f"decky-helper: {exc}", file=sys.stderr)
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

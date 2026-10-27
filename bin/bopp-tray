@@ -7,15 +7,24 @@ boppos-update-monitor.service (root) at /run/boppos/update-status.json,
 shows a system-tray icon, and sends desktop notifications when a new
 image is available.
 
-Right-click menu
-----------------
-  • Check for updates now   — triggers an immediate systemd run via polkit
-  • View changes            — shows bopp-diff output in a terminal/dialog
-  • Apply update & reboot   — launches boppos-update in a terminal (requires auth)
-  • Update containers       — runs boppos-update -dl (Distrobox + Litterbox) in a terminal
-  • ──────────────────────
-  • Last checked: <time>
-  • Quit
+Menu
+----
+  BoppOS is up to date             (status line: up to date / update available / restart needed)
+  Restart to Finish Update…        (only when a staged update is waiting for a restart)
+  ───────────────
+  Open BoppOS Settings             (boppos-deck; also what a left click does)
+  ───────────────
+  Check for Updates                — triggers an immediate systemd run via polkit
+  Install Updates ▸                — runs bopp-system in the background, with notifications
+        Everything (system, apps, Homebrew)
+        Operating System · Flatpak Apps · Firmware
+        Containers (Distrobox & Litterbox)…   — in a terminal
+  Review Changes…                  — shows the bopp-diff output in a terminal
+  ───────────────
+  Last checked: <time>
+  Quit
+
+Updates that change the system ask for the administrator password through the desktop's polkit agent.
 
 Dependencies (all available in CachyOS / AUR):
     python-pystray   — cross-DE tray icon (GTK/Qt/AppIndicator backends)
@@ -52,6 +61,13 @@ except ImportError as exc:
         f"bopp-tray: missing dependency — {exc}\n"
         "Install with: sudo pacman -S python-pystray python-pillow python-gobject libappindicator"
     )
+
+for _p in (Path(__file__).resolve().parent.parent / "lib/boppos/py", Path("/usr/lib/boppos/py")):
+    if (_p / "boppos").is_dir():
+        sys.path.insert(0, str(_p))
+        break
+
+from boppos.tray_logic import compute_state, menu_spec, tooltip  # noqa: E402
 
 # ── Constants ─────────────────────────────────────────────────────────────────
 STATUS_FILE = Path("/run/boppos/update-status.json")
@@ -198,7 +214,7 @@ def open_in_terminal(cmd: list[str], title: str = "BoppOS") -> None:
 
 
 def _notify(summary: str, body: str = "", urgent: bool = False) -> None:
-    cmd = ["notify-send", "--app-name=BoppOS Updater", "--icon=system-software-update"]
+    cmd = ["notify-send", "--app-name=BoppOS Updater", "--icon=boppos-icon"]
     if urgent:
         cmd += ["--urgency=critical"]
     else:
@@ -223,65 +239,126 @@ def _trigger_update_check() -> None:
         _notify("systemctl not found", "systemd is required.", urgent=True)
 
 
+def launch_detached(cmd: list[str]) -> bool:
+    try:
+        subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                         start_new_session=True)
+        return True
+    except OSError as exc:
+        _notify("Could not start " + cmd[0], str(exc), urgent=True)
+        return False
+
+
+def read_deployment_state() -> dict | None:
+    """`bopp-system --json status` (read-only, no password for wheel users). None when unavailable."""
+    exe = shutil.which("bopp-system")
+    if not exe:
+        return None
+    try:
+        out = subprocess.run([exe, "--json", "status"], capture_output=True, text=True, timeout=20)
+        data = json.loads(out.stdout)
+    except (OSError, subprocess.TimeoutExpired, json.JSONDecodeError):
+        return None
+    return None if "error" in data else data
+
+
+def ask_restart() -> None:
+    """Notification with a Restart button, so a restart is never one stray click away."""
+
+    def work() -> None:
+        try:
+            out = subprocess.run(
+                ["notify-send", "--app-name=BoppOS Updater", "--icon=boppos-icon", "--wait",
+                 "--action=restart=Restart now", "Restart to finish the update",
+                 "Save your work first. The update is applied when the system restarts."],
+                capture_output=True, text=True, timeout=600)
+        except (OSError, subprocess.TimeoutExpired):
+            return
+        if out.returncode != 0:  # notify-send too old for actions: ask in a terminal instead
+            open_in_terminal(["bash", "-c", "read -p 'Restart now to finish the update? [y/N] ' -r r; "
+                              "[[ $r =~ ^[Yy]$ ]] && systemctl reboot"], title="BoppOS Restart")
+        elif out.stdout.strip() == "restart":
+            subprocess.run(["systemctl", "reboot"], check=False)
+
+    threading.Thread(target=work, daemon=True).start()
+
+
 # ── Tray application ──────────────────────────────────────────────────────────
 
 class BoppTray:
     def __init__(self) -> None:
         self._status: dict | None = None
+        self._deploy: dict | None = None
+        self._busy = False
         self._local_state = _load_local_state()
+        self._lock = threading.Lock()
+        self._wakeup = threading.Event()
+        self._manual_check_pending = False
+        self._handlers = {
+            "check": self._on_check_now,
+            "review": self._on_view_diff,
+            "open-settings": self._on_open_settings,
+            "restart": lambda: ask_restart(),
+            "update-all": lambda: self._on_update(None, "everything"),
+            "update-os": lambda: self._on_update("os", "the operating system"),
+            "update-flatpak": lambda: self._on_update("flatpak", "Flatpak apps"),
+            "update-firmware": lambda: self._on_update("fw", "firmware"),
+            "update-containers": self._on_update_containers,
+            "quit": lambda: self._icon.stop(),
+        }
         self._icon = pystray.Icon(
             name="bopp-tray",
             icon=_make_icon(False),
             title="BoppOS: checking for updates...",
             menu=self._build_menu(),
         )
-        self._lock = threading.Lock()
-        self._wakeup = threading.Event()
-        self._manual_check_pending = False
 
     # ── Menu ─────────────────────────────────────────────────────────────────
 
+    def _state(self):
+        return compute_state(self._status, self._deploy)
+
     def _build_menu(self) -> pystray.Menu:
-        return pystray.Menu(
-            pystray.MenuItem("Check for updates now", self._on_check_now),
-            pystray.MenuItem("View changes (bopp-diff)", self._on_view_diff,
-                             enabled=self._has_diff),
-            pystray.MenuItem("Apply update & reboot", self._on_apply_update,
-                             enabled=self._has_update),
-            pystray.MenuItem("Update containers (Distrobox + Litterbox)",
-                             self._on_update_containers),
-            pystray.Menu.SEPARATOR,
-            pystray.MenuItem(self._last_checked_label, None, enabled=False),
-            pystray.Menu.SEPARATOR,
-            pystray.MenuItem("Quit", self._on_quit),
-        )
+        spec = menu_spec(self._state(), have_settings=bool(shutil.which("boppos-deck")),
+                         have_system=bool(shutil.which("bopp-system")), busy=self._busy)
+        return pystray.Menu(*self._items(spec))
 
-    def _has_update(self, _item) -> bool:
-        return bool(self._status and self._status.get("update_available"))
+    def _items(self, spec: list) -> list:
+        out = []
+        for e in spec:
+            if e is None:
+                out.append(pystray.Menu.SEPARATOR)
+            elif e["children"] is not None:
+                out.append(pystray.MenuItem(e["label"], pystray.Menu(*self._items(e["children"])),
+                                            enabled=e["enabled"], visible=e["visible"]))
+            else:
+                action = self._action(e["id"]) if e["id"] in self._handlers else None
+                out.append(pystray.MenuItem(e["label"], action, enabled=e["enabled"], visible=e["visible"],
+                                            default=e["default"]))
+        return out
 
-    def _has_diff(self, _item) -> bool:
-        return bool(self._status and self._status.get("diff"))
+    def _action(self, item_id: str):
+        handler = self._handlers[item_id]
+        return lambda _icon, _item: handler()
 
-    def _last_checked_label(self, _item) -> str:
-        if self._status:
-            ts = self._status.get("checked_at", "")
-            if ts:
-                try:
-                    dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
-                    local = dt.astimezone()
-                    return f"Last checked: {local.strftime('%H:%M')}"
-                except ValueError:
-                    pass
-        return "Last checked: never"
+    def _rebuild_menu(self) -> None:
+        self._icon.menu = self._build_menu()
+        try:
+            self._icon.update_menu()
+        except Exception:
+            pass
 
     # ── Callbacks ─────────────────────────────────────────────────────────────
 
-    def _on_check_now(self, _icon, _item) -> None:
+    def _on_open_settings(self) -> None:
+        launch_detached(["boppos-deck"])
+
+    def _on_check_now(self) -> None:
         with self._lock:
             self._manual_check_pending = True
         _trigger_update_check()
 
-    def _on_view_diff(self, _icon, _item) -> None:
+    def _on_view_diff(self) -> None:
         diff = self._status and self._status.get("diff")
         if diff:
             # Write diff to a temp file, then less it
@@ -297,72 +374,106 @@ class BoppTray:
         else:
             open_in_terminal(["bopp-diff"], title="BoppOS — Pending Changes")
 
-    def _on_apply_update(self, _icon, _item) -> None:
-        open_in_terminal(
-            ["bash", "-c", "boppos-update --os --flatpak --brew --verbose; echo; read -p 'Update complete. Reboot now? [y/N] ' -r reply; echo; if [[ $reply =~ ^[Yy]$ ]]; then systemctl reboot; else echo 'Press Enter to close...'; read; fi"],
-            title="BoppOS Update",
-        )
+    def _on_update(self, only: str | None, label: str) -> None:
+        """Run bopp-system in the background; notifications report progress and the result."""
+        if not shutil.which("bopp-system"):
+            open_in_terminal(["bash", "-c", "boppos-update --os --flatpak --brew --verbose; echo; "
+                              "read -p 'Press Enter to close...' -r"], title="BoppOS Update")
+            return
+        with self._lock:
+            if self._busy:
+                _notify("An update is already running")
+                return
+            self._busy = True
+        self._rebuild_menu()
+        _notify(f"Updating {label}…", "You may be asked for your password.")
+        threading.Thread(target=self._update_worker, args=(only, label), daemon=True).start()
 
-    def _on_update_containers(self, _icon, _item) -> None:
+    def _update_worker(self, only: str | None, label: str) -> None:
+        cmd = ["bopp-system", "--json", "upgrade"] + (["--only", only] if only else [])
+        final: dict = {}
+        tail: list[str] = []
+        rc = 1
+        try:
+            proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+            for line in proc.stdout:  # type: ignore[union-attr]
+                try:
+                    ev = json.loads(line)
+                except json.JSONDecodeError:
+                    ev = {"event": "log", "line": line.strip()}
+                if ev.get("event") == "done":
+                    final = ev
+                elif ev.get("event") == "log" and ev.get("line"):
+                    tail = (tail + [ev["line"]])[-3:]
+            rc = proc.wait()
+        except OSError as exc:
+            tail = [str(exc)]
+        finally:
+            with self._lock:
+                self._busy = False
+        ok = rc == 0 and final.get("ok", True)
+        if ok and final.get("reboot_required"):
+            ask_restart()
+        elif ok:
+            _notify(f"Updated {label}", "Nothing else to do.")
+        else:
+            _notify(f"Updating {label} failed", " / ".join(tail) or "See boppos-deck for details.", urgent=True)
+        _trigger_update_check()
+        self._wakeup.set()
+
+    def _on_update_containers(self) -> None:
         open_in_terminal(
             ["bash", "-c", "boppos-update --distrobox --litterbox --verbose; echo; read -p 'Press Enter to close...' -r"],
             title="BoppOS Container Update",
         )
-
-    def _on_quit(self, icon, _item) -> None:
-        icon.stop()
 
     # ── Core loop ─────────────────────────────────────────────────────────────
 
     def _refresh(self) -> None:
         """Read the status file and update the icon/menu/notification."""
         new_status = read_status()
+        deploy = read_deployment_state()
 
         with self._lock:
             self._status = new_status
+            self._deploy = deploy
             is_manual = self._manual_check_pending
             self._manual_check_pending = False
 
+        state = self._state()
+        self._icon.icon = _make_icon(state.needs_attention)
+        self._icon.title = tooltip(state)
+        self._rebuild_menu()
+
         if new_status is None:
-            self._icon.icon = _make_icon(False)
-            self._icon.title = "BoppOS: update status unavailable"
-            self._icon.menu = self._build_menu()
             if is_manual:
                 _notify("Update check failed", "Could not read status file.", urgent=True)
             return
 
-        has_update: bool = bool(new_status.get("update_available"))
         error: str | None = new_status.get("error")
         staged: str = new_status.get("staged_image") or ""
-
         if error:
             log.warning("Update check error: %s", error)
 
-        self._icon.icon = _make_icon(has_update)
-        self._icon.menu = self._build_menu()
-
         now = time.time()
-
-        if has_update:
-            self._icon.title = "BoppOS: system update available!"
+        if state.kind == "update":
             # Only notify if we haven't already notified for this staged digest
             last_notified = self._local_state.get("last_notified_digest", "")
             last_notified_at = self._local_state.get("last_notified_at", 0)
             if is_manual or staged != last_notified or (now - last_notified_at) > NOTIFY_COOLDOWN_SECONDS:
                 _notify(
                     "BoppOS update available!",
-                    "A new system image is ready. Right-click the tray icon to apply.",
+                    "A new system image is ready. Open the tray menu and choose Install Updates, "
+                    "or open BoppOS Settings.",
                 )
                 self._local_state["last_notified_digest"] = staged
                 self._local_state["last_notified_at"] = now
                 _save_local_state(self._local_state)
-        else:
-            self._icon.title = "BoppOS: system is up to date"
-            if is_manual:
-                if error:
-                    _notify("Update check finished", f"Error: {error}")
-                else:
-                    _notify("System is up to date", "No new updates found for BoppOS.")
+        elif state.kind == "ok" and is_manual:
+            if error:
+                _notify("Update check finished", f"Error: {error}")
+            else:
+                _notify("System is up to date", "No new updates found for BoppOS.")
 
     def _poll_loop(self) -> None:
         """Background thread: refresh on SIGUSR1 wakeup or POLL_INTERVAL timeout."""

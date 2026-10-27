@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE policyconfig PUBLIC "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
+ "http://www.freedesktop.org/standards/PolicyKit/1/policyconfig.dtd">
+<!--
+  Fixed-path helpers used by bopp-kargs, bopp-system and bopp-decky (and so by boppos-deck).
+  Changing the system asks for an administrator password (auth_admin_keep). boppos-deck brings its own
+  polkit agent with a gamepad keyboard, because Gaming Mode has none. The rule in
+  rules.d/51-boppos-deck.rules waives the password only for fixed read-only command lines.
+-->
+<policyconfig>
+  <vendor>BoppOS</vendor>
+  <vendor_url>https://github.com/bopp-os</vendor_url>
+
+  <action id="org.boppos.deck.kargs">
+    <description>Manage BoppOS kernel arguments</description>
+    <message>Authentication is required to change kernel arguments</message>
+    <icon_name>boppos-icon</icon_name>
+    <defaults>
+      <allow_any>auth_admin</allow_any>
+      <allow_inactive>auth_admin</allow_inactive>
+      <allow_active>auth_admin_keep</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/libexec/boppos/kargs-helper</annotate>
+  </action>
+
+  <action id="org.boppos.deck.system">
+    <description>Manage BoppOS updates and deployments</description>
+    <message>Authentication is required to update or change BoppOS deployments</message>
+    <icon_name>boppos-icon</icon_name>
+    <defaults>
+      <allow_any>auth_admin</allow_any>
+      <allow_inactive>auth_admin</allow_inactive>
+      <allow_active>auth_admin_keep</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/libexec/boppos/bootc-helper</annotate>
+  </action>
+
+  <action id="org.boppos.deck.decky">
+    <description>Install or remove the Decky Loader service</description>
+    <message>Authentication is required to install or remove the Decky Loader service</message>
+    <icon_name>boppos-icon</icon_name>
+    <defaults>
+      <allow_any>auth_admin</allow_any>
+      <allow_inactive>auth_admin</allow_inactive>
+      <allow_active>auth_admin_keep</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/libexec/boppos/decky-helper</annotate>
+  </action>
+</policyconfig>
