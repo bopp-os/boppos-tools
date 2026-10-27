@@ -124,7 +124,7 @@ install-optional-flatpaks
 
 ---
 
-#### Non-interactive mode (system scope, used by boppos-deck)
+#### Non-interactive mode (per user unless `--system`; used by boppos-deck)
 
 ```bash
 install-optional-flatpaks --list FILE --yes [--only ID[,ID...]] [--remove] [--json]
