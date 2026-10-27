@@ -86,22 +86,33 @@ if AVAILABLE:
 
             def on_show_error(_sess, text):
                 state["error"] = text
+                print(f"boppos-deck: polkit says: {text}", file=sys.stderr)
+
+            def on_show_info(_sess, text):
+                print(f"boppos-deck: polkit info: {text}", file=sys.stderr)
 
             def on_completed(_sess, gained):
+                who = identity_name(identity)
+                print(f"boppos-deck: authentication as {who}: {'accepted' if gained else 'REFUSED'} "
+                      f"(attempt {attempt + 1} of {MAX_ATTEMPTS})", file=sys.stderr)
                 if gained:
                     task.return_boolean(True)
                 elif state["cancelled"] or (cancellable and cancellable.is_cancelled()):
                     task.return_error(GLib.Error.new_literal(Gio.io_error_quark(), "cancelled",
                                                              Gio.IOErrorEnum.CANCELLED))
                 elif attempt + 1 < MAX_ATTEMPTS:
+                    # Show polkit's own reason when it gave one (a locked account reads very differently from
+                    # a typo), not just a generic message.
+                    reason = state["error"].strip() or "Wrong password."
                     self._attempt(task, message, cookie, identity, cancellable, attempt + 1,
-                                  "Wrong password. Try again.")
+                                  f"{reason} Try again.")
                 else:
                     task.return_error(GLib.Error.new_literal(Gio.io_error_quark(), "authentication failed",
                                                              Gio.IOErrorEnum.FAILED))
 
             session.connect("request", on_request)
             session.connect("show-error", on_show_error)
+            session.connect("show-info", on_show_info)
             session.connect("completed", on_completed)
             if cancellable:
                 cancellable.connect(lambda *_: session.cancel())
