@@ -35,10 +35,24 @@ def parse_event(line: str) -> dict:
     return {"event": "log", "line": line}
 
 
+# A polkit agent shows one dialog at a time: a second pkexec cancels the open dialog, and every cancelled
+# dialog counts as a failed login towards pam_faillock. So while developing with pkexec from a checkout
+# (no waiver rule installed) the calls run one after another.
+_PKEXEC_LOCK = threading.Lock()
+
+
+def _serialize() -> bool:
+    return bool(os.environ.get("BOPPOS_HELPER_DIR")) and os.environ.get("BOPPOS_HELPER_ESCALATE") != "sudo"
+
+
 def run_json(cmd: list[str], timeout: int = 120) -> dict | list:
     """Run a CLI that prints one JSON document. Failures come back as {"error": ...}."""
     try:
-        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, check=False)
+        if _serialize():
+            with _PKEXEC_LOCK:
+                proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, check=False)
+        else:
+            proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, check=False)
     except (OSError, subprocess.TimeoutExpired) as exc:
         return {"error": str(exc)}
     try:
