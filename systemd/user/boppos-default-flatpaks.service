@@ -2,8 +2,7 @@
 Description=Install the default BoppOS Flatpaks (Bazaar)
 # Once per user: remove the app afterwards and it stays removed.
 ConditionPathExists=!%S/boppos-deck/default-flatpaks-done
-# System-wide Flatpak installs are allowed without a password for wheel users by Flatpak's own polkit rule.
-ConditionGroup=wheel
+# Installed for this user only: no password, no admin rights needed.
 
 [Service]
 Type=oneshot

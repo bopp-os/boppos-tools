@@ -1,4 +1,4 @@
-"""Non-interactive mode of install-optional-flatpaks (system scope; polkit allows active wheel)."""
+"""Non-interactive mode of install-optional-flatpaks (user scope unless --system)."""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ from .runner import make_emitter, open_log, run_stream
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="install-optional-flatpaks",
-        description="Install or remove the curated BoppOS Flatpaks without prompting (system scope).",
+        description="Install or remove the curated BoppOS Flatpaks without prompting (for the current user unless --system).",
     )
     p.add_argument("--list", default=None, metavar="FILE",
                    help="use only this list file (default: the curated list plus the extras)")
@@ -22,6 +22,8 @@ def build_parser() -> argparse.ArgumentParser:
                    help="install the apps every BoppOS system should have (the default-apps list)")
     p.add_argument("--yes", action="store_true", help="do not prompt (required to change anything)")
     p.add_argument("--only", metavar="ID[,ID...]", help="restrict to these entries of the list")
+    p.add_argument("--system", action="store_true",
+                   help="install for all users (system scope). Removal always follows where the app is installed")
     p.add_argument("--remove", action="store_true", help="uninstall instead of install")
     p.add_argument("--status", action="store_true", help="show installed state and exit")
     p.add_argument("--json", action="store_true", help="machine-readable output")
@@ -43,7 +45,7 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     try:
-        installed = flatpaks.installed_ids()
+        scopes = flatpaks.installed_scopes()
     except flatpaks.ListError as exc:
         print(json.dumps({"error": str(exc)}) if args.json else f"error: {exc}", file=sys.stderr)
         return 1
@@ -55,7 +57,8 @@ def main(argv: list[str] | None = None) -> int:
         names = flatpaks.installed_names()
         rows = [
             {"id": a.id, "name": flatpaks.best_name(a, names), "ref": a.ref, "kind": a.kind,
-             "category": a.category, "default": a.id in default_ids, "installed": a.id in installed}
+             "category": a.category, "default": a.id in default_ids, "installed": a.id in scopes,
+             "scopes": sorted(scopes.get(a.id, ()))}
             for a in apps
         ]
         print(json.dumps(rows, indent=2) if args.json else
@@ -67,15 +70,18 @@ def main(argv: list[str] | None = None) -> int:
 
     action = "remove" if args.remove else "install"
     emit = make_emitter(args.json, open_log(f"flatpak-{action}"))
-    todo = [a for a in apps if (a.id in installed) == args.remove]
+    scope = "system" if args.system else "user"
+    todo = [a for a in apps if (a.id in scopes) == args.remove]
     failed: list[str] = []
-    if todo and not args.remove and run_stream(flatpaks.remote_add_cmd(), emit):
+    if todo and not args.remove and run_stream(flatpaks.remote_add_cmd(scope), emit):
         failed.append("flathub-remote")
         todo = []
     for app in todo:
         emit({"event": "step", "id": app.id, "status": "start"})
-        cmd = flatpaks.remove_cmd(app) if args.remove else flatpaks.install_cmd(app)
-        ok = run_stream(cmd, emit) == 0
+        if args.remove:
+            ok = all(run_stream(flatpaks.remove_cmd(app, sc), emit) == 0 for sc in sorted(scopes[app.id]))
+        else:
+            ok = run_stream(flatpaks.install_cmd(app, scope), emit) == 0
         emit({"event": "step", "id": app.id, "status": "ok" if ok else "fail"})
         if not ok:
             failed.append(app.id)

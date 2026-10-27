@@ -1,4 +1,7 @@
-"""The curated BoppOS Flatpak list: parsing, installed state and system-scope commands."""
+"""The curated BoppOS Flatpak list: parsing, installed state (user and system scope) and commands.
+
+New installs go to the user scope; the system scope is an explicit choice. Removal and state look at both.
+"""
 
 from __future__ import annotations
 
@@ -92,18 +95,22 @@ def parse_installed(output: str) -> set[str]:
     return {ln.strip() for ln in output.splitlines() if ln.strip()}
 
 
+SCOPES = ("user", "system")
+
+
 def installed_names() -> dict[str, str]:
     """id -> the name the installed app calls itself (from its own metadata). Empty when unavailable."""
-    try:
-        proc = subprocess.run(["flatpak", "list", "--system", "--columns=application,name"],
-                              capture_output=True, text=True, check=False)
-    except OSError:
-        return {}
     out: dict[str, str] = {}
-    for line in proc.stdout.splitlines() if proc.returncode == 0 else []:
-        app_id, _, name = line.partition("\t")
-        if app_id.strip() and name.strip():
-            out[app_id.strip()] = name.strip()
+    for scope in SCOPES:
+        try:
+            proc = subprocess.run(["flatpak", "list", f"--{scope}", "--columns=application,name"],
+                                  capture_output=True, text=True, check=False)
+        except OSError:
+            return {}
+        for line in proc.stdout.splitlines() if proc.returncode == 0 else []:
+            app_id, _, name = line.partition("\t")
+            if app_id.strip() and name.strip():
+                out.setdefault(app_id.strip(), name.strip())
     return out
 
 
@@ -116,17 +123,24 @@ def best_name(app: App, installed: dict[str, str]) -> str:
     return app.name or installed.get(app.id) or display_name(app.id)
 
 
-def installed_ids() -> set[str]:
-    try:
-        proc = subprocess.run(
-            ["flatpak", "list", "--system", "--columns=application"],
-            capture_output=True, text=True, check=False,
-        )
-    except OSError as exc:
-        raise ListError(f"cannot run flatpak: {exc}") from exc
-    if proc.returncode:
-        raise ListError(proc.stderr.strip() or "flatpak list failed")
-    return parse_installed(proc.stdout)
+def installed_scopes() -> dict[str, set[str]]:
+    """id -> the scopes it is installed in ("user", "system"). Fails only when neither scope can be listed."""
+    out: dict[str, set[str]] = {}
+    errors: list[str] = []
+    for scope in SCOPES:
+        try:
+            proc = subprocess.run(["flatpak", "list", f"--{scope}", "--columns=application"],
+                                  capture_output=True, text=True, check=False)
+        except OSError as exc:
+            raise ListError(f"cannot run flatpak: {exc}") from exc
+        if proc.returncode:
+            errors.append(proc.stderr.strip() or "flatpak list failed")
+            continue
+        for app_id in parse_installed(proc.stdout):
+            out.setdefault(app_id, set()).add(scope)
+    if len(errors) == len(SCOPES):
+        raise ListError(errors[0])
+    return out
 
 
 def select(apps: list[App], only: list[str] | None) -> list[App]:
@@ -141,13 +155,13 @@ def select(apps: list[App], only: list[str] | None) -> list[App]:
     return [a for a in apps if a in chosen]
 
 
-def remote_add_cmd() -> list[str]:
-    return ["flatpak", "remote-add", "--system", "--if-not-exists", "flathub", REMOTE_URL]
+def remote_add_cmd(scope: str = "user") -> list[str]:
+    return ["flatpak", "remote-add", f"--{scope}", "--if-not-exists", "flathub", REMOTE_URL]
 
 
-def install_cmd(app: App) -> list[str]:
-    return ["flatpak", "install", "--system", "-y", "--noninteractive", "flathub", app.ref]
+def install_cmd(app: App, scope: str = "user") -> list[str]:
+    return ["flatpak", "install", f"--{scope}", "-y", "--noninteractive", "flathub", app.ref]
 
 
-def remove_cmd(app: App) -> list[str]:
-    return ["flatpak", "uninstall", "--system", "-y", "--noninteractive", app.id]
+def remove_cmd(app: App, scope: str = "user") -> list[str]:
+    return ["flatpak", "uninstall", f"--{scope}", "-y", "--noninteractive", app.id]

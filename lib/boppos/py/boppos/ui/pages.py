@@ -582,6 +582,10 @@ class AppsPage(Page):
         g = group()
         self.apply_row = button_row("Apply changes", "No changes yet", "Apply", self.apply, suggested=True)
         g.add(self.apply_row)
+        if self.win.advanced:
+            g.add(switch_row("Install for all users", "Off: new apps are installed for you only. On: they are "
+                             "installed system-wide (needs admin rights). Apps already installed are removed "
+                             "from wherever they are.", bool(self.win.settings.get("apps_system")), self.set_system))
         bazaar_installed = any(a["id"] == BAZAAR and a["installed"] for a in self.apps)
         if self.win.gaming:
             g.add(message_row("To browse all of Flathub, open Bazaar from Desktop Mode. Bazaar is made for a "
@@ -637,6 +641,13 @@ class AppsPage(Page):
         self.apply_row.set_sensitive(bool(parts))
         self.apply_row.set_subtitle("; ".join(parts) if parts else "No changes yet")
 
+    def set_system(self, on: bool) -> None:
+        self.win.settings["apps_system"] = on
+        try:
+            backend.save_settings(self.win.settings)
+        except OSError:
+            pass
+
     def set_want(self, app_id: str, on: bool) -> None:
         self.want[app_id] = on
         self.update_apply_row()
@@ -653,7 +664,8 @@ class AppsPage(Page):
         base = [tool("install-optional-flatpaks"), "--json", "--yes"]
         cmds = []
         if add:
-            cmds.append([*base, "--only", ",".join(add)])
+            system = ["--system"] if self.win.advanced and self.win.settings.get("apps_system") else []
+            cmds.append([*base, *system, "--only", ",".join(add)])
         if rem:
             cmds.append([*base, "--remove", "--only", ",".join(rem)])
         if s_add or s_rem:

@@ -34,14 +34,15 @@ def test_select_only_restricts_to_curated_list():
 
 def test_commands_are_system_scope_and_argv_lists():
     app = flatpaks.parse_list("org.example.App")[0]
-    assert flatpaks.install_cmd(app)[:3] == ["flatpak", "install", "--system"]
+    assert flatpaks.install_cmd(app)[:3] == ["flatpak", "install", "--user"]
+    assert flatpaks.install_cmd(app, "system")[:3] == ["flatpak", "install", "--system"]
     assert flatpaks.remove_cmd(app)[-1] == "org.example.App"
 
 
 def test_cli_requires_yes_and_reports_status(tmp_path, monkeypatch, capsys):
     f = tmp_path / "list.txt"
     f.write_text("org.a.A\norg.b.B\n")
-    monkeypatch.setattr(flatpaks, "installed_ids", lambda: {"org.a.A"})
+    monkeypatch.setattr(flatpaks, "installed_scopes", lambda: {"org.a.A": {"user"}})
     assert flatpaks_cli.main(["--list", str(f), "--status", "--json"]) == 0
     rows = json.loads(capsys.readouterr().out)
     assert [(r["id"], r["installed"]) for r in rows] == [("org.a.A", True), ("org.b.B", False)]
@@ -51,7 +52,7 @@ def test_cli_requires_yes_and_reports_status(tmp_path, monkeypatch, capsys):
 def test_cli_installs_only_missing(tmp_path, monkeypatch):
     f = tmp_path / "list.txt"
     f.write_text("org.a.A\norg.b.B\n")
-    monkeypatch.setattr(flatpaks, "installed_ids", lambda: {"org.a.A"})
+    monkeypatch.setattr(flatpaks, "installed_scopes", lambda: {"org.a.A": {"user"}})
     monkeypatch.setattr("boppos.runner.log_dir", lambda: tmp_path / "logs")
     ran = []
     monkeypatch.setattr(flatpaks_cli, "run_stream", lambda cmd, emit: ran.append(cmd) or 0)
@@ -97,13 +98,13 @@ def test_defaults_list_is_a_subset_of_the_curated_list():
 
 
 def test_defaults_flag_installs_only_missing_default_apps(tmp_path, monkeypatch):
-    monkeypatch.setattr(flatpaks, "installed_ids", lambda: set())
+    monkeypatch.setattr(flatpaks, "installed_scopes", lambda: {})
     monkeypatch.setattr("boppos.runner.log_dir", lambda: tmp_path / "logs")
     ran = []
     monkeypatch.setattr(flatpaks_cli, "run_stream", lambda cmd, emit: ran.append(cmd) or 0)
     assert flatpaks_cli.main(["--defaults", "--yes", "--json"]) == 0
     assert [c[-1] for c in ran] == [flatpaks.REMOTE_URL, "io.github.kolunmi.Bazaar"]
-    monkeypatch.setattr(flatpaks, "installed_ids", lambda: {"io.github.kolunmi.Bazaar"})
+    monkeypatch.setattr(flatpaks, "installed_scopes", lambda: {"io.github.kolunmi.Bazaar": {"user"}})
     ran.clear()
     assert flatpaks_cli.main(["--defaults", "--yes", "--json"]) == 0 and ran == []
 
@@ -179,7 +180,7 @@ def test_load_curated_merges_core_and_extra_and_survives_a_missing_extra(tmp_pat
 def test_cli_status_includes_the_extras_by_default_and_only_the_given_file_with_list(tmp_path, monkeypatch, capsys):
     import json
 
-    monkeypatch.setattr(flatpaks, "installed_ids", lambda: set())
+    monkeypatch.setattr(flatpaks, "installed_scopes", lambda: {})
     monkeypatch.setattr(flatpaks, "installed_names", lambda: {})
     assert flatpaks_cli.main(["--status", "--json"]) == 0
     ids = {r["id"] for r in json.loads(capsys.readouterr().out)}
@@ -202,3 +203,31 @@ def test_extras_name_the_game_streaming_clients_and_no_end_of_life_apps():
     assert streaming <= set(extra)
     # Flathub marks Jellyfin Media Player end-of-life; Jellyfin Desktop replaced it
     assert "com.github.iwalton3.jellyfin-media-player" not in extra and "org.jellyfin.JellyfinDesktop" in extra
+
+
+def test_install_defaults_to_user_scope_and_system_is_explicit(tmp_path, monkeypatch):
+    f = tmp_path / "list.txt"
+    f.write_text("org.b.B\n")
+    monkeypatch.setattr(flatpaks, "installed_scopes", lambda: {})
+    monkeypatch.setattr("boppos.runner.log_dir", lambda: tmp_path / "logs")
+    ran = []
+    monkeypatch.setattr(flatpaks_cli, "run_stream", lambda cmd, emit: ran.append(cmd) or 0)
+    assert flatpaks_cli.main(["--list", str(f), "--yes", "--json"]) == 0
+    assert all("--user" in c for c in ran) and not any("--system" in c for c in ran)
+    ran.clear()
+    assert flatpaks_cli.main(["--list", str(f), "--yes", "--json", "--system"]) == 0
+    assert all("--system" in c for c in ran)
+
+
+def test_remove_follows_every_scope_the_app_is_in(tmp_path, monkeypatch, capsys):
+    f = tmp_path / "list.txt"
+    f.write_text("org.a.A\n")
+    monkeypatch.setattr(flatpaks, "installed_scopes", lambda: {"org.a.A": {"user", "system"}})
+    monkeypatch.setattr("boppos.runner.log_dir", lambda: tmp_path / "logs")
+    ran = []
+    monkeypatch.setattr(flatpaks_cli, "run_stream", lambda cmd, emit: ran.append(cmd) or 0)
+    assert flatpaks_cli.main(["--list", str(f), "--yes", "--json", "--remove"]) == 0
+    assert [c[2] for c in ran] == ["--system", "--user"]
+    capsys.readouterr()
+    assert flatpaks_cli.main(["--list", str(f), "--status", "--json"]) == 0
+    assert json.loads(capsys.readouterr().out)[0]["scopes"] == ["system", "user"]

@@ -131,7 +131,7 @@ install-optional-flatpaks --list FILE --yes [--only ID[,ID...]] [--remove] [--js
 install-optional-flatpaks --status [--json]
 ```
 
-Any option selects this mode. Without `--list` it works on the core list plus `boppos-flatpaks-extra.txt` (opt-in extras: emulators, game and media streaming, launchers); the interactive mode above only ever uses the core list, so "install everything" does not grow. It needs `--yes` to change anything, only touches entries of the list, and installs with `flatpak --system` (Flatpak's own polkit rules let the active `wheel` user do that without a password). The interactive mode above is unchanged.
+Any option selects this mode. Without `--list` it works on the core list plus `boppos-flatpaks-extra.txt` (opt-in extras: emulators, game and media streaming, launchers); the interactive mode above only ever uses the core list, so "install everything" does not grow. It needs `--yes` to change anything, only touches entries of the list, and installs for the current user (`flatpak --user`, no password); `--system` installs for all users instead (Flatpak's own polkit rules let the active `wheel` user do that). Status shows each app's scopes, and removal takes it out of every scope it is in. The Apps page offers the system choice as "Install for all users" under Advanced. The interactive mode above is unchanged.
 
 ### `bopp-setup-howdy` (Howdy Face Authentication Setup)
 
