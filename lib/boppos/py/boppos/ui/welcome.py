@@ -151,8 +151,9 @@ class WelcomeFlow(Gtk.Box):
         suggested = group("Presets for this hardware", "Listed because they fit this hardware's graphics or "
                           "model, not because you need them. They take effect after a reboot.")
         others = group("Other presets", "Not recommended. Only for a problem you actually have.")
-        never = group("Not for this hardware", "These cannot work here, so they are switched off and locked.")
-        gone = expander_row("Show presets that do not apply", "")
+        never = group("Unsupported", "Locked off: they do not fit this hardware, or they are risky enough to leave "
+                      "to Kernel arguments in boppos-deck.")
+        gone = expander_row("Show unsupported presets", "")
         for o in options:
             subtitle = o.description + (f"  {o.risk}" if o.risk else "")
             if o.fit == "unsupported":

@@ -151,10 +151,10 @@ def test_presets_that_cannot_work_go_last_and_say_why():
     fit = {o.name: o.fit for o in opts}
     assert fit["70-amdgpu-no-runpm"] == "fits"
     assert fit["71-nvidia-drm-modeset"] == fit["41-intel-psr-off"] == "unsupported"
-    assert fit["20-sleep-deep"] == "optional"
+    assert fit["60-usb-mouse-1khz"] == "optional"
     assert [o.fit for o in opts] == sorted((o.fit for o in opts), key=["fits", "optional", "unsupported"].index)
     why = {o.name: o.reason for o in opts}
-    assert "NVIDIA" in why["71-nvidia-drm-modeset"] and why["20-sleep-deep"] == ""
+    assert "NVIDIA" in why["71-nvidia-drm-modeset"] and why["60-usb-mouse-1khz"] == ""
 
 
 def test_a_vm_has_no_supported_graphics_presets():
@@ -172,3 +172,11 @@ def test_a_model_match_that_misses_is_unsupported(tmp_path):
     assert d.match and not d.error
     assert welcome.karg_fit(d, hwprofiles.PROFILES["amd-desktop"])[0] == "unsupported"
     assert welcome.karg_fit(d, hwprofiles.PROFILES["steam-deck"])[0] == "fits"
+
+
+def test_risky_presets_that_fit_anywhere_are_unsupported():
+    for hw in hwprofiles.PROFILES.values():
+        fit = {o.name: o for o in welcome.karg_options(hw)}
+        for name in ("20-sleep-deep", "50-pci-noaer", "80-intel-iommu-on"):
+            assert fit[name].fit == "unsupported" and "Medium risk" in fit[name].reason
+        assert fit["10-nvme-no-apst"].fit == "optional"

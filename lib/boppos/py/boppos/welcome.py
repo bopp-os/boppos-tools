@@ -137,13 +137,20 @@ def karg_gpu(tokens: list[str]) -> str | None:
 
 
 def karg_fit(d: kargs.Dropin, hw: hwprofiles.Hardware) -> tuple[str, str]:
-    """(fit, reason) of one preset on this hardware: a model or graphics vendor it is not for cannot work."""
+    """(fit, reason) of one preset on this hardware.
+
+    Unsupported: it is for another model or graphics vendor, or it could apply anywhere but is risky."""
     gpu = karg_gpu(d.kargs)
     if d.match and not kargs.matches_device(d, hw.dmi):
         return "unsupported", "Only for other models than this one."
     if gpu and gpu not in hw.gpus:
         return "unsupported", f"Needs {GPU_NAMES[gpu]} graphics, which this hardware does not have."
-    return ("fits", "") if (d.match or gpu) else ("optional", "")
+    if d.match or gpu:
+        return "fits", ""
+    if d.risk_level in ("medium", "high"):  # it could apply anywhere, which is exactly why it is not offered
+        return "unsupported", (f"{d.risk_level.capitalize()} risk, so not offered in the wizard. If you really "
+                               "need it, use Kernel arguments in boppos-deck.")
+    return "optional", ""
 
 
 def karg_options(hw: hwprofiles.Hardware | None = None) -> list[KargOption]:
