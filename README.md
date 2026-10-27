@@ -200,8 +200,7 @@ Every edit backs the file up first (last 3 kept), checks the new bytes parse bac
 
 A separate package that installs the BoppOS boot splash (black, the white mark breathing, the small wordmark at the
 bottom, with a working disk-passphrase prompt) and a matching GRUB theme. It only installs files; selecting the
-Plymouth theme and wiring up GRUB are steps for the image, described in [docs/boot-theme.md](docs/boot-theme.md),
-which also has a way to preview it without rebooting. `boppos-artwork` now also ships the logo lockups
+Plymouth theme is a step for the image, and `sudo bopp-grub-theme install` puts the GRUB theme on `/boot` (reversible, with `--dry-run`); both are described in [docs/boot-theme.md](docs/boot-theme.md), which also has a way to preview Plymouth without rebooting. `boppos-artwork` now also ships the logo lockups
 (`boppos-logo-{horizontal,stacked}-{white,black}.svg`).
 
 ## Critical System & Migration Tools

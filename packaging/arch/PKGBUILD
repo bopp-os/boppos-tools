@@ -35,8 +35,9 @@ package_boppos-artwork() {
 
 package_boppos-boot-theme() {
   pkgdesc="BoppOS boot artwork: Plymouth splash and GRUB theme"
+  depends=('python')
   optdepends=('plymouth: boot splash (select it with plymouth-set-default-theme boppos)'
-              'grub: boot menu theme (copy it to /boot, see the documentation)')
+              'grub: boot menu theme (put it on /boot with: sudo bopp-grub-theme install)')
 
   cd "${srcdir}/${pkgbase}-${pkgver}"
   make DESTDIR="${pkgdir}" PREFIX=/usr SYSCONFDIR=/etc install-boot-theme

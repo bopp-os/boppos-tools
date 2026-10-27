@@ -59,5 +59,7 @@ install-boot-theme:
 	install -m 644 boot/plymouth/boppos/* $(DESTDIR)$(PREFIX)/share/plymouth/themes/boppos/
 	install -d $(DESTDIR)$(PREFIX)/share/grub/themes/boppos
 	install -m 644 boot/grub/boppos/* $(DESTDIR)$(PREFIX)/share/grub/themes/boppos/
+	install -d $(DESTDIR)$(PREFIX)/bin
+	install -m 755 boot/grub/bopp-grub-theme $(DESTDIR)$(PREFIX)/bin/
 
 install: install-tools install-artwork install-boot-theme

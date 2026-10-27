@@ -68,7 +68,7 @@ jobs:
         run: |
           pip install pytest ruff
           # bopp-tray and parse-bootc-status.py predate ruff in CI
-          py=$(grep -lE '^#!.*python' bin/* libexec/boppos/* lib/boppos/* 2>/dev/null \
+          py=$(grep -lE '^#!.*python' bin/* libexec/boppos/* lib/boppos/* boot/grub/* 2>/dev/null \
             | grep -v -e bin/bopp-tray -e parse-bootc-status.py || true)
           # shellcheck disable=SC2086
           ruff check lib/boppos/py tests $py
