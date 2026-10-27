@@ -7,51 +7,75 @@
 Window.SetBackgroundTopColor(0, 0, 0);
 Window.SetBackgroundBottomColor(0, 0, 0);
 
-screen.w = Window.GetWidth();
-screen.h = Window.GetHeight();
+# The size is measured again on every frame and the layout redone when it changes. Plymouth usually starts on
+# the firmware framebuffer (whatever resolution the boot loader picked) and the real GPU driver takes over at
+# full resolution a moment later: a layout computed once would stay in the top-left corner of the bigger screen.
+screen.w = 0;
+screen.h = 0;
+screen.short = 0;
 
-if (screen.w < screen.h) screen.short = screen.w;
-else screen.short = screen.h;
-
-# --- the wheel ------------------------------------------------------------------------------
+# --- the wheel: a ring of fading dots, turned by the refresh callback ------------------------------
 spinner.original = Image("spinner.png");
-spinner.size = screen.short * 0.09;
-if (spinner.size < 48) spinner.size = 48;
-spinner.image = spinner.original.Scale(spinner.size, spinner.size);
-spinner.sprite = Sprite(spinner.image);
-spinner.cx = screen.w / 2;
-spinner.cy = screen.h * 0.45;
-spinner.sprite.SetX(spinner.cx - spinner.size / 2);
-spinner.sprite.SetY(spinner.cy - spinner.size / 2);
+spinner.sprite = Sprite();
 spinner.sprite.SetZ(10);
+spinner.angle = 0;
 
 # --- the wordmark, small, at the bottom --------------------------------------------------------
 lockup.original = Image("lockup.png");
-lockup.h = screen.h * 0.045;
-if (lockup.h < 24) lockup.h = 24;
-lockup.w = lockup.original.GetWidth() * lockup.h / lockup.original.GetHeight();
-lockup.image = lockup.original.Scale(lockup.w, lockup.h);
-lockup.sprite = Sprite(lockup.image);
-lockup.sprite.SetX(screen.w / 2 - lockup.w / 2);
-lockup.sprite.SetY(screen.h - lockup.h - screen.h * 0.06);
+lockup.sprite = Sprite();
 lockup.sprite.SetZ(10);
 lockup.sprite.SetOpacity(0.85);
 
+dialog.y = 0;
+message.y = 0;
+
+fun layout () {
+    w = Window.GetWidth();
+    h = Window.GetHeight();
+    if (w >= 1 && h >= 1 && (w != screen.w || h != screen.h)) {
+        screen.w = w;
+        screen.h = h;
+        if (w < h) screen.short = w;
+        else screen.short = h;
+
+        spinner.size = screen.short * 0.09;
+        if (spinner.size < 48) spinner.size = 48;
+        spinner.image = spinner.original.Scale(spinner.size, spinner.size);
+        spinner.cx = w / 2;
+        spinner.cy = h * 0.45;
+        spinner.sprite.SetImage(spinner.image);
+        spinner.sprite.SetX(spinner.cx - spinner.size / 2);
+        spinner.sprite.SetY(spinner.cy - spinner.size / 2);
+
+        lockup.h = h * 0.045;
+        if (lockup.h < 24) lockup.h = 24;
+        lockup.w = lockup.original.GetWidth() * lockup.h / lockup.original.GetHeight();
+        lockup.image = lockup.original.Scale(lockup.w, lockup.h);
+        lockup.sprite.SetImage(lockup.image);
+        lockup.sprite.SetX(w / 2 - lockup.w / 2);
+        lockup.sprite.SetY(h - lockup.h - h * 0.06);
+
+        dialog.y = h * 0.66;
+        message.y = h * 0.80;
+    }
+}
+
 # --- spinning --------------------------------------------------------------------------------
 # Called about 50 times a second: one turn in about 1.6 seconds, clockwise.
-spinner.angle = 0;
 fun refresh_callback () {
-    spinner.angle += 0.0785;
-    rotated = spinner.image.Rotate(spinner.angle);
-    spinner.sprite.SetImage(rotated);
-    spinner.sprite.SetX(spinner.cx - rotated.GetWidth() / 2);
-    spinner.sprite.SetY(spinner.cy - rotated.GetHeight() / 2);
+    layout();
+    if (screen.w > 0) {
+        spinner.angle += 0.0785;
+        rotated = spinner.image.Rotate(spinner.angle);
+        spinner.sprite.SetImage(rotated);
+        spinner.sprite.SetX(spinner.cx - rotated.GetWidth() / 2);
+        spinner.sprite.SetY(spinner.cy - rotated.GetHeight() / 2);
+    }
 }
 Plymouth.SetRefreshFunction(refresh_callback);
+layout();
 
 # --- text: passphrase, questions, messages -------------------------------------------------------
-dialog.y = screen.h * 0.66;
-
 prompt.sprite = Sprite();
 prompt.sprite.SetZ(30);
 entry.sprite = Sprite();
@@ -63,6 +87,7 @@ bullet.image = Image.Text("•", 1, 1, 1, 1, "Sans 20");
 bullet.shown = 0;
 
 fun centre (sprite, image, y) {
+    layout();
     sprite.SetImage(image);
     sprite.SetX(screen.w / 2 - image.GetWidth() / 2);
     sprite.SetY(y);
@@ -111,7 +136,7 @@ fun display_question_callback (prompt_text, entry_text) {
 # Status messages such as "Waiting for the disk".
 fun display_message_callback (text) {
     message.image = Image.Text(text, 0.8, 0.8, 0.85, 1, "Sans 12");
-    centre(message.sprite, message.image, screen.h * 0.80);
+    centre(message.sprite, message.image, message.y);
 }
 
 fun hide_message_callback (text) {

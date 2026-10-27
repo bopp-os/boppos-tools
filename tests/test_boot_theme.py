@@ -111,3 +111,16 @@ def test_the_dark_logo_for_light_panels_has_the_same_geometry_as_the_white_one()
         white = (ART / f"boppos-logo-{layout}-white.svg").read_text().replace("#ffffff", "X")
         black = (ART / f"boppos-logo-{layout}-black.svg").read_text().replace("#16161a", "X")
         assert white == black
+
+
+def test_plymouth_layout_is_redone_when_the_screen_size_changes():
+    # Plymouth often starts on the firmware framebuffer and the GPU driver takes over at full resolution later:
+    # a layout computed once stays in the top-left corner of the bigger screen.
+    script = (PLY / "boppos.script").read_text()
+    refresh = script[script.index("fun refresh_callback"):]
+    refresh = refresh[:refresh.index("\n}\n")]
+    assert "layout();" in refresh
+    layout = script[script.index("fun layout"):script.index("# --- spinning")]
+    assert "Window.GetWidth()" in layout and "Window.GetHeight()" in layout
+    assert "w != screen.w || h != screen.h" in layout
+    assert "return" not in script  # a bare return is not reliably supported by Plymouth's script language
