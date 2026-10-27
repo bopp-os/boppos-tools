@@ -98,7 +98,14 @@ sudo bopp-diff [OPTIONS] [TARGET_IMAGE | TAG]
 
 ### `bopp-tray` (Update Notifier)
 
-A background system-tray application that reads system update states, alerts you via desktop notifications when a new OS image is staged, and provides right-click shortcut options to check, view changes (`bopp-diff`), apply updates, or update Distrobox and Litterbox containers.
+A background system-tray application that reads the update state and alerts you through desktop notifications when a new OS image is ready. Its menu:
+
+* **Status line**: "BoppOS is up to date", "Update available" or "Restart to finish the update". When a restart is pending, *Restart to Finish Update…* appears right below it (it asks again through a notification button first).
+* **Open BoppOS Settings**: starts `boppos-deck` (also what a left click does, where the desktop supports it).
+* **Check for Updates**, **Install Updates ▸** (Everything, Operating System, Flatpak Apps, Firmware, and Containers in a terminal), **Review Changes…** (`bopp-diff`).
+* **Last checked** and **Quit**.
+
+*Install Updates* runs `bopp-system upgrade` in the background and reports progress and the result by notification; changing the system asks for the administrator password through your desktop's polkit agent.
 
 ```bash
 # Enable the tray monitor to start with your user session
