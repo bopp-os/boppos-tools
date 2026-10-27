@@ -39,6 +39,7 @@ Signals
   SIGUSR1 — re-read status file immediately (sent by update-check.sh)
 """
 
+import io
 import json
 import logging
 import os
@@ -48,14 +49,12 @@ import subprocess
 import sys
 import threading
 import time
-import io
-from datetime import datetime, timezone
 from pathlib import Path
 
 # ── Third-party — fail early with a friendly message ─────────────────────────
 try:
     import pystray
-    from PIL import Image, ImageDraw, ImageFont
+    from PIL import Image, ImageDraw
 except ImportError as exc:
     sys.exit(
         f"bopp-tray: missing dependency — {exc}\n"
@@ -423,7 +422,8 @@ class BoppTray:
 
     def _on_update_containers(self) -> None:
         open_in_terminal(
-            ["bash", "-c", "boppos-update --distrobox --litterbox --verbose; echo; read -p 'Press Enter to close...' -r"],
+            ["bash", "-c",
+             "boppos-update --distrobox --litterbox --verbose; echo; read -p 'Press Enter to close...' -r"],
             title="BoppOS Container Update",
         )
 
