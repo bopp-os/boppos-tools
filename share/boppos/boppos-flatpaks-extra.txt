@@ -1,0 +1,27 @@
+# More curated Flatpaks (Flathub), shown in boppos-deck next to boppos-flatpaks.txt.
+# Not part of the interactive install-optional-flatpaks list: these are opt-in, one by one.
+# Same format: '## Name' starts a category, '# name: ...' gives the proper name.
+
+## Gaming & Streaming
+com.heroicgameslauncher.hgl  # name: Heroic Games Launcher
+net.lutris.Lutris  # name: Lutris
+dev.lizardbyte.app.Sunshine  # name: Sunshine
+
+## Emulators
+org.libretro.RetroArch  # name: RetroArch
+net.retrodeck.retrodeck  # name: RetroDECK
+org.DolphinEmu.dolphin-emu  # name: Dolphin Emulator
+net.pcsx2.PCSX2  # name: PCSX2
+org.duckstation.DuckStation  # name: DuckStation
+net.rpcs3.RPCS3  # name: RPCS3
+org.ppsspp.PPSSPP  # name: PPSSPP
+io.mgba.mGBA  # name: mGBA
+net.kuribo64.melonDS  # name: melonDS
+info.cemu.Cemu  # name: Cemu
+org.flycast.Flycast  # name: Flycast
+
+## Music & Video
+tv.kodi.Kodi  # name: Kodi
+com.github.iwalton3.jellyfin-media-player  # name: Jellyfin Media Player
+tv.plex.PlexHTPC  # name: Plex HTPC
+com.spotify.Client  # name: Spotify

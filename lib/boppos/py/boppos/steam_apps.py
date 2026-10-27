@@ -86,7 +86,7 @@ def curated() -> dict:
     from . import flatpaks
 
     try:
-        return {a.id: a for a in flatpaks.parse_list(Path(flatpaks.DEFAULT_LIST).read_text())}
+        return {a.id: a for a in flatpaks.load_curated()}
     except (OSError, flatpaks.ListError):
         return {}
 

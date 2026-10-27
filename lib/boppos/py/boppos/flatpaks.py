@@ -10,6 +10,7 @@ from .paths import share_file
 
 DEFAULT_LIST = str(share_file("boppos-flatpaks.txt"))
 DEFAULTS_LIST = str(share_file("boppos-flatpaks-default.txt"))
+EXTRA_LIST = str(share_file("boppos-flatpaks-extra.txt"))
 REMOTE_URL = "https://flathub.org/repo/flathub.flatpakrepo"
 _REF = re.compile(r"^(runtime/)?[A-Za-z0-9_][A-Za-z0-9_.-]*(/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)?$")
 
@@ -68,6 +69,23 @@ def parse_list(text: str) -> list[App]:
             kind = "runtime" if ".Extension." in line else "app"
             apps.append(App(line, line, kind, category, name))
     return apps
+
+
+def load_curated(core: str = DEFAULT_LIST, extra: str | None = EXTRA_LIST) -> list[App]:
+    """What boppos-deck offers: the core list plus the opt-in extras (a missing extra file is fine).
+
+    The interactive install-optional-flatpaks only ever reads the core list, so "install everything"
+    stays the size it was.
+    """
+    from pathlib import Path
+
+    text = Path(core).read_text()
+    if extra:
+        try:
+            text += "\n" + Path(extra).read_text()
+        except OSError:
+            pass
+    return parse_list(text)
 
 
 def parse_installed(output: str) -> set[str]:

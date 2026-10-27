@@ -35,6 +35,10 @@ Add the app via `bopp-steam-shortcut add` with Steam closed, then start Steam.
 - [ ] Decky: Steam restarts, the Decky menu appears; *Uninstall* removes the service. A tampered download (wrong hash) is refused.
 - [ ] Kernel arguments: toggling a preset changes `/proc/cmdline` after a reboot; toggling it back removes only what it added. With an update staged the page shows the *reboot first* banner and the switches are disabled.
 
+## 3i. Extra apps
+- [ ] The Apps page has Emulators and Music & Video categories and the extra launchers under Gaming & Streaming; installing one works (a large emulator takes a while) and it can get its Steam shortcut with the separate switch. RetroDECK and RetroArch started from Steam are the ones worth trying with a controller.
+- [ ] `install-optional-flatpaks` with no arguments still lists only the original 29 entries.
+
 ## 3h. Normal vs Advanced
 - [ ] Normal mode: Kernel arguments shows only the running command line and a note; no switches, no add/remove. Advanced on: the preset switches (by category), custom arguments and the argument list appear; off again: they disappear.
 - [ ] Apps: each installed app has a separate **Steam shortcut** switch under its install switch (not for apps that are not installed). Toggle one, press Apply: the shortcut appears in Steam (see 3c for what Steam does while it is open). Uninstalling an app removes its shortcut. Neither switch changes what the other does.

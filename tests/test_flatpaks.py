@@ -133,3 +133,64 @@ def test_every_shipped_app_has_a_proper_name_and_the_interactive_installer_still
     assert names["com.bitwarden.desktop"] == "Bitwarden Desktop" and names["io.github.kolunmi.Bazaar"] == "Bazaar"
     refs = [ln.split("#")[0].strip() for ln in text.splitlines() if ln.split("#")[0].strip()]
     assert len(set(refs)) == 29 and all(" " not in r for r in refs)  # what `sed 's/#.*//'` leaves behind
+
+
+# --- the extra (opt-in) list -----------------------------------------------------------------------------
+
+
+def _share():
+    from pathlib import Path
+
+    return Path(__file__).parent.parent / "share/boppos"
+
+
+def test_extra_list_is_valid_named_categorised_and_does_not_repeat_the_core_list():
+    extra = flatpaks.parse_list((_share() / "boppos-flatpaks-extra.txt").read_text())
+    core = flatpaks.parse_list((_share() / "boppos-flatpaks.txt").read_text())
+    assert len(extra) >= 15 and all(a.kind == "app" and a.name and a.category != "Other" for a in extra)
+    assert not {a.id for a in extra} & {a.id for a in core}
+    assert {"Emulators", "Music & Video"} <= {a.category for a in extra}
+    emulators = {a.id for a in extra if a.category == "Emulators"}
+    assert {"org.libretro.RetroArch", "org.DolphinEmu.dolphin-emu", "net.pcsx2.PCSX2"} <= emulators
+
+
+def test_the_interactive_installer_still_installs_only_the_core_list():
+    """install-optional-flatpaks (bash, no arguments) reads boppos-flatpaks.txt alone: it must not grow."""
+    refs = {ln.split("#")[0].strip() for ln in (_share() / "boppos-flatpaks.txt").read_text().splitlines()}
+    refs.discard("")
+    assert len(refs) == 29
+    assert "org.libretro.RetroArch" not in refs
+    from pathlib import Path
+
+    script = (Path(__file__).parent.parent / "bin/install-optional-flatpaks").read_text()
+    assert "boppos-flatpaks.txt" in script and "boppos-flatpaks-extra" not in script
+
+
+def test_load_curated_merges_core_and_extra_and_survives_a_missing_extra(tmp_path):
+    merged = flatpaks.load_curated(str(_share() / "boppos-flatpaks.txt"), str(_share() / "boppos-flatpaks-extra.txt"))
+    assert len(merged) > 29 and any(a.id == "net.pcsx2.PCSX2" for a in merged)
+    core_only = flatpaks.load_curated(str(_share() / "boppos-flatpaks.txt"), str(tmp_path / "missing.txt"))
+    assert len(core_only) == 29
+    # categories carry from the end of one file into a '##' of the next without leaking
+    emu = [a for a in merged if a.id == "net.pcsx2.PCSX2"][0]
+    assert emu.category == "Emulators"
+
+
+def test_cli_status_includes_the_extras_by_default_and_only_the_given_file_with_list(tmp_path, monkeypatch, capsys):
+    import json
+
+    monkeypatch.setattr(flatpaks, "installed_ids", lambda: set())
+    monkeypatch.setattr(flatpaks, "installed_names", lambda: {})
+    assert flatpaks_cli.main(["--status", "--json"]) == 0
+    ids = {r["id"] for r in json.loads(capsys.readouterr().out)}
+    assert "net.pcsx2.PCSX2" in ids and "com.vysp3r.ProtonPlus" in ids
+    one = tmp_path / "one.txt"
+    one.write_text("org.a.A\n")
+    assert flatpaks_cli.main(["--status", "--json", "--list", str(one)]) == 0
+    assert {r["id"] for r in json.loads(capsys.readouterr().out)} == {"org.a.A"}
+
+
+def test_defaults_are_still_inside_the_merged_list():
+    merged = {a.id for a in flatpaks.load_curated()}
+    defaults = {a.id for a in flatpaks.parse_list((_share() / "boppos-flatpaks-default.txt").read_text())}
+    assert defaults <= merged

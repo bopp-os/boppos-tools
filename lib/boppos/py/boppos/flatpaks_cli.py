@@ -16,7 +16,8 @@ def build_parser() -> argparse.ArgumentParser:
         prog="install-optional-flatpaks",
         description="Install or remove the curated BoppOS Flatpaks without prompting (system scope).",
     )
-    p.add_argument("--list", default=flatpaks.DEFAULT_LIST, metavar="FILE", help="Flatpak list file")
+    p.add_argument("--list", default=None, metavar="FILE",
+                   help="use only this list file (default: the curated list plus the extras)")
     p.add_argument("--defaults", action="store_true",
                    help="install the apps every BoppOS system should have (the default-apps list)")
     p.add_argument("--yes", action="store_true", help="do not prompt (required to change anything)")
@@ -32,7 +33,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.defaults:
         args.list = flatpaks.DEFAULTS_LIST
     try:
-        apps = flatpaks.parse_list(Path(args.list).read_text())
+        apps = flatpaks.parse_list(Path(args.list).read_text()) if args.list else flatpaks.load_curated()
         apps = flatpaks.select(apps, args.only.split(",") if args.only else None)
     except (OSError, flatpaks.ListError) as exc:
         print(json.dumps({"error": str(exc)}) if args.json else f"error: {exc}", file=sys.stderr)
