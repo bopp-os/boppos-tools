@@ -796,7 +796,8 @@ class DeckWindow(Adw.ApplicationWindow):
 
         hw previews the wizard on another kind of machine instead of the one that is detected."""
         if self.stack.get_child_by_name("welcome") is None:
-            self.stack.add_named(WelcomeFlow(self.gaming, self.end_welcome, hw), "welcome")
+            self.welcome_flow = WelcomeFlow(self.gaming, self.end_welcome, hw)
+            self.stack.add_named(self.welcome_flow, "welcome")
         self.stack.set_visible_child_name("welcome")
 
     def show_oobe(self) -> None:
@@ -809,9 +810,12 @@ class DeckWindow(Adw.ApplicationWindow):
         self.stack.set_visible_child_name("main")
 
     def end_welcome(self, finished: bool) -> None:
-        if finished and not welcome.DRY_RUN:  # a dry run applied nothing, so it must not count as set up
-            welcome.mark_done()
         self.stack.set_visible_child_name("main")
+        if not finished or welcome.DRY_RUN:  # a dry run applied nothing, so it must not count as set up
+            return
+        welcome.mark_done()
+        if cmds := welcome.install_commands(self.welcome_flow.choices, backend.tool):
+            self.run_job("Installing your apps", cmds, lambda _ok, _final: None)
 
     def on_close_request(self, *_a) -> bool:
         if self.job and self.job.running:

@@ -82,7 +82,7 @@ Add the app via `bopp-steam-shortcut add` with Steam closed, then start Steam.
 - [ ] Advanced: *Add an argument* opens the keyboard with the text visible; `pci=noaer` is accepted; `init=/bin/sh`, `rd.break`, `ostree=x` and `a b` are rejected with a message. *Remove* on a listed argument asks first; arguments set by a preset show "preset" instead of a button.
 - [ ] Current arguments each show a description (or the "no description yet" text); `rw`, `rootflags=`, `rd.luks.uuid=` show *Required to boot* and have no Remove button; image defaults show *Image default*. `sudo bopp-kargs remove rootflags=subvol=root` is refused; `sudo bopp-kargs --dry-run remove --force ...` shows the plan.
 - [ ] A preset whose argument is already on the command line (for example `preempt=full`) shows *Active* and cannot be toggled.
-- [ ] Apps: with a controller, A (and Right) expands a category, Left collapses it, Down walks into its apps. Bazaar is present for your user after the first login (`boppos-default-flatpaks.service`), the row *Open Bazaar* starts it on the desktop, and in Gaming Mode the row is replaced by a note.
+- [ ] Apps: with a controller, A (and Right) expands a category, Left collapses it, Down walks into its apps. Bazaar is present for your user after the setup wizard has run, the row *Open Bazaar* starts it on the desktop, and in Gaming Mode the row is replaced by a note.
 - [ ] Apps: categories are collapsed; *Only show installed apps* hides the rest and keeps the pending selection; Apply installs and removes.
 
 ## 3b-0. Gaming Mode keyboard, three ways (least to most real)

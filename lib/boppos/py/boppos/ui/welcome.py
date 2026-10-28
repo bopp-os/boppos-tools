@@ -5,7 +5,6 @@ Dry run for now: the choices are collected and the Review step lists what would 
 
 from __future__ import annotations
 
-import subprocess
 from collections.abc import Callable
 
 import gi
@@ -234,8 +233,6 @@ class WelcomeFlow(Gtk.Box):
         if delta > 0 and self.index == len(self.steps) - 1:
             for line in welcome.run_plan(welcome.build_plan(self.choices, self.gaming)):
                 print(line, flush=True)
-            if not welcome.DRY_RUN and welcome.save_install_list(self.choices):
-                subprocess.Popen(["systemctl", "--user", "start", "--no-block", "boppos-default-flatpaks.service"])
             self.on_finish(True)
             return
         self.index = max(0, min(len(self.steps) - 1, self.index + delta))

@@ -6,6 +6,7 @@ No GTK in here, so it is testable on its own. The UI lives in ui/welcome.py.
 from __future__ import annotations
 
 import os
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -102,7 +103,7 @@ class KargOption:
 
 
 def default_flatpak_ids() -> set[str]:
-    """The apps every user gets today from boppos-default-flatpaks.service."""
+    """The apps the wizard always recommends (Bazaar)."""
     try:
         return {a.ref for a in flatpaks.parse_list(Path(flatpaks.DEFAULTS_LIST).read_text())}
     except (OSError, flatpaks.ListError):
@@ -216,8 +217,7 @@ def build_plan(choices: Choices, gaming: bool = False) -> list[Action]:
     plan: list[Action] = []
     if choices.flatpaks:
         names = ", ".join(sorted(flatpaks.display_name(r) for r in choices.flatpaks))
-        plan.append(Action("Apps", f"Save {len(choices.flatpaks)} Flatpak(s) as this user's install list and "
-                           f"run boppos-default-flatpaks: {names}"))
+        plan.append(Action("Apps", f"Install {len(choices.flatpaks)} Flatpak(s) for this user, with progress: {names}"))
     steam_when = " after your first Steam login" if gaming else ""
     if choices.steam_shortcuts:
         plan.append(Action("Apps", f"Add the BoppOS shortcut to your Steam library{steam_when}"))
@@ -239,14 +239,11 @@ def build_plan(choices: Choices, gaming: bool = False) -> list[Action]:
     return plan
 
 
-def save_install_list(choices: Choices, env: dict[str, str] | None = None) -> Path | None:
-    """Write the chosen apps as the list boppos-default-flatpaks.service installs from, and let that service
-    run again. The caller starts the service. Not used while the wizard is a dry run."""
+def install_commands(choices: Choices, tool: Callable[[str], str]) -> list[list[str]]:
+    """The commands the update window runs for the chosen apps: what the Apps page runs for a switch turned on."""
     if not choices.flatpaks:
-        return None
-    path = flatpaks.write_user_defaults(set(choices.flatpaks), env)
-    (state_dir(env) / "default-flatpaks-done").unlink(missing_ok=True)
-    return path
+        return []
+    return [[tool("install-optional-flatpaks"), "--json", "--yes", "--only", ",".join(sorted(choices.flatpaks))]]
 
 
 def run_plan(plan: list[Action]) -> list[str]:

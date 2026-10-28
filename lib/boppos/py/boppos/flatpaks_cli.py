@@ -34,7 +34,7 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     if args.defaults:
-        args.list = flatpaks.defaults_list()
+        args.list = flatpaks.DEFAULTS_LIST
     try:
         apps = flatpaks.parse_list(Path(args.list).read_text()) if args.list else flatpaks.load_curated()
         apps = flatpaks.select(apps, args.only.split(",") if args.only else None)
@@ -52,7 +52,7 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     if args.status:
         try:
-            default_ids = {a.id for a in flatpaks.parse_list(Path(flatpaks.defaults_list()).read_text())}
+            default_ids = {a.id for a in flatpaks.parse_list(Path(flatpaks.DEFAULTS_LIST).read_text())}
         except (OSError, flatpaks.ListError):
             default_ids = set()
         names = flatpaks.installed_names()

@@ -204,28 +204,12 @@ def test_every_app_of_the_curated_list_is_recommended_and_switched_on():
     assert "net.lutris.Lutris" in extra_only  # the opt-in extras stay opt-in
 
 
-def test_the_wizard_saves_its_choice_as_the_list_the_service_installs_from(tmp_path):
-    from boppos import flatpaks
-
-    env = {"XDG_CONFIG_HOME": str(tmp_path / "cfg"), "XDG_STATE_HOME": str(tmp_path / "state")}
-    assert flatpaks.defaults_list(env) == flatpaks.DEFAULTS_LIST  # nothing saved yet: the shipped list
-    done = welcome.state_dir(env) / "default-flatpaks-done"
-    done.parent.mkdir(parents=True)
-    done.touch()
-    choices = welcome.Choices(flatpaks={"it.mijorus.gearlever", "io.github.kolunmi.Bazaar"})
-    path = welcome.save_install_list(choices, env)
-    assert flatpaks.defaults_list(env) == str(path)
-    refs = {a.ref for a in flatpaks.parse_list(path.read_text()) if a.kind == "app"}
-    assert refs == choices.flatpaks
-    assert not done.exists()  # so the service runs again
-
-
-def test_nothing_chosen_leaves_the_list_alone(tmp_path):
-    env = {"XDG_CONFIG_HOME": str(tmp_path), "XDG_STATE_HOME": str(tmp_path)}
-    assert welcome.save_install_list(welcome.Choices(), env) is None
-    assert not list(tmp_path.iterdir())
-
-
-def test_the_plan_says_the_list_is_saved():
-    plan = welcome.build_plan(welcome.Choices(flatpaks={"it.mijorus.gearlever"}))
-    assert "Save 1 Flatpak" in plan[0].text and "Gear Lever" in plan[0].text
+def test_the_chosen_apps_install_through_one_command_the_update_window_runs():
+    tool = lambda name: f"/usr/bin/{name}"  # noqa: E731
+    assert welcome.install_commands(welcome.Choices(), tool) == []
+    c = welcome.Choices(flatpaks={"it.mijorus.gearlever", "io.github.kolunmi.Bazaar"})
+    assert welcome.install_commands(c, tool) == [[
+        "/usr/bin/install-optional-flatpaks", "--json", "--yes", "--only",
+        "io.github.kolunmi.Bazaar,it.mijorus.gearlever"]]
+    plan = welcome.build_plan(c)
+    assert "Install 2 Flatpak" in plan[0].text and "Gear Lever" in plan[0].text
