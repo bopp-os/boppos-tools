@@ -17,8 +17,18 @@ from .dmi import device_label, read_dmi
 HELPER_DIR = "/usr/libexec/boppos"
 UPDATE_STATUS = "/run/boppos/update-status.json"
 BREW_PATHS = ("/home/linuxbrew/.linuxbrew/bin/brew",)
-TARGETS = ("os", "fw", "flatpak", "brew")
-DEFAULT_TARGETS = ("os", "flatpak", "brew")  # same default as boppos-update
+# Gear Lever and ProtonPlus: the native binary, else the Flatpak's exported launcher (user install first)
+GEARLEVER = ("gearlever", "it.mijorus.gearlever")
+PROTONPLUS = ("protonplus", "com.vysp3r.ProtonPlus")
+FLATPAK_EXPORTS = ("~/.local/share/flatpak/exports/bin", "/var/lib/flatpak/exports/bin")
+TARGETS = ("os", "fw", "flatpak", "brew", "appimage", "proton", "distrobox", "litterbox")
+# What "Update everything" (settings app, tray) does: all but firmware, which can need a reboot of its own
+DEFAULT_TARGETS = ("os", "flatpak", "brew", "appimage", "proton", "distrobox", "litterbox")
+TARGET_LABELS = {"os": "Operating system", "fw": "Firmware", "flatpak": "Flatpaks", "brew": "Homebrew",
+                 "appimage": "AppImages (Gear Lever)", "proton": "Proton Latest (ProtonPlus)",
+                 "distrobox": "Distroboxes", "litterbox": "Litterboxes"}
+# boppos-update in a checkout (lib/boppos/py/boppos/system.py -> bin/), when it is not on PATH
+_DEV_UPDATE = Path(__file__).resolve().parents[4] / "bin/boppos-update"
 
 
 def parse_targets(value: str) -> list[str] | None:
@@ -114,6 +124,17 @@ def about(status: dict, root: str | Path = "/") -> dict:
     }
 
 
+def app_command(app: tuple[str, str], which: Callable[[str], str | None] = shutil.which) -> str | None:
+    """Path to run a (binary, flatpak app id) pair with, or None when neither is installed."""
+    binary, app_id = app
+    candidates = [binary, app_id] + [os.path.join(os.path.expanduser(d), app_id) for d in FLATPAK_EXPORTS]
+    return next((p for c in candidates if (p := which(c))), None)
+
+
+def update_script(which: Callable[[str], str | None] = shutil.which) -> str | None:
+    return which("boppos-update") or (str(_DEV_UPDATE) if _DEV_UPDATE.is_file() else None)
+
+
 def upgrade_steps(
     only: list[str] | None, which: Callable[[str], str | None] = shutil.which
 ) -> list[tuple[str, list[list[str]]]]:
@@ -128,9 +149,21 @@ def upgrade_steps(
         elif t == "flatpak" and which("flatpak"):
             steps.append((t, [["flatpak", "update", "-y", "--noninteractive"]]))
         elif t == "brew":
-            brew = which("brew") or next((p for p in BREW_PATHS if os.access(p, os.X_OK)), None)
+            brew = which("brew") or next((p for p in BREW_PATHS if which(p)), None)
             if brew:
                 steps.append((t, [[brew, "update"], [brew, "upgrade"]]))
+        elif t == "appimage" and (gl := app_command(GEARLEVER, which)):
+            # Only AppImages with an update source; running apps are skipped (no --force)
+            steps.append((t, [[gl, "--update", "--all", "--yes"]]))
+        elif t == "proton" and (pp := app_command(PROTONPLUS, which)):
+            # Updates only the "<tool> Latest" installs; pinned versions stay as they are
+            steps.append((t, [[pp, "update", "all"]]))
+        elif t == "distrobox" and which("distrobox") and (script := update_script(which)):
+            # boppos-update knows each box's package manager (shelly or distrobox upgrade); exits 1 if one fails
+            steps.append((t, [[script, "--distrobox", "--yes", "--verbose"]]))
+        elif t == "litterbox" and (which("litterbox-update") or which("litterbox")) \
+                and (script := update_script(which)):
+            steps.append((t, [[script, "--litterbox", "--yes", "--verbose"]]))
     return steps
 
 

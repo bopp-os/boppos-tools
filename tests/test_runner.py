@@ -79,3 +79,14 @@ def test_emitter_commits_the_last_bar_once(tmp_path, capsys):
     emit({"event": "log", "line": "next"})
     assert capsys.readouterr().out.splitlines() == ["bar 90%", "next"]  # not a tty: one line per bar
     assert log.read_text().splitlines() == ["bar 90%", "next"]
+
+
+def test_run_stream_turns_bootc_progress_json_into_events():
+    line = ('{"type":"ProgressBytes","task":"pulling","description":"Pulling","id":"x","bytesCached":0,'
+            '"bytes":5,"bytesTotal":10,"stepsCached":0,"steps":1,"stepsTotal":2,"subtasks":[]}')
+    code = f"print('Fetching ostree chunk'); print({line!r})"
+    events = []
+    assert runner.run_stream([sys.executable, "-c", code], events.append) == 0
+    log = [e["line"] for e in events if e["event"] == "log"]
+    assert log == ["Fetching ostree chunk", "Downloading 2 layers (10 B)"]
+    assert [e["percent"] for e in events if e["event"] == "progress"] == [50]

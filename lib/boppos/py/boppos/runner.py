@@ -11,6 +11,8 @@ import time
 from collections.abc import Callable
 from pathlib import Path
 
+from .bootc import ProgressReader
+
 Emit = Callable[[dict], None]
 LOG_KEEP = 20
 
@@ -137,7 +139,12 @@ def make_emitter(as_json: bool, log_path: Path | None = None) -> Emit:
                 print(json.dumps(ev), flush=True)
                 to_log(json.dumps(ev))
             elif kind == "step":
-                print(f"==> {ev['id']}: {ev['status']}", flush=True)
+                name = ev.get("label") or ev["id"]
+                if ev["status"] == "start":
+                    print(f"\n==> {name}", flush=True)
+                else:
+                    status = {"ok": "done", "fail": "FAILED"}.get(ev["status"], ev["status"])
+                    print(f"==> {name}: {status}", flush=True)
             elif kind == "done":
                 print("Done." if ev["ok"] else "Failed.", flush=True)
 
@@ -160,6 +167,7 @@ def run_stream(cmd: list[str], emit: Emit) -> int:
         return 127
     assert proc.stdout is not None
     splitter = LineSplitter()
+    bootc_progress = ProgressReader()
     decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
 
     def deliver(parts: list[tuple[str, str]]) -> None:
@@ -170,6 +178,10 @@ def run_stream(cmd: list[str], emit: Emit) -> int:
                     emit({"event": "progress", "line": shown, "percent": pct})
             else:
                 line = clean(text)
+                if (events := bootc_progress.feed(line, time.monotonic())) is not None:
+                    for ev in events:  # bootc's --progress-fd JSON, sent through the same pipe
+                        emit(ev)
+                    continue
                 if _PERCENT.match(line):  # the final redraw of a bar arrives with its newline
                     line = format_progress(line)[0] or line
                 if line or text == "":

@@ -14,6 +14,7 @@ from .kargs_info import forbidden_reason, is_critical
 
 BOOTC = "/usr/bin/bootc"
 OSTREE = "/usr/bin/ostree"
+PROGRESS_FD = 3  # bootc's JSON progress; the helper makes it a copy of its stdout pipe
 
 _INDEX = re.compile(r"^[0-9]$")
 _DROPIN = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
@@ -109,6 +110,13 @@ def system_command(argv: list[str]) -> list[str]:
         return [BOOTC, "switch", "--transport", "registry", "--enforce-container-sigpolicy",
                 validate_image_ref(rest[0])]
     raise UsageError(f"unknown verb: {verb!r}")
+
+
+def with_progress_fd(cmd: list[str]) -> list[str]:
+    """bootc upgrade/switch with JSON progress (layers, bytes) on PROGRESS_FD; other commands unchanged."""
+    if cmd[:1] == [BOOTC] and cmd[1:2] in (["upgrade"], ["switch"]) and "--check" not in cmd:
+        return [*cmd[:2], "--progress-fd", str(PROGRESS_FD), *cmd[2:]]
+    return cmd
 
 
 def kargs_argv(argv: list[str]) -> list[str]:

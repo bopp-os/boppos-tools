@@ -42,6 +42,32 @@ def test_upgrade_steps_default_order_and_missing_tools():
     assert only[0][1][0][-1] == "upgrade" and "bootc-helper" in only[0][1][0][-2] + only[0][1][0][-3]
 
 
+def test_appimage_and_proton_use_the_native_binary_or_the_flatpak_export():
+    native = {"gearlever": "/usr/bin/gearlever", "protonplus": "/usr/bin/protonplus"}
+    steps = dict(system.upgrade_steps(["appimage", "proton"], which=native.get))
+    assert steps == {"appimage": [["/usr/bin/gearlever", "--update", "--all", "--yes"]],
+                     "proton": [["/usr/bin/protonplus", "update", "all"]]}
+    export = "/var/lib/flatpak/exports/bin/com.vysp3r.ProtonPlus"
+    steps = system.upgrade_steps(["appimage", "proton"], which=lambda n: n if n == export else None)
+    assert steps == [("proton", [[export, "update", "all"]])]
+
+
+def test_appimage_and_proton_are_in_the_default_set():
+    steps = system.upgrade_steps(None, which=lambda n: "/x/" + n if n in ("gearlever", "protonplus") else None)
+    assert [t for t, _ in steps] == ["os", "appimage", "proton"]
+    assert system.parse_targets("proton,appimage") == ["appimage", "proton"]
+
+
+def test_containers_go_through_boppos_update_and_are_in_the_default_set():
+    tools = {"distrobox": "/usr/bin/distrobox", "litterbox": "/usr/bin/litterbox",
+             "boppos-update": "/usr/bin/boppos-update"}
+    steps = dict(system.upgrade_steps(["distrobox", "litterbox"], which=tools.get))
+    assert steps == {"distrobox": [["/usr/bin/boppos-update", "--distrobox", "--yes", "--verbose"]],
+                     "litterbox": [["/usr/bin/boppos-update", "--litterbox", "--yes", "--verbose"]]}
+    assert [t for t, _ in system.upgrade_steps(None, which=tools.get)] == ["os", "distrobox", "litterbox"]
+    assert system.upgrade_steps(["litterbox"], which={"boppos-update": "/x"}.get) == []  # no litterbox
+
+
 def test_fw_rc2_means_nothing_to_do():
     assert system.accepted_rc("fw", [], 2) and not system.accepted_rc("flatpak", [], 2)
     assert system.parse_fw_updates("", 2) == {"count": 0, "devices": []}
@@ -52,3 +78,21 @@ def test_fw_rc2_means_nothing_to_do():
 def test_report_has_sections():
     text = build_report({"about": "x", "empty": ""})
     assert "===== about =====" in text and "(empty)" in text
+
+
+def test_upgrade_steps_carry_a_label_and_their_position(monkeypatch):
+    from types import SimpleNamespace
+
+    from boppos import system_cli
+
+    events = []
+    monkeypatch.setattr(system_cli, "make_emitter", lambda *_a: events.append)
+    monkeypatch.setattr(system_cli, "open_log", lambda _a: None)
+    monkeypatch.setattr(system, "upgrade_steps", lambda _only: [("fw", [["a"]]), ("proton", [["b"]])])
+    monkeypatch.setattr(system_cli, "run_stream", lambda cmd, _emit: 0 if cmd == ["a"] else 1)
+    monkeypatch.setattr(system, "get_status", lambda: {})
+    assert system_cli._upgrade(SimpleNamespace(only=None, json=True)) == 1
+    steps = [e for e in events if e["event"] == "step"]
+    assert steps[0] == {"event": "step", "id": "fw", "status": "start", "label": "Firmware", "index": 1, "total": 2}
+    assert steps[3] == {"event": "step", "id": "proton", "status": "fail", "label": "Proton Latest (ProtonPlus)"}
+    assert events[-1]["failed"] == ["proton"]

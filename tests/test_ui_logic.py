@@ -60,6 +60,18 @@ def test_dpad_repeats_while_held_then_stops():
     assert m.tick(2.0) == []
 
 
+def test_stop_repeats_keeps_a_held_stick_from_firing_later():
+    # what the window does while it is in the background: keep reading, act on nothing
+    m = InputMapper(Repeater(delay=0.4, interval=0.1))
+    m.feed(("button", 12, True, 1), 0.0)
+    m.feed(("axis", AXIS_LEFTX, 30000, 1), 0.0)
+    m.stop_repeats()
+    assert m.tick(5.0) == []
+    assert m.feed(("axis", AXIS_LEFTX, 30000, 1), 5.0) == []  # still held: not a new push
+    assert m.feed(("button", 12, False, 1), 5.0) == []
+    assert m.feed(("button", 12, True, 1), 5.1) == [Action.DOWN]  # a fresh press works again
+
+
 def test_stick_has_threshold_and_hysteresis():
     m = InputMapper()
     assert m.feed(("axis", AXIS_LEFTY, 8000, 1), 0) == []  # below threshold

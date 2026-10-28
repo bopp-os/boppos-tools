@@ -134,6 +134,17 @@ class Page:
 
 # --- System & updates -------------------------------------------------------------------------
 
+# What each update row updates (titles are system.TARGET_LABELS)
+UPDATE_TARGETS = {
+    "os": "The BoppOS system image",
+    "fw": "Device firmware from LVFS",
+    "flatpak": "Apps installed from Flathub",
+    "brew": "Command-line tools installed with brew",
+    "appimage": "AppImages that have an update source",
+    "proton": "GE-Proton and other “Latest” compatibility tools",
+    "distrobox": "Packages inside every Distrobox container",
+    "litterbox": "Packages inside every Litterbox container",
+}
 
 class SystemPage(Page):
     title, key, icon = "System & updates", "system", "software-update-available-symbolic"
@@ -146,16 +157,20 @@ class SystemPage(Page):
         return {"status": run_json([tool("bopp-system"), "--json", "status"])}
 
     def _update_text(self, target: str, st: dict) -> str:
-        if self.check is None:
-            return "Press “Check for updates”"
-        if target == "os":
+        """What the row updates, then its state once known (Homebrew, AppImages and Proton are not checked)."""
+        text = UPDATE_TARGETS[target]
+        status = None
+        if target == "os" and st.get("staged"):
+            status = "Update downloaded, applies on restart"
+        elif self.check is None:
+            pass
+        elif target == "os":
             os_st = self.check.get("os", {})
-            return os_st["error"] if "error" in os_st else (
+            status = f"Couldn’t check: {os_st['error']}" if "error" in os_st else (
                 "Update available" if os_st.get("update_available") else "Up to date")
-        count = (self.check.get(target) or {}).get("count")
-        if count is None:
-            return "Unknown"
-        return f"{count} update(s) available" if count else "Up to date"
+        elif (count := (self.check.get(target) or {}).get("count")) is not None:
+            status = f"{count} update{'s' if count != 1 else ''} available" if count else "Up to date"
+        return f"{text} · {status}" if status else text
 
     def build(self, data) -> None:
         st = data["status"]
@@ -182,12 +197,13 @@ class SystemPage(Page):
         g = group("Updates")
         g.add(button_row("Check for updates", "Looks at the OS image, Flatpaks and firmware",
                          "Check", self.do_check, suggested=True))
-        for target, label in (("os", "Operating system"), ("fw", "Firmware"), ("flatpak", "Flatpaks"),
-                              ("brew", "Homebrew")):
+        for target, label in system.TARGET_LABELS.items():
+            if not system.upgrade_steps([target]):  # its tool is not installed
+                continue
             g.add(button_row(label, self._update_text(target, st), "Update",
                              lambda t=target, n=label: self.update([t], n)))
-        g.add(button_row("Update everything", "Operating system, Flatpaks and Homebrew", "Update all",
-                         lambda: self.update(None, "Everything"), suggested=True))
+        g.add(button_row("Update everything", "OS, apps, Proton and containers (not firmware)",
+                         "Update all", lambda: self.update(None, "Everything"), suggested=True))
         self.box.append(g)
 
         if self.win.advanced:
