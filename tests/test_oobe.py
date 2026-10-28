@@ -93,3 +93,45 @@ def test_a_trailing_newline_never_slips_through_any_check():
     assert oobe.locale_problem("en_US.UTF-8\n")
     assert oobe.keymap_problem("us\n")
     assert oobe.timezone_problem("UTC\n")
+
+
+def _good(**kw):
+    return oobe.Choices(username="ripps", fullname="Rip", password="Abcdef12!x", session="gaming", **kw)
+
+
+def test_helper_calls_create_the_user_before_signing_them_in_and_finish_last():
+    verbs = [c.args[0] for c in oobe.helper_calls(_good(hostname="deck"))]
+    assert verbs == ["set-locale", "set-keymap", "set-timezone", "set-hostname", "create-user",
+                     "set-autologin", "finish"]
+    assert "set-hostname" not in [c.args[0] for c in oobe.helper_calls(_good())]
+
+
+def test_only_create_user_carries_the_password_and_never_in_args_or_repr():
+    calls = oobe.helper_calls(_good())
+    assert [c.args[0] for c in calls if c.stdin] == ["create-user"]
+    assert next(c for c in calls if c.args[0] == "create-user").stdin == "Abcdef12!x\n"
+    assert all("Abcdef12" not in " ".join(c.args) and "Abcdef12" not in repr(c) for c in calls)
+
+
+def test_apply_stops_at_the_first_failure():
+    seen = []
+
+    def run(argv, stdin):
+        seen.append(argv[0])
+        return (1, "boom\n") if argv[0] == "set-keymap" else (0, "")
+
+    ok, msg = oobe.apply_choices(_good(), lambda a: a, run)
+    assert not ok and "set-keymap failed: boom" in msg and "Abcdef12" not in msg
+    assert seen == ["set-locale", "set-keymap"]
+
+
+def test_apply_refuses_invalid_choices_without_running_anything():
+    ran = []
+    ok, _ = oobe.apply_choices(oobe.Choices(), lambda a: a, lambda *a: ran.append(a) or (0, ""))
+    assert not ok and not ran
+
+
+def test_apply_runs_everything_when_all_succeed():
+    ran = []
+    ok, _ = oobe.apply_choices(_good(), lambda a: a, lambda argv, stdin: ran.append(argv[0]) or (0, ""))
+    assert ok and ran[-1] == "finish" and len(ran) == 6

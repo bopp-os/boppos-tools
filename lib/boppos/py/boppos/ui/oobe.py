@@ -1,25 +1,35 @@
 """The first-boot setup (`boppos-deck --oobe`): language, network, time zone, account and where to start.
 
-A dry run for now: the choices are checked and listed, nothing is created or changed.
+A dry run for now (oobe.DRY_RUN): the choices are checked and listed, nothing is created or changed.
 """
 
 from __future__ import annotations
 
+import subprocess
+import threading
 from collections.abc import Callable
 
 import gi
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
-from gi.repository import Adw, Gtk  # noqa: E402
+from gi.repository import Adw, GLib, Gtk  # noqa: E402
 
-from .. import oobe  # noqa: E402
+from .. import oobe, system  # noqa: E402
 from .widgets import combo_row, group, info_row, plain  # noqa: E402
 
 TITLES = {
     "welcome": ("Welcome to BoppOS", "Let's set this computer up: language, time zone and your account."),
     "done": ("All set", "BoppOS will sign you in and start up."),
 }
+
+
+def _run(argv: list[str], stdin: str) -> tuple[int, str]:
+    try:
+        p = subprocess.run(argv, input=stdin, capture_output=True, text=True, timeout=300, check=False)
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return 1, str(exc)
+    return p.returncode, p.stderr or p.stdout
 
 
 def page(*groups: Adw.PreferencesGroup) -> Adw.PreferencesPage:
@@ -144,12 +154,29 @@ class OobeFlow(Gtk.Box):
 
     def go(self, delta: int) -> None:
         if delta > 0 and self.index == len(self.steps) - 1:
-            for line in oobe.run_plan(oobe.build_plan(self.choices)):
-                print(line, flush=True)
-            self.on_finish(True)
+            if oobe.DRY_RUN:
+                for line in oobe.run_plan(oobe.build_plan(self.choices)):
+                    print(line, flush=True)
+                self.on_finish(True)
+                return
+            self.next.set_sensitive(False)
+            self.notice.set_label("Setting up…")
+
+            def work() -> None:
+                ok, msg = oobe.apply_choices(self.choices, lambda a: system.helper_cmd("oobe-helper", a), _run)
+                GLib.idle_add(self.applied, ok, msg)
+
+            threading.Thread(target=work, daemon=True).start()
             return
         self.index = max(0, min(len(self.steps) - 1, self.index + delta))
         self.show_step()
+
+    def applied(self, ok: bool, msg: str) -> None:
+        self.notice.set_label(msg)
+        if ok:
+            self.on_finish(True)
+        else:
+            self.next.set_sensitive(True)
 
     def show_step(self) -> None:
         step = self.steps[self.index]

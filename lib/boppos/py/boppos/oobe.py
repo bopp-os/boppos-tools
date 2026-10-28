@@ -202,3 +202,36 @@ def build_plan(c: Choices) -> list[Action]:
 def run_plan(plan: list[Action]) -> list[str]:
     """Dry run: report what would happen. Deliberately has no way to change the system."""
     return [f"[dry run] would: {a.area}: {a.text}" for a in plan]
+
+
+@dataclass(frozen=True)
+class HelperCall:
+    """One `oobe-helper` invocation. stdin carries the password; it is deliberately not part of repr."""
+    args: tuple[str, ...]
+    stdin: str = field(default="", repr=False)
+
+
+def helper_calls(c: Choices) -> list[HelperCall]:
+    """The ordered oobe-helper calls that apply the choices. The account is created before it is signed in."""
+    calls = [HelperCall(("set-locale", c.locale)), HelperCall(("set-keymap", c.keymap)),
+             HelperCall(("set-timezone", c.timezone))]
+    if c.hostname:
+        calls.append(HelperCall(("set-hostname", c.hostname)))
+    create = ("create-user", c.username, *([c.fullname] if c.fullname else []))
+    calls += [HelperCall(create, c.password + "\n"), HelperCall(("set-autologin", c.username, c.session)),
+              HelperCall(("finish",))]
+    return calls
+
+
+def apply_choices(c: Choices, helper_cmd, run) -> tuple[bool, str]:
+    """Run the helper calls in order and stop at the first failure.
+
+    helper_cmd(verb_and_args) -> argv (pkexec plus the helper path); run(argv, stdin) -> (returncode, output).
+    Refuses to do anything while a choice is invalid, and never reports the password."""
+    if problems(c):
+        return False, "Setup is not complete: " + "; ".join(problems(c))
+    for call in helper_calls(c):
+        code, out = run(helper_cmd(list(call.args)), call.stdin)
+        if code != 0:
+            return False, f"{call.args[0]} failed: {out.strip() or f'exit {code}'}"
+    return True, "Setup finished."
