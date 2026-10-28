@@ -702,6 +702,9 @@ class DeckWindow(Adw.ApplicationWindow):
                 self.pad_family = self.pad.family(ev[-1])
             actions += got
         actions += self.mapper.tick(now)
+        if not self.is_active():  # SDL hears the controller even behind a game; those presses are not for us
+            self.mapper.stop_repeats()
+            return GLib.SOURCE_CONTINUE
         if actions:
             self.set_input_mode("pad")
         for a in actions:
