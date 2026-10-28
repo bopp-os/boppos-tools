@@ -80,8 +80,9 @@ class OobeFlow(Gtk.Box):
         self.show_step()
 
     # --- steps -------------------------------------------------------------------------------------------
-    def chooser(self, title: str, options: list[str], current: str, attr: str) -> Adw.ComboRow:
-        row = combo_row(title, options, options.index(current) if current in options else 0)
+    def chooser(self, title: str, options: list[str], current: str, attr: str,
+                search: bool = False) -> Adw.ComboRow:
+        row = combo_row(title, options, options.index(current) if current in options else 0, search)
 
         def changed(r: Adw.ComboRow, _p) -> None:
             setattr(self.choices, attr, options[r.get_selected()])
@@ -113,7 +114,7 @@ class OobeFlow(Gtk.Box):
 
     def timezone_page(self) -> Gtk.Widget:
         g = group("Time zone")
-        g.add(self.chooser("Time zone", self.zones, self.choices.timezone, "timezone"))
+        g.add(self.chooser("Time zone", self.zones, self.choices.timezone, "timezone", search=True))
         return page(g)
 
     def account_page(self) -> Gtk.Widget:

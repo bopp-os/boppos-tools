@@ -88,9 +88,13 @@ def switch_row(title: str, subtitle: str, active: bool, on_toggle: Callable[[boo
     return row
 
 
-def combo_row(title: str, options: list[str], selected: int = 0) -> Adw.ComboRow:
+def combo_row(title: str, options: list[str], selected: int = 0, search: bool = False) -> Adw.ComboRow:
+    """search adds a type-to-filter box to the popup, for lists too long to scroll."""
     row = plain(Adw.ComboRow, title=title)
     row.set_model(Gtk.StringList.new(options))
+    if search:
+        row.set_expression(Gtk.PropertyExpression.new(Gtk.StringObject, None, "string"))
+        row.set_enable_search(True)
     row.set_selected(selected)
     return row
 
