@@ -121,6 +121,9 @@ class Repeater:
     def release(self, action: Action) -> None:
         self._held.pop(action, None)
 
+    def release_all(self) -> None:
+        self._held.clear()
+
     def _interval(self, action: Action, held_for: float) -> float:
         if action in PAGES:
             return self.page_interval
@@ -205,6 +208,10 @@ class InputMapper:
 
     def tick(self, now: float) -> list[Action]:
         return self.rep.tick(now)
+
+    def stop_repeats(self) -> None:
+        """Forget held directions and page jumps, so nothing repeats until it is pressed again."""
+        self.rep.release_all()
 
 
 class Sdl3Gamepads:
