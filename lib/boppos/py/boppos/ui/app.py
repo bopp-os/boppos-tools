@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import getpass
 import os
 import sys
 import threading
@@ -15,7 +16,7 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 from gi.repository import Adw, Gdk, Gio, GLib, GObject, Gtk  # noqa: E402
 
-from .. import hwprofiles, oobe, system, welcome  # noqa: E402
+from .. import firstrun, hwprofiles, oobe, system, welcome  # noqa: E402
 from . import agent as polkit_agent  # noqa: E402
 from . import backend  # noqa: E402
 from .controller import DIRECTIONS, PAGES, Action, InputMapper, Sdl3Gamepads  # noqa: E402
@@ -844,7 +845,12 @@ class DeckWindow(Adw.ApplicationWindow):
         if not finished or welcome.DRY_RUN or self.welcome_flow.preview:
             return
         welcome.mark_done()
-        if cmds := welcome.apply_commands(self.welcome_flow.choices, backend.tool):
+        choices = self.welcome_flow.choices
+        cmds = [*welcome.first_run_commands(choices, getpass.getuser(), lambda a: system.helper_cmd("oobe-helper", a)),
+                *welcome.apply_commands(choices, backend.tool)]
+        if firstrun.read_hint() is not None:  # the last step of the first run: remove the marker
+            cmds.append(welcome.finish_command(lambda a: system.helper_cmd("oobe-helper", a)))
+        if cmds:
             self.run_job("Setting up BoppOS", cmds, lambda _ok, _final: None)
 
     def on_close_request(self, *_a) -> bool:
@@ -854,16 +860,32 @@ class DeckWindow(Adw.ApplicationWindow):
         return False
 
 
+def first_run_flow(opts: dict, preview: bool = False) -> str:
+    """"setup", "welcome" or "none" for the options given. --first-run decides from the live system, --oobe and
+    --welcome force a flow (--hardware alone opens the tour preview too); --first-run wins over the forcing ones."""
+    if "first-run" in opts:
+        return firstrun.startup_mode("first-run")
+    if "oobe" in opts:
+        return firstrun.startup_mode("setup")
+    if "welcome" in opts or preview:
+        return firstrun.startup_mode("welcome")
+    return "none"
+
+
 class DeckApp(Adw.Application):
     def __init__(self) -> None:
         super().__init__(application_id=APP_ID, flags=Gio.ApplicationFlags.HANDLES_COMMAND_LINE)
         self.add_main_option("update", 0, GLib.OptionFlags.NONE, GLib.OptionArg.STRING,
                              "Open on the update screen and start updating: all, or a list of "
                              + ",".join(system.TARGETS), "TARGETS")
+        self.add_main_option("first-run", 0, GLib.OptionFlags.NONE, GLib.OptionArg.NONE,
+                             "Run the first-run flow the system needs: the account setup when nobody has an "
+                             "account yet, the welcome tour when someone has. Does nothing unless "
+                             + firstrun.MARKER + " exists", None)
         self.add_main_option("welcome", 0, GLib.OptionFlags.NONE, GLib.OptionArg.NONE,
-                             "Open the first-run setup wizard", None)
+                             "Open the welcome tour (forces that flow; --first-run decides by itself)", None)
         self.add_main_option("oobe", 0, GLib.OptionFlags.NONE, GLib.OptionArg.NONE,
-                             "Open the first-boot setup (language, time zone, account); a dry run for now", None)
+                             "Open the account setup (forces that flow; --first-run decides by itself)", None)
         self.add_main_option("hardware", 0, GLib.OptionFlags.NONE, GLib.OptionArg.STRING,
                              "With --welcome: preview the wizard on other hardware (" + ", ".join(hwprofiles.PROFILES)
                              + ")", "KEY")
@@ -940,14 +962,17 @@ class DeckApp(Adw.Application):
                 return 2
         if "welcome" in opts and "if-needed" in opts and welcome.is_done():
             return 0
+        flow = first_run_flow(opts, hw is not None)
+        if "first-run" in opts and flow == "none":
+            return 0  # no first run is pending: not even a window
         self.activate()
         win = self.props.active_window
         if isinstance(win, DeckWindow):
             if "update" in opts:
                 win.start_update(targets)
-            if "oobe" in opts:
+            if flow == "setup":
                 win.show_oobe()
-            elif "welcome" in opts or hw is not None:  # --hardware alone opens the wizard preview too
+            elif flow == "welcome":
                 win.show_welcome(hw)
         return 0
 
