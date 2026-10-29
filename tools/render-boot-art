@@ -15,19 +15,36 @@ trap 'rm -rf "$tmp"' EXIT
 sed -E 's/^( +)width="[^"]*"/\1width="323"/; s/^( +)height="[^"]*"/\1height="385"/; s/^( +)viewBox="[^"]*"/\1viewBox="68.5 38 323 385"/' \
     "$art/boppos-white.svg" > "$tmp/mark.svg"
 
-# The Plymouth wheel: a ring of dots fading behind the leading one; the theme script rotates it.
-python3 - > "$tmp/spinner.svg" <<'PY'
-import math
-dots = []
-for i in range(12):
-    a = math.radians(i * 30 - 90)
-    dots.append(f'<circle cx="{128 + 100 * math.cos(a):.2f}" cy="{128 + 100 * math.sin(a):.2f}" r="{9 + 0.5 * i:.1f}"'
-                f' fill="#fff" fill-opacity="{0.08 + 0.92 * i / 11:.2f}"/>')
-print('<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">' + "".join(dots) + "</svg>")
+# The Plymouth wheel: a ring of dots fading behind the leading one. Two-step cannot rotate an image, so the turn
+# is pre-rendered: 60 frames of 6 degrees, which two-step plays over 2 seconds at 30 frames a second.
+python3 - "$tmp" <<'PY'
+import math, sys
+for f in range(60):
+    dots = []
+    for i in range(12):
+        a = math.radians(i * 30 - 90 + f * 6)
+        dots.append(f'<circle cx="{128 + 100 * math.cos(a):.2f}" cy="{128 + 100 * math.sin(a):.2f}" r="{9 + 0.5 * i:.1f}"'
+                    f' fill="#fff" fill-opacity="{0.08 + 0.92 * i / 11:.2f}"/>')
+    with open(f"{sys.argv[1]}/throbber-{f + 1:04d}.svg", "w") as fh:
+        fh.write('<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">'
+                 + "".join(dots) + "</svg>")
 PY
-# Plymouth scales these at run time, so they are rendered large and crisp.
-rsvg-convert -w 256  "$tmp/spinner.svg"                           -o "$root/boot/plymouth/boppos/spinner.png"
-rsvg-convert -w 1240 "$art/boppos-logo-horizontal-white.svg"      -o "$root/boot/plymouth/boppos/lockup.png"
+# Two-step draws images at their own size (doubled on HiDPI screens), so these are rendered at their final size.
+ply="$root/boot/plymouth/boppos"
+rm -f "$ply"/throbber-*.png
+for svg in "$tmp"/throbber-*.svg; do
+    rsvg-convert -w 96 "$svg" -o "$ply/$(basename "$svg" .svg).png"
+done
+# Only there so two-step does not take the throbber frames as its end animation (and drop the throbber).
+cp "$ply/throbber-0001.png" "$ply/animation-0001.png"
+# Shown in place of the firmware logo on machines that have none.
+rsvg-convert -h 160  "$tmp/mark.svg"                              -o "$ply/bgrt-fallback.png"
+rsvg-convert -h 40   "$art/boppos-logo-horizontal-white.svg"      -o "$ply/watermark.png"
+# The passphrase field (two-step will not start without these): a dark rounded box, white dots, a padlock.
+echo '<svg xmlns="http://www.w3.org/2000/svg" width="320" height="40"><rect x="1" y="1" width="318" height="38" rx="8" fill="#16161a" stroke="#fff" stroke-opacity="0.45" stroke-width="2"/></svg>' > "$tmp/entry.svg"
+echo '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14"><circle cx="7" cy="7" r="5" fill="#fff"/></svg>' > "$tmp/bullet.svg"
+echo '<svg xmlns="http://www.w3.org/2000/svg" width="28" height="36"><path d="M7 16v-5a7 7 0 0 1 14 0v5" fill="none" stroke="#fff" stroke-width="3"/><rect x="2" y="15" width="24" height="19" rx="3" fill="#fff"/></svg>' > "$tmp/lock.svg"
+for name in entry bullet lock; do rsvg-convert "$tmp/$name.svg" -o "$ply/$name.png"; done
 # GRUB cannot scale images well, so these are rendered at their final size.
 rsvg-convert -h 192  "$tmp/mark.svg"                              -o "$root/boot/grub/boppos/mark.png"
 rsvg-convert -w 260  "$art/boppos-logo-horizontal-white.svg"      -o "$root/boot/grub/boppos/lockup.png"

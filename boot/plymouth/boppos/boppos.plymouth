@@ -1,8 +1,76 @@
+# BoppOS Plymouth theme.
+#
+# Plymouth's two-step module, laid out like the stock BGRT theme: the logo the firmware showed at power-on
+# (ASRock, ASUS, ...: the ACPI BGRT image) stays where it was, the BoppOS wheel turns below it and the small
+# wordmark sits at the bottom. A machine without a firmware logo gets the BoppOS mark (bgrt-fallback.png) in
+# its place. The script module cannot draw the firmware logo, which is why this is not a script theme.
+#
+# throbber-*.png is the wheel (two-step plays the frames over 2 s, looping); animation-0001.png only exists so
+# two-step does not take the throbber frames as its end animation and drop the throbber. entry.png, bullet.png
+# and lock.png are the passphrase field; two-step will not start without them.
+
 [Plymouth Theme]
 Name=BoppOS
-Description=Black screen, the BoppOS mark breathing in the middle and the wordmark at the bottom
-ModuleName=script
+Description=The firmware logo, the BoppOS wheel turning below it and the wordmark at the bottom
+ModuleName=two-step
 
-[script]
+[two-step]
+Font=Sans 12
+TitleFont=Sans 30
 ImageDir=/usr/share/plymouth/themes/boppos
-ScriptFile=/usr/share/plymouth/themes/boppos/boppos.script
+DialogHorizontalAlignment=.5
+DialogVerticalAlignment=.382
+TitleHorizontalAlignment=.5
+TitleVerticalAlignment=.382
+HorizontalAlignment=.5
+VerticalAlignment=.7
+WatermarkHorizontalAlignment=.5
+WatermarkVerticalAlignment=.96
+Transition=none
+TransitionDuration=0.0
+BackgroundStartColor=0x000000
+BackgroundEndColor=0x000000
+ProgressBarBackgroundColor=0x606060
+ProgressBarForegroundColor=0xffffff
+DialogClearsFirmwareBackground=true
+MessageBelowAnimation=true
+
+[boot-up]
+UseEndAnimation=false
+UseFirmwareBackground=true
+
+[shutdown]
+UseEndAnimation=false
+UseFirmwareBackground=true
+
+[reboot]
+UseEndAnimation=false
+UseFirmwareBackground=true
+
+[updates]
+SuppressMessages=true
+ProgressBarShowPercentComplete=true
+UseProgressBar=true
+Title=Installing Updates...
+SubTitle=Do not turn off your computer
+
+[system-upgrade]
+SuppressMessages=true
+ProgressBarShowPercentComplete=true
+UseProgressBar=true
+Title=Upgrading System...
+SubTitle=Do not turn off your computer
+
+[firmware-upgrade]
+SuppressMessages=true
+ProgressBarShowPercentComplete=true
+UseProgressBar=true
+Title=Upgrading Firmware...
+SubTitle=Do not turn off your computer
+
+[system-reset]
+SuppressMessages=true
+ProgressBarShowPercentComplete=true
+UseProgressBar=true
+Title=Resetting System...
+SubTitle=Do not turn off your computer
