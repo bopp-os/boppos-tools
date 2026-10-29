@@ -50,6 +50,7 @@ class Page:
         self.loading = False
         self.loaded_at = 0.0
         self._shown: str | None = None
+        self._view = None  # view_state() the content on screen was built with
         self.box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=24)
         self.box.set_margin_top(24)
         self.box.set_margin_bottom(24)
@@ -85,7 +86,9 @@ class Page:
         self.loaded_at = time.monotonic()
         self._gen += 1
         gen = self._gen
-        quiet = quiet and self.built
+        # Content built under other settings (Advanced switched on or off) is replaced at once: keeping it on screen
+        # would show switches that are enabled although the setting now says they must not be.
+        quiet = quiet and self.built and self._view == self.view_state()
         if not quiet:
             self.clear()
             g = group()
@@ -105,7 +108,7 @@ class Page:
             try:
                 self.clear()
                 self.build(data)
-                self.built, self._shown = True, shown
+                self.built, self._shown, self._view = True, shown, self.view_state()
             except Exception as exc:  # a broken page must say so and offer a retry, not stay blank
                 self.show_error(exc)
                 return
@@ -116,7 +119,7 @@ class Page:
 
     def show_error(self, exc: BaseException) -> None:
         self.clear()
-        self.built, self._shown = False, None
+        self.built, self._shown, self._view = False, None, None
         g = group("Something went wrong")
         g.add(message_row(f"This page could not be loaded: {exc}"))
         g.add(button_row("Try again", "", "Retry", self.refresh, suggested=True))
@@ -318,6 +321,7 @@ class KargsPage(Page):
 
     RISK_LABEL = {"low": "Low risk", "medium": "Medium risk", "high": "High risk"}
     RISK_CLASS = {"low": "success", "medium": "warning", "high": "error"}
+    blocked = False  # set while an update is staged; the switches are then off even in Advanced
 
     def fetch(self):
         from concurrent.futures import ThreadPoolExecutor
@@ -328,8 +332,12 @@ class KargsPage(Page):
             except OSError:
                 return ""
 
-        if not self.win.advanced:  # normal mode only shows what is running: nothing to ask the tools
-            return {"cmdline": cmdline(), "advanced": False}
+        if not self.win.advanced:  # normal mode only looks: the presets are listed, locked, and nothing else is asked
+            with ThreadPoolExecutor(max_workers=2) as pool:
+                dropins = pool.submit(run_json, [tool("bopp-kargs"), "--json", "dropins"])
+                listing = pool.submit(run_json, [tool("bopp-kargs"), "--json", "list"])
+                return {"dropins": dropins.result(), "list": listing.result(), "cmdline": cmdline(),
+                        "advanced": False}
         with ThreadPoolExecutor(max_workers=3) as pool:  # three separate tools: no reason to wait in a queue
             dropins = pool.submit(run_json, [tool("bopp-kargs"), "--json", "dropins"])
             status = pool.submit(run_json, [tool("bopp-kargs"), "--json", "status"])
@@ -340,12 +348,17 @@ class KargsPage(Page):
     def build(self, data) -> None:
         if not self.win.advanced:
             g = group("Kernel arguments")
-            g.add(message_row("Kernel arguments can stop the system from starting, so the presets and any "
-                              "changes live in Advanced options (About). Nothing here can be changed."))
+            g.add(message_row("Kernel arguments can stop the system from starting, so everything here is locked. "
+                              "Turn on Advanced options (About) to change the presets or add arguments."))
             self.box.append(g)
-            g = group("Running kernel")
-            g.add(info_row("Command line", "", data.get("cmdline") or "unavailable"))
-            self.box.append(g)
+            dropins = data.get("dropins") or {}
+            if "error" in dropins:
+                g = group("Presets")
+                g.add(message_row(f"Could not read the presets: {dropins['error']}"))
+                self.box.append(g)
+            else:
+                self.build_presets(dropins.get("dropins", []), locked=True)
+            self.box.append(self.cmdline_group(data))
             return
         dropins = data["dropins"]
         if "error" in dropins:
@@ -364,47 +377,92 @@ class KargsPage(Page):
             banner.set_revealed(True)
             self.box.append(banner)
         items = dropins.get("dropins", [])
-        usable = [d for d in items if d["matches_device"] and not d["error"]]
-        # High-risk presets stay hidden until Advanced is on, unless one is already enabled.
-        shown = [d for d in usable if d.get("risk_level") != "high" or self.win.advanced or d["enabled"]]
-        categories: dict[str, list[dict]] = {}
-        for d in shown:
-            categories.setdefault(d.get("category") or "Other", []).append(d)
-        if not categories:
-            g = group("Presets")
-            g.add(message_row("No presets are installed on this system." if not items else
-                              "No presets are available for this device."))
-            self.box.append(g)
-        for cat, group_items in categories.items():
-            g = group(cat, "Each preset changes kernel arguments. Changes take effect after a reboot."
-                      if cat == next(iter(categories)) else None)
-            for d in group_items:
-                g.add(self.preset_row(d))
-            self.box.append(g)
+        self.build_presets(items, locked=False)
 
         self.preset_text = {t: d["description"] for d in items for t in d["kargs"] if d["description"]}
         if self.win.advanced:
             self.build_advanced(data, items)
 
-        g = group("Running kernel")
-        g.add(info_row("Command line", "", data["cmdline"] or "unavailable"))
-        self.box.append(g)
+        self.box.append(self.cmdline_group(data))
 
-    def preset_row(self, d: dict) -> Adw.SwitchRow:
+    def cmdline_group(self, data: dict) -> Adw.PreferencesGroup:
+        """The command line now, the one the next boot will use, and the difference between them."""
+        from .. import kargs
+
+        g = group("Command line", "What is running, and what the next boot will use. Changes you make above show up "
+                  "as the difference.")
+        running = data.get("cmdline") or ""
+        g.add(info_row("Running now", "", running or "unavailable"))
+        listing = data.get("list")
+        if not isinstance(listing, dict) or "error" in listing or "options" not in listing:
+            reason = listing.get("error", "unavailable") if isinstance(listing, dict) else "unavailable"
+            g.add(info_row("Next boot", "", reason))
+            return g
+        g.add(info_row("Next boot", "", " ".join(listing["options"])))
+        diff = kargs.diff_cmdline(running, listing["options"])
+        lines = [f"+ {t}" for t in diff["added"]] + [f"− {t}" for t in diff["removed"]]
+        g.add(info_row("Changes after reboot", "", "\n".join(lines) if lines else "None: the next boot uses the "
+                       "same arguments as now."))
+        return g
+
+    SECTION_TEXT = {
+        "on": ("Switched on", "Presets that are on now. Switch one off to stop using it after the next reboot."),
+        "fits": ("Presets for this hardware", "Listed because they fit this hardware's graphics or model, not "
+                 "because you need them."),
+        "optional": ("Other presets", "Not recommended. Only for a problem you actually have."),
+        "risky": ("Risky presets", "Not specific to this hardware, and medium or high risk. Each asks you to "
+                  "confirm."),
+        "unsupported": ("Unsupported", "Locked: they are for other hardware, so they cannot work here."),
+        "invalid": ("Invalid presets", "These could not be read and are never applied."),
+    }
+
+    def build_presets(self, items: list[dict], locked: bool) -> None:
+        """Presets by how well they fit this hardware (kargs.fit), not by category. The category is on each row.
+
+        locked: every switch is greyed out and cannot be changed (normal mode; only Advanced changes presets)."""
+        from .. import kargs
+
+        if not items:
+            g = group("Presets")
+            g.add(message_row("No presets are installed on this system."))
+            self.box.append(g)
+            return
+        warn = group("Kernel arguments: best left alone", kargs.KARGS_WARNING)
+        warn.add_css_class("warning")
+        self.box.append(warn)
+        for key, rows in kargs.sections(items).items():
+            if not rows:
+                continue
+            title, text = self.SECTION_TEXT[key]
+            g = group(title, text + " Changes take effect after a reboot." if key in ("on", "fits") else text)
+            for d in rows:
+                if key == "invalid":
+                    g.add(info_row(d["name"], "invalid", d["error"]))
+                elif key == "unsupported":
+                    g.add(info_row(d["description"] or d["name"], "", d.get("fit_reason") or " ".join(d["kargs"]),
+                                   tag=("Unsupported", "dim-label")))
+                else:
+                    g.add(self.preset_row(d, locked))
+            self.box.append(g)
+
+    def preset_row(self, d: dict, locked: bool = False) -> Adw.SwitchRow:
         level = d.get("risk_level", "low")
-        lines = [d["description"] or d["name"], "Adds: " + " ".join(d["kargs"])]
+        lines = [d["description"] or d["name"], f"{d.get('category') or 'Other'}  ·  Adds: " + " ".join(d["kargs"])]
         if d.get("risk"):
             lines.append(f"Risk: {d['risk']}")
+        if d.get("already_active") and not d["enabled"]:
+            # Running now but not set by this preset (the image's own arguments, or added by hand). The switch shows
+            # that it is on; switching it off removes the arguments one by one.
+            row = switch_row(d["description"] or d["name"],
+                             "Active now, set by the image or by hand. Switch off to remove it.\n"
+                             + "\n".join(lines[1:]), True, lambda on, dd=d: None if on else self.deactivate(dd))
+            row.add_suffix(tag_label("Active", "success"))
+            row.set_sensitive(not (locked or self.blocked))
+            return row
         row = switch_row(d["description"] or d["name"], "\n".join(lines[1:]), d["enabled"],
                          lambda on, dd=d: self.toggle(dd, on))
-        if d.get("already_active") and not d["enabled"]:
-            row.set_subtitle("Already active on this system, set by the image or by hand.\n"
-                             + "\n".join(lines[1:]))
-            row.add_suffix(tag_label("Active", "success"))
-            row.set_sensitive(False)
-            return row
         row.add_suffix(tag_label(self.RISK_LABEL.get(level, level), self.RISK_CLASS.get(level, "dim-label")))
-        row.set_sensitive(not self.blocked)
+        row.set_sensitive(not (locked or self.blocked))
         return row
 
     def build_advanced(self, data: dict, items: list[dict]) -> None:
@@ -424,14 +482,6 @@ class KargsPage(Page):
                 if tok.split("=", 1)[0] in ("ostree", "root"):
                     continue
                 g.add(self.argument_row(d))
-            self.box.append(g)
-
-        others = [d for d in items if not d["matches_device"] or d["error"]]
-        if others:
-            g = group("Other presets", "These do not match this device and are never applied.")
-            for d in others:
-                g.add(info_row(d["name"], "invalid" if d["error"] else "other device",
-                               d["error"] or " ".join(d["kargs"])))
             self.box.append(g)
 
     def argument_row(self, d: dict):
@@ -463,6 +513,8 @@ class KargsPage(Page):
 
     # actions
     def toggle(self, d: dict, on: bool) -> None:
+        if not self.win.advanced:  # presets only change in Advanced options
+            return
         level = d.get("risk_level", "low")
         if on and level in ("medium", "high"):
             self.win.confirm(f"Turn on “{d['description'] or d['name']}”?",
@@ -471,6 +523,33 @@ class KargsPage(Page):
                              destructive=level == "high", on_cancel=self.refresh)
         else:
             self.run_verb("enable" if on else "disable", d["name"])
+
+    def deactivate(self, d: dict) -> None:
+        """Take out the arguments of a preset that is running without having been switched on here."""
+        if not self.win.advanced:
+            return
+        toks = list(d["kargs"])
+
+        def step(rest: list[str]) -> None:
+            if not rest:
+                self.win.toast("Saved. Reboot to apply.")
+                self.refresh()
+                return
+
+            def done(res):
+                if isinstance(res, dict) and "error" in res:
+                    self.win.toast(f"Could not remove {rest[0]}: {res['error']}")
+                    self.refresh()
+                else:
+                    step(rest[1:])
+
+            self.win.load(lambda: run_json([tool("bopp-kargs"), "--json", "remove", rest[0]], timeout=180), done)
+
+        risk = f"\n\nRisk: {d['risk']}" if d.get("risk") else ""
+        self.win.confirm(f"Turn off “{d['description'] or d['name']}”?",
+                         f"Removes {' '.join(toks)} from the kernel arguments. The image sets this by default."
+                         f"{risk}\n\nThe previous deployment stays available to roll back to.",
+                         "Turn off", lambda: step(toks), on_cancel=self.refresh)
 
     def run_verb(self, verb: str, arg: str) -> None:
         def done(res):

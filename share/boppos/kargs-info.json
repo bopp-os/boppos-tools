@@ -103,7 +103,8 @@
   "match": "amdgpu.ppfeaturemask=0xffffffff",
   "summary": "Unlocks all AMD GPU power features. Needed for overclocking, undervolting and fan control tools such as LACT.",
   "image_default": true,
-  "risk": "Lets tools set clocks and voltages that can crash the GPU or damage it if misused."
+  "risk": "Lets tools set clocks and voltages that can crash the GPU or damage it if misused.",
+  "risk_level": "high"
  },
  {
   "match": "amdgpu.gpu_recovery=1",
@@ -164,15 +165,24 @@
  },
  {
   "match": "kvm.ignore_msrs=1",
-  "summary": "Ignores unknown CPU registers in virtual machines. Avoids crashes in some guests."
+  "summary": "Ignores unknown CPU registers in virtual machines. Avoids crashes in some guests.",
+  "risk": "Lets guests that read CPU registers the host does not expose (some Windows guests) keep running instead of crashing. Only useful if you run virtual machines.",
+  "risk_level": "low",
+  "preset": "81-kvm-ignore-msrs"
  },
  {
   "match": "kvm.report_ignored_msrs=0",
-  "summary": "Does not log the ignored register accesses."
+  "summary": "Does not log the ignored register accesses.",
+  "risk": "Lets guests that read CPU registers the host does not expose (some Windows guests) keep running instead of crashing. Only useful if you run virtual machines.",
+  "risk_level": "low",
+  "preset": "81-kvm-ignore-msrs"
  },
  {
   "match": "pcie_aspm=off",
-  "summary": "Turns off PCIe link power saving. Avoids hangs on some hardware; uses more power at idle."
+  "summary": "Turns off PCIe link power saving. Avoids hangs on some hardware; uses more power at idle.",
+  "risk": "Fixes dropped connections on Intel igc Ethernet controllers. Raises idle power use on every PCIe device, not only the network card.",
+  "risk_level": "medium",
+  "preset": "78-pcie-aspm-off"
  },
  {
   "match": "skew_tick=1",
@@ -255,5 +265,96 @@
   "risk": "Needed to give a graphics card or other device to a virtual machine. Can cause problems with some devices and costs a little speed. Only useful on Intel CPUs.",
   "risk_level": "medium",
   "preset": "80-intel-iommu-on"
+ },
+ {
+  "match": "video=eDP-1:panel_orientation=left_side_up",
+  "summary": "Rotates the built-in portrait panel so the screen is upright.",
+  "risk": "Only matches the ONEXPLAYER F1 and F1 EVA-01. Switching it off turns the boot screen sideways again.",
+  "risk_level": "low",
+  "preset": "90-onexplayer-f1-panel"
+ },
+ {
+  "match": "plymouth.use-simpledrm=0",
+  "summary": "Starts the boot splash on the real graphics driver instead of the simple framebuffer.",
+  "risk": "Only matches the ONEXPLAYER F1 and F1 EVA-01. Switching it off turns the boot screen sideways again.",
+  "risk_level": "low",
+  "preset": "90-onexplayer-f1-panel"
+ },
+ {
+  "match": "loglevel=0",
+  "summary": "Hides kernel messages during boot.",
+  "risk": "Only matches the ONEXPLAYER F1 and F1 EVA-01. Switching it off turns the boot screen sideways again.",
+  "risk_level": "low",
+  "preset": "90-onexplayer-f1-panel"
+ },
+ {
+  "match": "acpi=strict",
+  "summary": "Makes the kernel strict about ACPI resource conflicts.",
+  "risk": "Stops random reboots on the AYANEO SLIDE. Only matches that model.",
+  "risk_level": "low",
+  "preset": "91-ayaneo-slide-acpi-strict"
+ },
+ {
+  "match": "module_blacklist=hid_sensor_hub",
+  "summary": "Stops the hid_sensor_hub module from loading, which fixes the keyboard.",
+  "risk": "Screen auto-rotation and ambient light sensors that use that module stop working. Only matches Framework laptops with Intel in the model name.",
+  "risk_level": "low",
+  "preset": "92-framework-intel-keyboard"
+ },
+ {
+  "match": "amdgpu.dcdebugmask=0x10",
+  "summary": "Turns off Panel Self Refresh in the AMD display driver.",
+  "risk": "Fixes flicker or artifacts on some AMD laptop and handheld panels. The display stays in a higher-power state, so battery life drops. Some panels need a different value than this one. Only useful with AMD graphics.",
+  "risk_level": "low",
+  "preset": "73-amd-psr-off"
+ },
+ {
+  "match": "amdgpu.dcfeaturemask=0x402",
+  "summary": "Turns on extra display features in the AMD driver (HDMI 2.1 and FreeSync).",
+  "risk": "Bazzite offers this for HDMI 2.1 and FreeSync over HDMI. It can cause flicker or instability on some displays. Only useful with AMD graphics.",
+  "risk_level": "medium",
+  "preset": "74-amd-hdmi21-freesync"
+ },
+ {
+  "match": "i915.enable_dc=0",
+  "summary": "Turns off the deepest display power-saving states on Intel graphics.",
+  "risk": "Avoids random reboots or failed suspend on Intel graphics from about 2012 to 2015. Uses more power while the screen is idle. Only useful with Intel graphics.",
+  "risk_level": "low",
+  "preset": "75-intel-sleep-fix"
+ },
+ {
+  "match": "nvidia-drm.fbdev=1",
+  "summary": "Lets the Nvidia driver provide the framebuffer console.",
+  "risk": "Helps some Nvidia setups keep a working console and resume from sleep. Experimental in the driver. Only useful with the Nvidia driver.",
+  "risk_level": "medium",
+  "preset": "76-nvidia-fbdev"
+ },
+ {
+  "match": "nvidia.NVreg_PreserveVideoMemoryAllocations=1",
+  "summary": "Saves video memory contents when the system sleeps.",
+  "risk": "Fixes a black or corrupted screen after resume on some Nvidia setups. Needs the nvidia-suspend, nvidia-resume and nvidia-hibernate services to be enabled. Only useful with the Nvidia driver.",
+  "risk_level": "medium",
+  "preset": "77-nvidia-keep-vram"
+ },
+ {
+  "match": "pcie_aspm.policy=performance",
+  "summary": "Sets the PCIe power policy to performance.",
+  "risk": "Fixes dropped connections on Intel igc Ethernet controllers. Raises idle power use on every PCIe device, not only the network card.",
+  "risk_level": "medium",
+  "preset": "78-pcie-aspm-off"
+ },
+ {
+  "match": "pcie_port_pm=off",
+  "summary": "Stops the kernel from powering down PCIe ports.",
+  "risk": "Fixes devices that disappear or hang after sleep on some boards. Raises idle power use.",
+  "risk_level": "medium",
+  "preset": "79-pcie-port-pm-off"
+ },
+ {
+  "match": "mem_sleep_default=s2idle",
+  "summary": "Uses s2idle (light sleep) when suspending.",
+  "risk": "For machines that fail to wake from deep sleep. s2idle uses more battery while asleep. The opposite of the deep sleep preset; switch on only one.",
+  "risk_level": "low",
+  "preset": "82-sleep-s2idle"
  }
 ]
