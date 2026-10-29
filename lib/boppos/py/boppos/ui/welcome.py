@@ -119,8 +119,8 @@ class WelcomeFlow(Gtk.Box):
             extras.add(row)
         if rows:
             groups.append(extras)
-        apps = group("Flatpak apps", "Installed for you only, from Flathub. Needs a network connection. A few "
-                     "basics are ticked; open a category for more. Apps this system already has are not listed.")
+        intro = group("Flatpak apps", "From Flathub, installed for you only.")
+        apps = group()  # the categories; a group of their own so the buttons sit under the description
         options = welcome.app_options()
         if not options:
             apps.add(info_row("No app list found", "", "The curated Flatpak list could not be read."))
@@ -130,15 +130,16 @@ class WelcomeFlow(Gtk.Box):
             apps.add(row)
             selects.append(select)
         if selects:
-            buttons = Gtk.Box(spacing=6, valign=Gtk.Align.CENTER)
+            buttons = Gtk.Box(spacing=12, halign=Gtk.Align.START)
             for label, tip, keep in (
                 ("Install defaults", "Tick only the starting picks", lambda a: a.ref in self.default_flatpaks),
                 ("Install none", "Untick every app", lambda _a: False),
             ):
-                btn = Gtk.Button(label=label, css_classes=["flat"], tooltip_text=tip)
+                btn = Gtk.Button(label=label, tooltip_text=tip)
                 btn.connect("clicked", lambda _b, keep=keep: [s(keep) for s in selects])
                 buttons.append(btn)
-            apps.set_header_suffix(buttons)
+            intro.add(buttons)  # not a row: drawn plain under the description, outside the boxed list
+            groups.append(intro)
         groups.append(apps)
         return page(*groups)
 
