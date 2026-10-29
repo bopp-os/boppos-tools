@@ -211,7 +211,7 @@ def test_the_choices_become_commands_in_a_fixed_order():
     assert welcome.apply_commands(c, tool) == [
         ["/usr/bin/install-optional-flatpaks", "--json", "--yes", "--only",
          "io.github.kolunmi.Bazaar,it.mijorus.gearlever"],
-        ["/usr/bin/bopp-steam-shortcut", "--json", "sync", "--add", "boppos-deck"],
+        ["/usr/bin/bopp-steam-shortcut", "--json", "sync", "--add", "boppos-deck", "--queue-ok"],
         ["/usr/bin/bopp-decky", "--json", "install"],
         ["/usr/bin/bopp-kargs", "--json", "enable", "a-one"],
         ["/usr/bin/bopp-kargs", "--json", "enable", "b-two"]]  # howdy and the firmware check run nothing

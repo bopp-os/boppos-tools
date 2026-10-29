@@ -242,7 +242,7 @@ def apply_commands(choices: Choices, tool: Callable[[str], str]) -> list[list[st
         only = ",".join(sorted(choices.flatpaks))
         cmds.append([tool("install-optional-flatpaks"), "--json", "--yes", "--only", only])
     if choices.steam_shortcuts:
-        cmds.append([tool("bopp-steam-shortcut"), "--json", "sync", "--add", "boppos-deck"])
+        cmds.append([tool("bopp-steam-shortcut"), "--json", "sync", "--add", "boppos-deck", "--queue-ok"])
     if choices.decky:
         cmds.append([tool("bopp-decky"), "--json", "install"])
     cmds += [[tool("bopp-kargs"), "--json", "enable", name] for name in sorted(choices.kargs)]
