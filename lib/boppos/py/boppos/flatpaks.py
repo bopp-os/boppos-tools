@@ -8,12 +8,15 @@ from __future__ import annotations
 import re
 import subprocess
 from dataclasses import dataclass
+from functools import lru_cache
+from pathlib import Path
 
 from .paths import share_file
 
 DEFAULT_LIST = str(share_file("boppos-flatpaks.txt"))
 DEFAULTS_LIST = str(share_file("boppos-flatpaks-default.txt"))
 EXTRA_LIST = str(share_file("boppos-flatpaks-extra.txt"))
+NATIVE_MAP = str(share_file("boppos-flatpaks-native.txt"))
 REMOTE_URL = "https://flathub.org/repo/flathub.flatpakrepo"
 _REF = re.compile(r"^(runtime/)?[A-Za-z0-9_][A-Za-z0-9_.-]*(/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)?$")
 
@@ -47,6 +50,7 @@ class App:
     kind: str  # "app" or "runtime"
     category: str = "Other"
     name: str = ""  # from a trailing "# name: Proper Name" comment in the list
+    default: bool = False  # "; default" after the name: pre-ticked in the first-run wizard
 
 
 def parse_list(text: str) -> list[App]:
@@ -61,16 +65,19 @@ def parse_list(text: str) -> list[App]:
         line, comment = line.strip(), comment.strip()
         if not line or line in seen:
             continue
-        name = comment[5:].strip() if comment.lower().startswith("name:") else ""
+        # the comment is "name: Proper Name" optionally followed by "; default"
+        fields = [f.strip() for f in comment.split(";")]
+        name = fields[0][5:].strip() if fields[0].lower().startswith("name:") else ""
+        default = "default" in (f.lower() for f in fields[1:])
         if not _REF.match(line):
             raise ListError(f"invalid Flatpak reference: {line!r}")
         seen.add(line)
         if line.startswith("runtime/"):
-            apps.append(App(line, line.split("/")[1], "runtime", category, name))
+            apps.append(App(line, line.split("/")[1], "runtime", category, name, default))
         else:
             # extensions (for example the QEMU add-on of virt-manager) are installed but are not apps to show
             kind = "runtime" if ".Extension." in line else "app"
-            apps.append(App(line, line, kind, category, name))
+            apps.append(App(line, line, kind, category, name, default))
     return apps
 
 
@@ -80,8 +87,6 @@ def load_curated(core: str = DEFAULT_LIST, extra: str | None = EXTRA_LIST) -> li
     The interactive install-optional-flatpaks only ever reads the core list, so "install everything"
     stays the size it was.
     """
-    from pathlib import Path
-
     text = Path(core).read_text()
     if extra:
         try:
@@ -89,6 +94,52 @@ def load_curated(core: str = DEFAULT_LIST, extra: str | None = EXTRA_LIST) -> li
         except OSError:
             pass
     return parse_list(text)
+
+
+def parse_native_map(text: str) -> dict[str, tuple[str, ...]]:
+    """flatpak id -> the native packages / .desktop files that make it redundant (see boppos-flatpaks-native.txt)."""
+    out: dict[str, tuple[str, ...]] = {}
+    for raw in text.splitlines():
+        fields = raw.partition("#")[0].split()
+        if len(fields) < 2:
+            if fields:
+                raise ListError(f"no native package given for {fields[0]!r}")
+            continue
+        out[fields[0]] = tuple(fields[1:])
+    return out
+
+
+def load_native_map(path: str = NATIVE_MAP) -> dict[str, tuple[str, ...]]:
+    """The shipped mapping; a missing or broken file hides nothing."""
+    try:
+        return parse_native_map(Path(path).read_text())
+    except (OSError, ListError):
+        return {}
+
+
+@lru_cache(maxsize=1)
+def native_installed(root: str = "/") -> frozenset[str]:
+    """Installed pacman packages plus the .desktop files in /usr/share/applications (same namespace, the
+    mapping tells them apart by the suffix). Cached: the image does not change while the app runs."""
+    found: set[str] = set()
+    try:
+        cmd = ["pacman", "-Qq"] + ([] if root == "/" else ["--root", root])
+        proc = subprocess.run(cmd, capture_output=True, text=True, check=False)
+        if proc.returncode == 0:
+            found |= parse_installed(proc.stdout)
+    except OSError:
+        pass
+    apps = Path(root) / "usr/share/applications"
+    try:
+        found |= {f.name for f in apps.iterdir() if f.name.endswith(".desktop")}
+    except OSError:
+        pass
+    return frozenset(found)
+
+
+def redundant(apps: list[App], mapping: dict[str, tuple[str, ...]], installed: set[str] | frozenset[str]) -> set[str]:
+    """Ids of the apps a native package or .desktop file already provides. Unmapped apps are never redundant."""
+    return {a.id for a in apps if any(n in installed for n in mapping.get(a.id, ()))}
 
 
 def parse_installed(output: str) -> set[str]:

@@ -112,34 +112,25 @@ class KargOption:
         return self.fit in ("risky", "unsupported")
 
 
-def default_flatpak_ids() -> set[str]:
-    """The apps the wizard always recommends (Bazaar)."""
-    try:
-        return {a.ref for a in flatpaks.parse_list(Path(flatpaks.DEFAULTS_LIST).read_text())}
-    except (OSError, flatpaks.ListError):
-        return set()
-
-
-def curated_flatpak_ids() -> set[str]:
-    """The curated list that used to be installed by hand: the wizard now recommends all of its apps."""
-    try:
-        apps = flatpaks.parse_list(Path(flatpaks.DEFAULT_LIST).read_text())
-    except (OSError, flatpaks.ListError):
-        return set()
-    return {a.ref for a in apps if a.kind == "app"}
-
-
-def app_options() -> dict[str, list[flatpaks.App]]:
-    """The curated apps by category (runtimes and extensions are not offered)."""
+def app_options(native: set[str] | frozenset[str] | None = None) -> dict[str, list[flatpaks.App]]:
+    """The curated apps by category (runtimes and extensions are not offered), without the ones the image
+    already ships natively (`native`: installed packages and .desktop files, detected when None)."""
     try:
         apps = flatpaks.load_curated()
     except (OSError, flatpaks.ListError):
         return {}
+    native = flatpaks.native_installed() if native is None else native
+    hidden = flatpaks.redundant(apps, flatpaks.load_native_map(), native)
     out: dict[str, list[flatpaks.App]] = {}
     for app in apps:
-        if app.kind == "app":
+        if app.kind == "app" and app.id not in hidden:
             out.setdefault(app.category, []).append(app)
     return out
+
+
+def default_flatpak_ids(options: dict[str, list[flatpaks.App]]) -> set[str]:
+    """The offered apps the list marks "; default": the only ones pre-ticked (with the hardware kind's extras)."""
+    return {a.ref for apps in options.values() for a in apps if a.default}
 
 
 # Presets the wizard shows as a switch of their own instead of in the list of presets.
@@ -190,13 +181,15 @@ class Recommended:
     key: str
 
 
-def recommended(hw: hwprofiles.Hardware | None = None) -> list[Recommended]:
+def recommended(hw: hwprofiles.Hardware | None = None,
+                native: set[str] | frozenset[str] | None = None) -> list[Recommended]:
     """What the wizard recommends for this hardware: all of it starts switched on, the user can switch it off.
-    Never a kargs preset."""
+    Never a kargs preset, never an app the image already ships natively."""
     hw = hwprofiles.detect() if hw is None else hw
     extra = hwprofiles.KIND_DEFAULTS.get(hw.kind, {})
-    known = {a.ref for apps in app_options().values() for a in apps}
-    refs = (default_flatpak_ids() | curated_flatpak_ids() | set(extra.get("extra_flatpaks", ()))) & known
+    options = app_options(native)
+    known = {a.ref for apps in options.values() for a in apps}
+    refs = (default_flatpak_ids(options) | set(extra.get("extra_flatpaks", ()))) & known
     recs = [Recommended("apps", "flatpak", r) for r in sorted(refs)]
     flags = {"firmware_check": True, "steam_shortcuts": False, "decky": False, "auto_updates": False}
     flags.update({k: bool(v) for k, v in extra.items() if k in flags})
@@ -206,10 +199,11 @@ def recommended(hw: hwprofiles.Hardware | None = None) -> list[Recommended]:
     return recs
 
 
-def initial_choices(hw: hwprofiles.Hardware | None = None) -> Choices:
+def initial_choices(hw: hwprofiles.Hardware | None = None,
+                    native: set[str] | frozenset[str] | None = None) -> Choices:
     """Everything recommended is on before the user touches anything."""
     c = Choices()
-    for r in recommended(hw):
+    for r in recommended(hw, native):
         if r.kind == "flatpak":
             c.flatpaks.add(r.key)
         else:

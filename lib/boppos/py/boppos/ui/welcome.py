@@ -91,22 +91,17 @@ class WelcomeFlow(Gtk.Box):
 
     # --- steps -------------------------------------------------------------------------------------------
     def recommended_group(self, step: str) -> tuple[Adw.PreferencesGroup | None, set[str]]:
-        """The "Recommended" group of a step: everything recommended for this hardware, already switched on.
-        Also returns what it holds, so the step's other groups do not list it twice."""
-        recs = [r for r in welcome.recommended(self.hw) if r.step == step]
+        """The "Recommended" group of a step: every switch recommended for this hardware, already on.
+        Also returns what it holds, so the step's other groups do not list it twice. Recommended apps are not
+        in it: they stay in their category of the app list, ticked."""
+        recs = [r for r in welcome.recommended(self.hw) if r.step == step and r.kind == "flag"]
         if not recs:
             return None, set()
         c = self.choices
-        names = {a.ref: a for apps in welcome.app_options().values() for a in apps}
         g = group("Recommended", "On by default. Switch off anything you do not want.")
         for r in recs:
-            if r.kind == "flatpak":
-                app = names.get(r.key)
-                g.add(switch_row(app.name or app.id if app else r.key, r.key, r.key in c.flatpaks,
-                                 toggle(c.flatpaks, r.key)))
-            else:
-                title, text = welcome.FLAGS[r.key]
-                g.add(switch_row(title, text, getattr(c, r.key), setter(c, r.key)))
+            title, text = welcome.FLAGS[r.key]
+            g.add(switch_row(title, text, getattr(c, r.key), setter(c, r.key)))
         return g, {r.key for r in recs}
 
     def flag_row(self, attr: str) -> Adw.SwitchRow:
@@ -114,7 +109,6 @@ class WelcomeFlow(Gtk.Box):
         return switch_row(title, text, getattr(self.choices, attr), setter(self.choices, attr))
 
     def apps_page(self) -> Gtk.Widget:
-        c = self.choices
         rec, taken = self.recommended_group("apps")
         groups = [rec] if rec else []
         extras = group("Gaming", "Both need Steam; in Gaming Mode they are set up after your first Steam login."
@@ -124,21 +118,56 @@ class WelcomeFlow(Gtk.Box):
             extras.add(row)
         if rows:
             groups.append(extras)
-        apps = group("More Flatpak apps", "Installed for you only, from Flathub. Needs a network connection.")
+        apps = group("Flatpak apps", "Installed for you only, from Flathub. Needs a network connection. A few "
+                     "basics are ticked; open a category for more. Apps this system already has are not listed.")
         options = welcome.app_options()
         if not options:
             apps.add(info_row("No app list found", "", "The curated Flatpak list could not be read."))
+        set_alls = []
         for category, items in options.items():
-            items = [a for a in items if a.ref not in taken]
-            if not items:
-                continue
-            row = expander_row(category, f"{len(items)} apps")
-            for app in items:
-                row.add_row(switch_row(app.name or app.id, app.id, app.ref in c.flatpaks,
-                                       toggle(c.flatpaks, app.ref)))
+            row, set_all = self.app_section(category, items)
             apps.add(row)
+            set_alls.append(set_all)
+        if set_alls:
+            none = Gtk.Button(label="Install none", valign=Gtk.Align.CENTER, css_classes=["flat"],
+                              tooltip_text="Untick every app")
+            none.connect("clicked", lambda _b: [s(False) for s in set_alls])
+            apps.set_header_suffix(none)
         groups.append(apps)
         return page(*groups)
+
+    def app_section(self, category: str, items: list) -> tuple[Adw.ExpanderRow, Callable[[bool], None]]:
+        """One collapsed category: "N of M selected" and a select-all/none box in the header, a switch per app.
+        Returns the row and a function that switches all of its apps on or off."""
+        c = self.choices
+        row = expander_row(category)
+        check = Gtk.CheckButton(valign=Gtk.Align.CENTER, tooltip_text=f"Select all or none of {category}")
+        switches: list[Adw.SwitchRow] = []
+
+        def refresh() -> None:
+            n = sum(a.ref in c.flatpaks for a in items)
+            row.set_subtitle(f"{n} of {len(items)} selected")
+            check.handler_block(handler)
+            check.set_active(n == len(items))
+            check.set_inconsistent(0 < n < len(items))
+            check.handler_unblock(handler)
+
+        def set_all(active: bool) -> None:
+            for sw in switches:
+                sw.set_active(active)
+            refresh()
+
+        handler = check.connect("toggled", lambda b: set_all(b.get_active()))
+        def changed(on: Callable[[bool], None]) -> Callable[[bool], None]:
+            return lambda active: (on(active), refresh())
+
+        for app in items:
+            sw = switch_row(app.name or app.id, app.id, app.ref in c.flatpaks, changed(toggle(c.flatpaks, app.ref)))
+            switches.append(sw)
+            row.add_row(sw)
+        row.add_suffix(check)
+        refresh()
+        return row, set_all
 
     def hardware_page(self) -> Gtk.Widget:
         c = self.choices

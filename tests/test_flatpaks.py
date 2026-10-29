@@ -83,7 +83,7 @@ def test_shipped_list_parses_and_every_app_has_a_category():
     from pathlib import Path
 
     apps = flatpaks.parse_list((Path(__file__).parent.parent / "share/boppos/boppos-flatpaks.txt").read_text())
-    assert len(apps) == 29 and all(a.category != "Other" for a in apps)
+    assert len(apps) == 31 and all(a.category != "Other" for a in apps)
     assert {"com.vysp3r.ProtonPlus", "it.mijorus.gearlever", "com.github.tchx84.Flatseal",
             "io.github.kolunmi.Bazaar"} <= {a.id for a in apps}
 
@@ -124,16 +124,16 @@ def test_extensions_are_not_listed_as_apps():
     assert [a.kind for a in apps] == ["runtime", "app"]
 
 
-def test_every_shipped_app_has_a_proper_name_and_the_interactive_installer_still_sees_29_refs():
+def test_every_shipped_app_has_a_proper_name_and_the_interactive_installer_still_sees_31_refs():
     from pathlib import Path
 
     text = (Path(__file__).parent.parent / "share/boppos/boppos-flatpaks.txt").read_text()
     apps = [a for a in flatpaks.parse_list(text) if a.kind == "app"]
-    assert len(apps) == 26 and all(a.name for a in apps)
+    assert len(apps) == 28 and all(a.name for a in apps)
     names = {a.id: a.name for a in apps}
     assert names["com.bitwarden.desktop"] == "Bitwarden Desktop" and names["io.github.kolunmi.Bazaar"] == "Bazaar"
     refs = [ln.split("#")[0].strip() for ln in text.splitlines() if ln.split("#")[0].strip()]
-    assert len(set(refs)) == 29 and all(" " not in r for r in refs)  # what `sed 's/#.*//'` leaves behind
+    assert len(set(refs)) == 31 and all(" " not in r for r in refs)  # what `sed 's/#.*//'` leaves behind
 
 
 # --- the extra (opt-in) list -----------------------------------------------------------------------------
@@ -159,7 +159,7 @@ def test_the_interactive_installer_still_installs_only_the_core_list():
     """install-optional-flatpaks (bash, no arguments) reads boppos-flatpaks.txt alone: it must not grow."""
     refs = {ln.split("#")[0].strip() for ln in (_share() / "boppos-flatpaks.txt").read_text().splitlines()}
     refs.discard("")
-    assert len(refs) == 29
+    assert len(refs) == 31
     assert "org.libretro.RetroArch" not in refs
     from pathlib import Path
 
@@ -169,9 +169,9 @@ def test_the_interactive_installer_still_installs_only_the_core_list():
 
 def test_load_curated_merges_core_and_extra_and_survives_a_missing_extra(tmp_path):
     merged = flatpaks.load_curated(str(_share() / "boppos-flatpaks.txt"), str(_share() / "boppos-flatpaks-extra.txt"))
-    assert len(merged) > 29 and any(a.id == "net.pcsx2.PCSX2" for a in merged)
+    assert len(merged) > 31 and any(a.id == "net.pcsx2.PCSX2" for a in merged)
     core_only = flatpaks.load_curated(str(_share() / "boppos-flatpaks.txt"), str(tmp_path / "missing.txt"))
-    assert len(core_only) == 29
+    assert len(core_only) == 31
     # categories carry from the end of one file into a '##' of the next without leaking
     emu = [a for a in merged if a.id == "net.pcsx2.PCSX2"][0]
     assert emu.category == "Emulators"
@@ -231,3 +231,58 @@ def test_remove_follows_every_scope_the_app_is_in(tmp_path, monkeypatch, capsys)
     capsys.readouterr()
     assert flatpaks_cli.main(["--list", str(f), "--status", "--json"]) == 0
     assert json.loads(capsys.readouterr().out)[0]["scopes"] == ["system", "user"]
+
+
+# --- defaults marked in the list, and apps the image already ships -----------------------------------------
+
+
+def test_the_default_marker_follows_the_name_and_is_not_part_of_it():
+    apps = flatpaks.parse_list("org.a.A  # name: Proper A; default\norg.b.B  # name: B\norg.c.C  # default\n")
+    assert [(a.name, a.default) for a in apps] == [("Proper A", True), ("B", False), ("", False)]
+
+
+def test_the_shipped_defaults_are_few_and_the_extras_have_none():
+    core = flatpaks.parse_list((_share() / "boppos-flatpaks.txt").read_text())
+    extra = flatpaks.parse_list((_share() / "boppos-flatpaks-extra.txt").read_text())
+    assert {a.id for a in core if a.default} == {
+        "org.mozilla.firefox", "org.videolan.VLC", "io.github.kolunmi.Bazaar", "com.vysp3r.ProtonPlus",
+        "com.github.tchx84.Flatseal"}
+    assert not any(a.default for a in extra)
+    always = {a.id for a in flatpaks.parse_list((_share() / "boppos-flatpaks-default.txt").read_text())}
+    assert always <= {a.id for a in core if a.default}  # what --defaults installs is also ticked in the wizard
+
+
+def test_native_map_is_explicit_and_names_only_listed_apps():
+    mapping = flatpaks.parse_native_map((_share() / "boppos-flatpaks-native.txt").read_text())
+    listed = {a.id for a in flatpaks.load_curated(str(_share() / "boppos-flatpaks.txt"),
+                                                  str(_share() / "boppos-flatpaks-extra.txt"))}
+    assert mapping and set(mapping) <= listed
+    assert mapping["org.mozilla.firefox"] == ("firefox", "firefox.desktop")
+    assert "lutris" in mapping["net.lutris.Lutris"]
+    assert "heroic-games-launcher-bin" in mapping["com.heroicgameslauncher.hgl"]
+    with pytest.raises(flatpaks.ListError):
+        flatpaks.parse_native_map("org.a.A\n")
+
+
+def test_redundant_matches_packages_and_desktop_files_but_never_unmapped_apps():
+    apps = flatpaks.parse_list("org.mozilla.firefox\nnet.lutris.Lutris\norg.gimp.GIMP\norg.x.Unmapped\n")
+    mapping = {"org.mozilla.firefox": ("firefox", "firefox.desktop"), "net.lutris.Lutris": ("lutris",),
+               "org.gimp.GIMP": ("gimp",)}
+    assert flatpaks.redundant(apps, mapping, {"firefox.desktop", "lutris", "Unmapped", "x"}) == {
+        "org.mozilla.firefox", "net.lutris.Lutris"}
+    assert flatpaks.redundant(apps, mapping, set()) == set()
+    assert flatpaks.redundant(apps, {}, {"firefox", "lutris", "gimp"}) == set()
+
+
+def test_native_installed_reads_pacman_and_desktop_files(tmp_path, monkeypatch):
+    import subprocess
+
+    (tmp_path / "usr/share/applications").mkdir(parents=True)
+    (tmp_path / "usr/share/applications/steam.desktop").touch()
+    (tmp_path / "usr/share/applications/readme.txt").touch()
+    monkeypatch.setattr(subprocess, "run", lambda *a, **k: subprocess.CompletedProcess(a, 0, "lutris\nfirefox\n", ""))
+    flatpaks.native_installed.cache_clear()
+    try:
+        assert flatpaks.native_installed(str(tmp_path)) == {"lutris", "firefox", "steam.desktop"}
+    finally:
+        flatpaks.native_installed.cache_clear()

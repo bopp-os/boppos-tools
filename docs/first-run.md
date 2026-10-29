@@ -80,6 +80,21 @@ missing file, or no installed session means: the step is left out and no autolog
 
 The tour asks only when no autologin file selects a session yet, so after the setup it does not ask twice.
 
+## Apps in the tour
+
+The Apps step lists `share/boppos/boppos-flatpaks.txt` plus `boppos-flatpaks-extra.txt`, one collapsed section per
+`## Category`. Each section header shows "N of M selected" and has a select-all/none box; "Install none" in the
+group header unticks every app in one click (finishing with nothing ticked installs no Flatpak).
+
+- **Pre-ticked** is data: an app is ticked when its list line ends in `# name: Proper Name; default`. The extras
+  carry no defaults. A hardware kind can add its own (`hwprofiles.KIND_DEFAULTS["handheld"]["extra_flatpaks"]`).
+- **Hidden** at runtime: `boppos-flatpaks-native.txt` maps a Flatpak id to native packages (`pacman -Qq`) or
+  `.desktop` files (`/usr/share/applications`). When any of them is installed, the Flatpak is not listed, not
+  ticked and not counted. An id with no line there is always shown; nothing is guessed from names. This keeps one
+  list for every flavor (niri, GNOME, Plasma, Cinnamon), whatever each image ships.
+- `boppos-flatpaks-default.txt` is still what `install-optional-flatpaks --defaults` installs; every app in it must
+  also be marked `default` in the list.
+
 ## The root helper (`oobe-helper`)
 
 Works only while a first run is pending (no real account, or the marker exists). Setup verbs (`create-user`, `set-locale`, `set-keymap`, `set-timezone`,

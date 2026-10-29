@@ -1,4 +1,11 @@
-from boppos import hwprofiles, welcome
+import pytest
+from boppos import flatpaks, hwprofiles, welcome
+
+
+@pytest.fixture(autouse=True)
+def no_native_apps(monkeypatch):
+    """The wizard hides Flatpaks the image ships natively; the box running the tests is not that image."""
+    monkeypatch.setattr(flatpaks, "native_installed", lambda root="/": frozenset())
 
 
 def test_flag_roundtrip(tmp_path):
@@ -193,14 +200,29 @@ def test_amd_overclock_is_its_own_preset_that_only_fits_amd_graphics():
         assert welcome.AMD_OVERCLOCK not in welcome.initial_choices(hw).kargs
 
 
-def test_every_app_of_the_curated_list_is_recommended_and_switched_on():
+def test_only_the_apps_marked_default_are_recommended_and_switched_on():
     hw = hwprofiles.PROFILES["amd-desktop"]
     recommended = {r.key for r in welcome.recommended(hw) if r.kind == "flatpak"}
-    assert "it.mijorus.gearlever" in recommended
-    assert welcome.curated_flatpak_ids() and welcome.curated_flatpak_ids() <= recommended
-    assert recommended <= welcome.initial_choices(hw).flatpaks
-    extra_only = {a.ref for apps in welcome.app_options().values() for a in apps} - recommended
-    assert "net.lutris.Lutris" in extra_only  # the opt-in extras stay opt-in
+    assert recommended == {"org.mozilla.firefox", "org.videolan.VLC", "io.github.kolunmi.Bazaar",
+                           "com.vysp3r.ProtonPlus", "com.github.tchx84.Flatseal"}
+    assert recommended == welcome.initial_choices(hw).flatpaks
+    offered = {a.ref for apps in welcome.app_options().values() for a in apps}
+    assert {"it.mijorus.gearlever", "org.gimp.GIMP", "net.lutris.Lutris"} <= offered - recommended
+
+
+def test_apps_the_image_ships_natively_are_hidden_unticked_and_uncounted():
+    native = frozenset({"firefox", "lutris", "heroic.desktop", "steam"})
+    options = welcome.app_options(native)
+    offered = {a.id for apps in options.values() for a in apps}
+    assert "org.mozilla.firefox" not in offered and "net.lutris.Lutris" not in offered
+    assert "com.heroicgameslauncher.hgl" in offered  # heroic.desktop is not what the mapping names
+    assert "it.mijorus.gearlever" in offered  # no mapping entry: always shown
+    c = welcome.initial_choices(hwprofiles.PROFILES["amd-desktop"], native)
+    assert "org.mozilla.firefox" not in c.flatpaks and "org.videolan.VLC" in c.flatpaks
+    # the "N of M selected" header counts only what the category lists
+    internet = options["Internet & Communication"]
+    assert len(internet) == len(welcome.app_options(frozenset())["Internet & Communication"]) - 1
+    assert sum(a.ref in c.flatpaks for a in internet) == 0
 
 
 def test_the_choices_become_commands_in_a_fixed_order():

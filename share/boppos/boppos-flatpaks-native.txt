@@ -1,0 +1,41 @@
+# Flatpaks that are redundant when the image ships the same app natively. Read at runtime by the first-run
+# wizard: a listed Flatpak is hidden (not offered, not pre-ticked, not counted) when any of its natives is
+# installed. Format: '<flatpak id>  <native> ...'. A native ending in '.desktop' is a file in
+# /usr/share/applications; anything else is a pacman package name (checked with pacman -Qq).
+# Explicit entries only: an app without a line here is always offered.
+
+# Core list
+com.vysp3r.ProtonPlus  protonplus
+com.moonlight_stream.Moonlight  moonlight-qt
+com.obsproject.Studio  obs-studio  com.obsproject.Studio.desktop
+org.mozilla.firefox  firefox  firefox.desktop
+net.mullvad.MullvadBrowser  mullvad-browser-bin  mullvad-browser
+com.discordapp.Discord  discord  discord.desktop
+org.mozilla.thunderbird  thunderbird
+org.localsend.localsend_app  localsend  localsend-bin
+org.qbittorrent.qBittorrent  qbittorrent
+org.videolan.VLC  vlc  vlc.desktop
+org.inkscape.Inkscape  inkscape  org.inkscape.Inkscape.desktop
+org.gimp.GIMP  gimp
+org.kde.kdenlive  kdenlive  org.kde.kdenlive.desktop
+org.audacityteam.Audacity  audacity
+com.github.wwmm.easyeffects  easyeffects
+com.calibre_ebook.calibre  calibre
+org.libreoffice.LibreOffice  libreoffice-fresh  libreoffice-still
+com.bitwarden.desktop  bitwarden
+org.gnome.SimpleScan  simple-scan
+com.github.tchx84.Flatseal  flatseal
+org.virt_manager.virt-manager  virt-manager
+
+# Extra list
+com.heroicgameslauncher.hgl  heroic-games-launcher-bin  heroic-games-launcher
+net.lutris.Lutris  lutris  net.lutris.Lutris.desktop
+dev.lizardbyte.app.Sunshine  sunshine
+org.libretro.RetroArch  retroarch
+org.DolphinEmu.dolphin-emu  dolphin-emu
+net.pcsx2.PCSX2  pcsx2
+org.ppsspp.PPSSPP  ppsspp
+io.mgba.mGBA  mgba-qt
+net.kuribo64.melonDS  melonds
+tv.kodi.Kodi  kodi
+com.spotify.Client  spotify
