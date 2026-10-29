@@ -1,8 +1,8 @@
 #!/usr/bin/python3 -I
 """Root helper for the first-boot setup (boppos-deck --oobe). See oobe_helper.py for what it may do.
 
-Refuses everything once /var/lib/boppos/oobe-done exists. Not yet reachable through polkit: there is no action
-or rule for it, so only an administrator password can start it."""
+Refuses everything once /var/lib/boppos/oobe-done exists. polkit (org.boppos.deck.oobe) waives the password only for
+the boppos-oobe account while setup is unfinished; anyone else needs an administrator password."""
 
 import os
 import subprocess

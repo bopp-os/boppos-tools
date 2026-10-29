@@ -65,6 +65,11 @@ def is_done(root: str | Path = "/") -> bool:
     return (Path(root) / DONE_FILE.lstrip("/")).exists()
 
 
+def needed(root: str | Path = "/") -> bool:
+    """Whether this system still needs the first-boot setup: not finished, and nobody has an account yet."""
+    return not is_done(root) and not human_users(root)
+
+
 def _fail(problem: str | None) -> None:
     if problem:
         raise UsageError(problem)

@@ -11,7 +11,7 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
-DRY_RUN = True
+DRY_RUN = False
 
 SESSIONS = {
     "gaming": ("Gaming Mode", "Starts straight into Steam, like a console."),

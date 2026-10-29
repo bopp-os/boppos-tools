@@ -139,7 +139,17 @@ Create a test user, log in on a local session (not wheel).
 - [ ] Finish writes `~/.local/state/boppos-deck/welcome-done`; with everything off Finish still writes it and opens no update window. Cancelling the wizard writes nothing.
 - [ ] `--hardware PROFILE` previews another machine; Finish applies nothing and writes no done flag.
 
-## First-boot setup (`boppos-deck --oobe`, dry run)
+## First-boot setup (`boppos-deck --oobe`, live)
+
+Needs the image: `boppos-oobe.service` enabled (`systemctl enable boppos-oobe.service`) and the sysusers file applied (`systemd-sysusers`). In a VM with no account:
+- [ ] The login screen waits; the setup appears fullscreen on tty1 (gamescope) with no "Dry run" banner.
+- [ ] Finishing creates the account (in `wheel`), sets language, keyboard, time zone and name, writes the SDDM autologin drop-in and `/var/lib/boppos/oobe-done`, and the login screen starts signed in to the chosen session. No password prompt appears during setup.
+- [ ] Reboot: the setup does not return. `systemctl status boppos-oobe` shows the condition skipped.
+- [ ] Close the window mid-way: it comes back (the unit loops until `oobe-done` exists).
+- [ ] On a system that already has an account, `/usr/libexec/boppos/oobe-needed; echo $?` prints 1, and `sudo /usr/libexec/boppos/oobe-helper create-user x` is refused.
+- [ ] As your own user, `pkexec /usr/libexec/boppos/oobe-helper finish` asks for an administrator password (the waiver is only for `boppos-oobe`).
+
+Older dry-run checks, for `oobe.DRY_RUN = True`:
 
 - [ ] `boppos-deck --oobe` opens the setup with a "Dry run" banner: Welcome, Language, Network, Time zone, Account, Start in, Review, Done.
 - [ ] Next is greyed out with the reason shown below the page until the step is valid. On Account that means a user name (lowercase, not `root`, `steam` and similar), a password of at least 8 characters, and a valid computer name if one is given.

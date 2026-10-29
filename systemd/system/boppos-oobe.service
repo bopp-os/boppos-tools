@@ -1,0 +1,43 @@
+[Unit]
+Description=BoppOS first-boot setup (create the first account)
+Documentation=https://github.com/bopp-os/boppos-tools
+# Runs before the login screen, and only while nobody has an account and setup has not finished.
+# oobe-needed (ExecCondition) checks both; a failing check skips the unit, so the login screen starts as usual.
+ConditionPathExists=!/var/lib/boppos/oobe-done
+ConditionPathExists=/usr/bin/boppos-deck
+Before=display-manager.service getty@tty1.service
+Conflicts=getty@tty1.service
+After=systemd-user-sessions.service plymouth-quit-wait.service systemd-logind.service dbus.service
+Wants=dbus.service
+
+[Service]
+User=boppos-oobe
+Group=boppos-oobe
+ExecCondition=/usr/libexec/boppos/oobe-needed
+# A logind session on tty1 gives the setup its seat: the screen, the keyboard and the controllers.
+PAMName=login
+TTYPath=/dev/tty1
+TTYReset=yes
+TTYVHangup=yes
+TTYVTDisallocate=yes
+StandardInput=tty-force
+StandardOutput=journal
+StandardError=journal
+UtmpIdentifier=tty1
+UtmpMode=user
+Environment=XDG_SESSION_TYPE=wayland
+Environment=XDG_SESSION_CLASS=user
+Environment=HOME=/var/lib/boppos-oobe
+# Same compositor as Gaming Mode; boppos-deck --oobe is the only window. Type=oneshot makes the login screen
+# wait until this exits. The loop starts the setup again if it quits without finishing (the window was closed,
+# the compositor crashed), because without an account nobody could log in; the helper writes oobe-done last.
+Type=oneshot
+TimeoutStartSec=infinity
+ExecStart=/bin/sh -c 'until [ -e /var/lib/boppos/oobe-done ]; do \
+  /usr/bin/dbus-run-session -- /usr/bin/gamescope --backend drm -e --force-windows-fullscreen -- /usr/bin/boppos-deck --oobe || sleep 2; \
+done'
+# No sandboxing on purpose: the setup runs pkexec, and its helper must change /etc, the user database and the
+# time zone, which a read-only or private mount namespace would block.
+
+[Install]
+WantedBy=graphical.target

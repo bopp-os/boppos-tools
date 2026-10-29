@@ -15,7 +15,7 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 from gi.repository import Adw, Gdk, Gio, GLib, GObject, Gtk  # noqa: E402
 
-from .. import hwprofiles, system, welcome  # noqa: E402
+from .. import hwprofiles, oobe, system, welcome  # noqa: E402
 from . import agent as polkit_agent  # noqa: E402
 from . import backend  # noqa: E402
 from .controller import DIRECTIONS, PAGES, Action, InputMapper, Sdl3Gamepads  # noqa: E402
@@ -833,6 +833,9 @@ class DeckWindow(Adw.ApplicationWindow):
         self.stack.set_visible_child_name("oobe")
 
     def end_oobe(self, finished: bool) -> None:
+        if finished and not oobe.DRY_RUN:  # the helper started the login screen: this window's job is over
+            self.get_application().quit()
+            return
         self.stack.set_visible_child_name("main")
 
     def end_welcome(self, finished: bool) -> None:
