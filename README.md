@@ -161,6 +161,10 @@ A full-screen GTK4/libadwaita app for the things you would otherwise do in a ter
 * Everything it does is one of the CLIs below, so scripts and a future Decky plugin can share the same backend. Set `BOPPOS_DECK_BIN_DIR` to point it at other copies of those tools (testing).
 * Privileged actions go through `pkexec` helpers in `/usr/libexec/boppos/`. Changing the system asks for an administrator password (`auth_admin_keep`); only fixed read-only calls (`status`, `check`, `dropins`) are waived by `polkit/rules.d/51-boppos-deck.rules`. Gaming Mode has no polkit agent, so boppos-deck registers its own for the login session and shows a built-in gamepad keyboard: D-pad moves, `A` types, `RB` shift, `LB` delete, `Start` confirms, `B` cancels; a physical or Steam Input keyboard works too. On the desktop the desktop's own agent is used and boppos-deck does not register (set `BOPPOS_DECK_AGENT=1` to force it, with no other agent running).
 
+#### First run (`--first-run`)
+
+`boppos-deck --first-run` is the one entry point for setting up a new system; it decides from the live system what to show. With **no real account** (uid 1000-59999 with a login shell) it runs the account setup before the login screen: language and keyboard, network (including joining Wi-Fi), time zone, the account, and where to start (Gaming Mode or Desktop, when the image offers it). With an account **and** the installer's marker `/var/lib/boppos/first-run` it shows the welcome tour (apps, hardware presets) and removes the marker when it finishes. With an account and no marker it does nothing. `--welcome` and `--oobe` force the tour or the setup (previews, tests); `--hardware KEY` previews the tour on other hardware. What the installer must write, the image's `start-in.conf` and every entry point are in [docs/first-run.md](docs/first-run.md); the preset design is in [docs/first-run-presets.md](docs/first-run-presets.md).
+
 Install adds `libadwaita` (about 5 MiB); `gtk4`, `python-gobject` and `sdl3` (through gamescope) are already in the image.
 
 ### `bopp-system` (Updates and deployments, JSON-friendly)
@@ -303,6 +307,15 @@ sudo -E bin/bopp-system --json status               # as root the helper runs di
 bin/bopp-system --json status                       # as a user: pkexec asks for a password (the polkit rule only knows /usr)
 bin/boppos-deck                                     # the app; privileged pages will prompt for a password
 sudo -E bin/bopp-kargs --dry-run add foo=1          # read-only/--dry-run first on a real system
+```
+
+To look at the first-run screens without changing anything, force a flow with the dry-run flags set (a "Dry run" banner shows; nothing is created, joined or written, and the plan is printed to the terminal). `--first-run` itself reads the real `/etc/passwd` and marker, so on a dev machine it would do nothing:
+
+```bash
+# the account setup
+python3 -c "import sys; sys.path.insert(0,'lib/boppos/py'); from boppos import oobe, welcome; oobe.DRY_RUN = welcome.DRY_RUN = True; sys.argv = ['boppos-deck', '--oobe']; from boppos.ui.app import main; sys.exit(main())"
+# the welcome tour, previewed as a Steam Deck
+python3 -c "import sys; sys.path.insert(0,'lib/boppos/py'); from boppos import oobe, welcome; oobe.DRY_RUN = welcome.DRY_RUN = True; sys.argv = ['boppos-deck', '--welcome', '--hardware', 'steam-deck']; from boppos.ui.app import main; sys.exit(main())"
 ```
 
 `BOPPOS_HELPER_ESCALATE=sudo` swaps `pkexec` for `sudo -n`, so run `sudo -v` first and again whenever the sudo timestamp expires. It skips the polkit agent and password screen, so test those through `pkexec` (see `docs/boppos-deck-test-plan.md`).
