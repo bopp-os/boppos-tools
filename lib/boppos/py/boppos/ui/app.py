@@ -830,7 +830,7 @@ class DeckWindow(Adw.ApplicationWindow):
     def show_oobe(self) -> None:
         """Replace the settings view with the first-boot setup (language, time zone, account)."""
         if self.stack.get_child_by_name("oobe") is None:
-            self.stack.add_named(OobeFlow(self.end_oobe), "oobe")
+            self.stack.add_named(OobeFlow(self.end_oobe, self.ask_password), "oobe")
         self.stack.set_visible_child_name("oobe")
 
     def end_oobe(self, finished: bool) -> None:
