@@ -14,6 +14,7 @@ from pathlib import Path
 from . import kargs, kargs_info
 from .bootc import parse_status
 from .dmi import read_dmi
+from .hwprofiles import gpus_in
 from .kargs import KargError
 from .system import escalation
 
@@ -49,8 +50,10 @@ def _cmdline(root: str) -> str:
         raise KargError(f"cannot read /proc/cmdline: {exc}", "no-cmdline") from exc
 
 
-def _dropin_json(d: kargs.Dropin, dmi: dict[str, str], running: set[str], managed: set[str]) -> dict:
+def _dropin_json(d: kargs.Dropin, dmi: dict[str, str], gpus: tuple[str, ...], running: set[str],
+                 managed: set[str]) -> dict:
     present = bool(d.kargs) and all(t in running for t in d.kargs)
+    fit, reason = ("", "") if d.error else kargs.fit(d, dmi, gpus)
     return {
         "already_active": present and not all(t in managed for t in d.kargs),
         "name": d.name,
@@ -62,6 +65,8 @@ def _dropin_json(d: kargs.Dropin, dmi: dict[str, str], running: set[str], manage
         "kargs": d.kargs,
         "enabled": d.enabled,
         "matches_device": kargs.matches_device(d, dmi),
+        "fit": fit,
+        "fit_reason": reason,
         "error": d.error,
     }
 
@@ -192,13 +197,14 @@ def run(args: argparse.Namespace) -> int:
         except KargError:
             running = set()
         managed = set(kargs.read_managed(root))
-        items = [_dropin_json(d, dmi, running, managed) for d in kargs.load_dropins(root).values()]
+        gpus = gpus_in(root)
+        items = [_dropin_json(d, dmi, gpus, running, managed) for d in kargs.load_dropins(root).values()]
         text = "\n".join(
             f"{'on ' if i['enabled'] else 'off'} {'match' if i['matches_device'] else 'skip '} "
             f"{i['name']}: {' '.join(i['kargs'])}{'  ERROR: ' + i['error'] if i['error'] else ''}"
             for i in items
         )
-        _emit(args, {"dropins": items, "device": dmi}, text)
+        _emit(args, {"dropins": items, "device": dmi, "gpus": list(gpus)}, text)
     else:
         status = _bootc_status(args.bootc_status)
         cmdline = _cmdline(root)

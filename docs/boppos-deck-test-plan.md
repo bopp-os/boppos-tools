@@ -40,7 +40,7 @@ Add the app via `bopp-steam-shortcut add` with Steam closed, then start Steam.
 - [ ] `install-optional-flatpaks` with no arguments still lists only the original 29 entries.
 
 ## 3h. Normal vs Advanced
-- [ ] Normal mode: Kernel arguments shows only the running command line and a note; no switches, no add/remove. Advanced on: the preset switches (by category), custom arguments and the argument list appear; off again: they disappear.
+- [ ] Normal mode: Kernel arguments lists the presets in the same groups but every switch is greyed out and cannot be changed; no add/remove. Advanced on: the switches work, and the custom arguments and the argument list appear; off again: the switches grey out and the extras disappear.
 - [ ] Apps: each app has only its install switch (no Steam switch). Uninstalling an app that has a Steam shortcut removes the shortcut too (Steam is closed and reopened if it is running, with a confirmation; see 3c).
 - [ ] The Steam library page still lists every installed app and says it never installs or removes anything.
 
@@ -76,12 +76,13 @@ Add the app via `bopp-steam-shortcut add` with Steam closed, then start Steam.
 - [ ] A Flatpak app installed after the page was opened shows up after leaving and re-entering the page.
 
 ## 3a. Presets, custom arguments and apps
-- [ ] Kernel arguments lists the presets in categories with a Low/Medium/High risk label and "Adds:" and "Risk:" lines. High-risk presets appear only with Advanced on.
+- [ ] Kernel arguments (Advanced on) opens with the "best left alone" warning, then Switched on, Presets for this hardware, Other presets, Risky presets and Unsupported (locked, with the reason). Each preset has a Low/Medium/High risk label, its category and "Adds:" and "Risk:" lines.
+- [ ] The Command line group shows Running now, Next boot and Changes after reboot. Before any change it says there are none; switch a preset on or off and the difference lists `+` and `−` arguments straight away (no reboot needed to see it). After the reboot the difference is empty again. It works in normal mode too.
 - [ ] Turning on a medium or high preset shows its risk text with Cancel as default; cancelling puts the switch back; confirming asks for the password and applies.
 - [ ] Advanced: *Add an argument* opens the keyboard with the text visible; `pci=noaer` is accepted; `init=/bin/sh`, `rd.break`, `ostree=x` and `a b` are rejected with a message. *Remove* on a listed argument asks first; arguments set by a preset show "preset" instead of a button.
 - [ ] Current arguments each show a description (or the "no description yet" text); `rw`, `rootflags=`, `rd.luks.uuid=` show *Required to boot* and have no Remove button; image defaults show *Image default*. `sudo bopp-kargs remove rootflags=subvol=root` is refused; `sudo bopp-kargs --dry-run remove --force ...` shows the plan.
 - [ ] A preset whose argument is already on the command line (for example `preempt=full`) shows *Active* and cannot be toggled.
-- [ ] Apps: with a controller, A (and Right) expands a category, Left collapses it, Down walks into its apps. Bazaar is present for your user after the first login (`boppos-default-flatpaks.service`), the row *Open Bazaar* starts it on the desktop, and in Gaming Mode the row is replaced by a note.
+- [ ] Apps: with a controller, A (and Right) expands a category, Left collapses it, Down walks into its apps. Bazaar is present for your user after the setup wizard has run, the row *Open Bazaar* starts it on the desktop, and in Gaming Mode the row is replaced by a note.
 - [ ] Apps: categories are collapsed; *Only show installed apps* hides the rest and keeps the pending selection; Apply installs and removes.
 
 ## 3b-0. Gaming Mode keyboard, three ways (least to most real)
@@ -128,3 +129,10 @@ Create a test user, log in on a local session (not wheel).
 ## 3k. BoppOS Steam artwork
 - [ ] After the BoppOS shortcut is added (Steam closed, or applied on exit), start Steam: the library entry shows the blue list icon in the sidebar (a JPEG; a PNG stayed blank in testing), the horizontal capsule, and the hero and logo on its page; in Gaming Mode the portrait shows in the grid. If Steam shows no artwork, check `~/.local/share/Steam/userdata/<id>/config/grid/` for five files named `<shortcut id>.png`, `…p.png`, `…_hero.png`, `…_logo.png`, `…_icon.jpg` and tell me the shortcut id Steam uses (the file names are derived from the same crc32 Steam uses; this has not been run against a real Steam).
 - [ ] Removing the shortcut removes those five files; a file you replaced is kept.
+
+## First-boot setup (`boppos-deck --oobe`, dry run)
+
+- [ ] `boppos-deck --oobe` opens the setup with a "Dry run" banner: Welcome, Language, Network, Time zone, Account, Start in, Review, Done.
+- [ ] Next is greyed out with the reason shown below the page until the step is valid. On Account that means a user name (lowercase, not `root`, `steam` and similar), a password of at least 8 characters, and a valid computer name if one is given.
+- [ ] Review lists what would happen and never shows the password. Finish prints `[dry run] would: …` lines in the terminal and returns to the settings view; no account is created.
+- [ ] Not yet covered: the on-screen keyboard and controller input in the entry fields, Wi-Fi setup, the root helper that really creates the user.

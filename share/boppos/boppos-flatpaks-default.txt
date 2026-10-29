@@ -1,2 +1,2 @@
-# Installed for every user by boppos-default-flatpaks.service (once). Must also be in boppos-flatpaks.txt.
+# Apps the setup wizard always recommends, switched on. Must also be in boppos-flatpaks.txt.
 io.github.kolunmi.Bazaar

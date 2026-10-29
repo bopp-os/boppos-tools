@@ -249,8 +249,11 @@ def test_shipped_catalog_is_valid_and_documents_every_risk():
         d = kargs.parse_dropin(path.stem, "usr", path)
         assert d.error is None, (path.name, d.error)
         assert d.description and d.risk and d.kargs and d.category != "Other", path.name
-        assert d.enabled is False, f"{path.name} must be off by default"
-        assert not d.match, f"{path.name}: catalog presets apply to every device"
+        if d.category == "Device fixes":
+            assert d.enabled and d.match, f"{path.name}: a device fix is on by default and only for its own device"
+        else:
+            assert d.enabled is False, f"{path.name} must be off by default"
+            assert not d.match, f"{path.name}: catalog presets apply to every device"
         names.add(path.stem)
     assert len(names) == len(catalog)
 
@@ -441,3 +444,109 @@ def test_catalog_directory_prefers_the_installed_copy_and_honours_the_override(t
 
 def test_a_test_root_does_not_see_the_real_presets(tmp_path):
     assert kargs.load_dropins(tmp_path) == {}
+
+
+def _preset(tmp_path, text):
+    path = tmp_path / "90-x.conf"
+    path.write_text(text)
+    d = kargs.parse_dropin("90-x", "usr", path)
+    assert not d.error
+    return d
+
+
+def test_fit_by_graphics_vendor(tmp_path):
+    d = _preset(tmp_path, "kargs = amdgpu.runpm=0\n")
+    assert kargs.fit(d, {}, ("amd",)) == ("fits", "")
+    assert kargs.fit(d, {}, ("intel", "nvidia"))[0] == "unsupported"
+    assert "AMD" in kargs.fit(d, {}, ())[1]
+    assert kargs.gpu_of(_preset(tmp_path, "kargs = i915.enable_psr=0\n")) == "intel"
+    assert kargs.gpu_of(_preset(tmp_path, "kargs = nvidia-drm.modeset=1\n")) == "nvidia"
+    assert kargs.gpu_of(_preset(tmp_path, "kargs = threadirqs\n")) is None
+
+
+def test_fit_by_model(tmp_path):
+    d = _preset(tmp_path, "kargs = foo=1\nmatch.sys_vendor = Valve\n")
+    assert kargs.fit(d, {"sys_vendor": "Valve"}, ())[0] == "fits"
+    assert kargs.fit(d, {"sys_vendor": "Dell"}, ())[0] == "unsupported"
+
+
+def test_fit_risky_presets_that_apply_anywhere(tmp_path):
+    assert kargs.fit(_preset(tmp_path, "kargs = foo=1\nrisk_level = low\n"), {}, ())[0] == "optional"
+    for level in ("medium", "high"):
+        got = kargs.fit(_preset(tmp_path, f"kargs = foo=1\nrisk_level = {level}\n"), {}, ())
+        assert got[0] == "risky" and level.capitalize() in got[1]
+
+
+def test_sections_order_and_what_counts_as_on():
+    def d(name, fit, enabled=False, matches=True, error="", active=False):
+        return {"name": name, "fit": fit, "enabled": enabled, "matches_device": matches, "error": error,
+                "already_active": active}
+
+    items = [d("c", "optional"), d("a", "fits"), d("on-risky", "risky", enabled=True), d("u", "unsupported"),
+             d("enabled-elsewhere", "unsupported", enabled=True, matches=False), d("bad", "", error="x"),
+             d("b", "fits"), d("r", "risky"), d("image-set", "fits", active=True)]
+    got = {k: [x["name"] for x in v] for k, v in kargs.sections(items).items()}
+    assert list(got) == ["on", "fits", "optional", "risky", "unsupported", "invalid"]
+    assert got == {"on": ["image-set", "on-risky"], "fits": ["a", "b"], "optional": ["c"], "risky": ["r"],
+                   "unsupported": ["enabled-elsewhere", "u"], "invalid": ["bad"]}
+
+
+def test_diff_cmdline_shows_only_what_the_user_changed():
+    running = "BOOT_IMAGE=/vmlinuz root=UUID=1 ostree=/ostree/boot.1/a rw quiet amdgpu.ppfeaturemask=0xffffffff"
+    nxt = ["root=UUID=1", "ostree=/ostree/boot.0/b", "rw", "quiet", "amdgpu.runpm=0", "initrd=/x"]
+    assert kargs.diff_cmdline(running, nxt) == {"added": ["amdgpu.runpm=0"],
+                                                "removed": ["amdgpu.ppfeaturemask=0xffffffff"]}
+
+
+def test_diff_cmdline_is_token_exact_and_empty_when_equal():
+    assert kargs.diff_cmdline("quiet rd.quiet", ["rd.quiet"]) == {"added": [], "removed": ["quiet"]}
+    assert kargs.diff_cmdline("a b=1", ["a", "b=1"]) == {"added": [], "removed": []}
+    assert kargs.diff_cmdline("", []) == {"added": [], "removed": []}
+
+
+def test_the_onexplayer_panel_fix_applies_only_to_that_device():
+    from pathlib import Path
+
+    path = Path(__file__).parent.parent / "kargs.d" / "90-onexplayer-f1-panel.conf"
+    d = kargs.parse_dropin(path.stem, "usr", path)
+    assert d.error is None
+    assert kargs.matches_device(d, {"product_name": "ONEXPLAYER F1"})
+    assert kargs.matches_device(d, {"product_name": "ONEXPLAYER F1 EVA-01"})
+    assert not kargs.matches_device(d, {"product_name": "ONEXPLAYER 2"})
+    assert not kargs.matches_device(d, {})
+
+
+def _shipped_or_user(tmp_path, source_dir, text):
+    path = tmp_path / source_dir / "99-x.conf"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text)
+    return path
+
+
+def test_acpi_and_module_blacklist_are_allowed_in_shipped_presets_only(tmp_path):
+    text = "description = d\ncategory = Device fixes\nrisk = r\nkargs = acpi=strict module_blacklist=hid_sensor_hub\n"
+    shipped = _shipped_or_user(tmp_path, "usr", text)
+    assert kargs.parse_dropin("99-x", "usr", shipped).error is None
+    user = _shipped_or_user(tmp_path, "etc", text)
+    assert "may not set" in kargs.parse_dropin("99-x", "etc", user).error
+    assert kargs.parse_dropin("99-x", "etc", user, {"acpi=strict", "module_blacklist=hid_sensor_hub"}).error is None
+
+
+def test_other_forbidden_keys_stay_refused_in_shipped_presets(tmp_path):
+    path = _shipped_or_user(tmp_path, "usr", "description = d\nrisk = r\nkargs = init=/bin/sh\n")
+    assert kargs.parse_dropin("99-x", "usr", path).error
+    path = _shipped_or_user(tmp_path, "usr", "description = d\nrisk = r\nkargs = acpi=off\n")
+    assert kargs.parse_dropin("99-x", "usr", path).error
+
+
+def test_manual_add_still_refuses_acpi_but_apply_may_add_a_shipped_one():
+    with pytest.raises(kargs.KargError):
+        kargs.add_tokens([], ["acpi=strict"])
+    assert kargs.add_tokens([], ["acpi=strict"], allow={"acpi=strict"}) == ["acpi=strict"]
+
+
+def test_switching_a_shipped_restricted_preset_off_keeps_it_valid(tmp_path):
+    root = make_root(tmp_path)
+    dropin(root, "usr/lib/bopp-kargs.d", "91-fix", "description = d\nrisk = r\nkargs = acpi=strict\nenabled = true\n")
+    d = kargs.set_enabled(root, "91-fix", False)
+    assert d.source == "etc" and d.error is None and d.enabled is False

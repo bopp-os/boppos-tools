@@ -1,0 +1,51 @@
+#!/usr/bin/python3 -I
+"""Root helper for the first-boot setup (boppos-deck --oobe). See oobe_helper.py for what it may do.
+
+Refuses everything once /var/lib/boppos/oobe-done exists. Not yet reachable through polkit: there is no action
+or rule for it, so only an administrator password can start it."""
+
+import os
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+
+# libexec/boppos/<helper> -> ../../lib/boppos/py: /usr/lib/boppos/py when installed, the repo's lib/ in a checkout
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "lib/boppos/py"))
+
+from boppos.oobe_helper import Run, Write, steps_for  # noqa: E402
+from boppos.privileged import UsageError  # noqa: E402
+
+
+def write(step):
+    path = Path(step.path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.")
+    with os.fdopen(fd, "w") as fh:
+        fh.write(step.text)
+    os.chmod(tmp, step.mode)
+    os.replace(tmp, path)
+
+
+def main(argv):
+    os.environ.clear()
+    os.environ.update(PATH="/usr/sbin:/usr/bin", LANG="C.UTF-8")
+    stdin = sys.stdin.read(4096) if argv[:1] == ["create-user"] else None
+    try:
+        steps = steps_for(argv, stdin)
+    except UsageError as exc:
+        print(f"oobe-helper: {exc}", file=sys.stderr)
+        return 2
+    for step in steps:
+        if isinstance(step, Write):
+            write(step)
+        elif isinstance(step, Run):
+            proc = subprocess.run(step.argv, input=step.stdin, text=True, check=False)
+            if proc.returncode:
+                print(f"oobe-helper: {step.argv[0]} failed ({proc.returncode})", file=sys.stderr)
+                return 1
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))
