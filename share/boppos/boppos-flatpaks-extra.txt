@@ -1,6 +1,6 @@
 # More curated Flatpaks (Flathub), shown in boppos-deck next to boppos-flatpaks.txt.
 # Not part of the interactive install-optional-flatpaks list: these are opt-in, one by one.
-# Same format: '## Name' starts a category, '# name: ...' gives the proper name.
+# Same format: '## Name' starts a category, '# name: ...' gives the proper name; none is a default.
 
 ## Gaming & Streaming
 com.heroicgameslauncher.hgl  # name: Heroic Games Launcher

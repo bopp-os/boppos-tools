@@ -1,12 +1,15 @@
 # BoppOS curated Flatpaks (Flathub). One reference per line.
 # '## Name' starts a category (shown in boppos-deck); '#' alone is a comment.
+# '# name: Proper Name' gives the name; '; default' after it pre-ticks the app in the first-run wizard.
+# Keep defaults to what nearly everyone wants. boppos-flatpaks-native.txt hides apps the image already ships.
 
 ## Gaming & Streaming
-com.vysp3r.ProtonPlus  # name: ProtonPlus
+com.vysp3r.ProtonPlus  # name: ProtonPlus; default
 com.moonlight_stream.Moonlight  # name: Moonlight
 com.obsproject.Studio  # name: OBS Studio
 
 ## Internet & Communication
+org.mozilla.firefox  # name: Firefox; default
 net.mullvad.MullvadBrowser  # name: Mullvad Browser
 com.discordapp.Discord  # name: Discord
 org.mozilla.thunderbird  # name: Thunderbird
@@ -14,6 +17,7 @@ org.localsend.localsend_app  # name: LocalSend
 org.qbittorrent.qBittorrent  # name: qBittorrent
 
 ## Media & Creative
+org.videolan.VLC  # name: VLC; default
 org.inkscape.Inkscape  # name: Inkscape
 org.gimp.GIMP  # name: GIMP
 org.kde.kdenlive  # name: Kdenlive
@@ -28,8 +32,8 @@ com.bitwarden.desktop  # name: Bitwarden Desktop
 org.gnome.SimpleScan  # name: Document Scanner
 
 ## System & Tools
-io.github.kolunmi.Bazaar  # name: Bazaar
-com.github.tchx84.Flatseal  # name: Flatseal
+io.github.kolunmi.Bazaar  # name: Bazaar; default
+com.github.tchx84.Flatseal  # name: Flatseal; default
 it.mijorus.gearlever  # name: Gear Lever
 io.github.flattool.Warehouse  # name: Warehouse
 io.gitlab.adhami3310.Impression  # name: Impression
