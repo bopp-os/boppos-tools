@@ -59,19 +59,26 @@ def test_an_already_staged_update_is_reported_with_its_diff():
     assert not any(c[0] == "skopeo" for c in f.calls)  # no registry round trip needed
 
 
-def test_skopeo_finds_a_newer_digest_when_nothing_is_staged():
+def test_a_different_registry_digest_is_confirmed_by_bootc():
     doc, f = run_check({"bootc status": cp(status_json()), "skopeo inspect": cp("sha256:new\n"),
-                        "bopp-diff": cp("diff")})
+                        "bootc upgrade": cp("Available update: sha256:new"), "bopp-diff": cp("diff")})
     assert doc["update_available"] is True and doc["staged_image"] == "sha256:new"
     assert ["skopeo", "inspect", "--format", "{{.Digest}}", "docker://ghcr.io/x/y:latest"] in f.calls
-    assert not any(c[:3] == ["bootc", "upgrade", "--check"] for c in f.calls)
+    assert ["bootc", "upgrade", "--check"] in f.calls
 
 
-def test_skopeo_same_digest_then_bootc_check_says_no_update():
-    doc, f = run_check({"bootc status": cp(status_json()), "skopeo inspect": cp("sha256:a\n"),
+def test_offline_install_digest_mismatch_is_not_an_update():
+    # installed from containers-storage: the booted digest is local, bootc knows it is current
+    doc, f = run_check({"bootc status": cp(status_json(booted="sha256:local")), "skopeo inspect": cp("sha256:reg\n"),
                         "bootc upgrade": cp("No changes in: docker://x")})
     assert doc["update_available"] is False and doc["staged_image"] is None and doc["diff"] is None
     assert not any(c[0] == "bopp-diff" for c in f.calls)
+
+
+def test_skopeo_same_digest_skips_the_bootc_check():
+    doc, f = run_check({"bootc status": cp(status_json()), "skopeo inspect": cp("sha256:a\n")})
+    assert doc["update_available"] is False and doc["error"] is None
+    assert not any(c[:2] == ["bootc", "upgrade"] for c in f.calls)
 
 
 def test_bootc_check_finds_an_update_and_prefers_the_restaged_digest():
@@ -85,9 +92,9 @@ def test_bootc_check_finds_an_update_and_prefers_the_restaged_digest():
 
 def test_retries_when_the_network_is_not_up_yet():
     answers = {"bootc status": cp(status_json()),
-               "skopeo inspect": [cp(rc=1), cp(rc=1), cp("sha256:new\n")]}
+               "skopeo inspect": [cp(rc=1), cp(rc=1), cp("sha256:a\n")]}
     doc, f = run_check(answers, tools=("bootc", "skopeo"))
-    assert doc["staged_image"] == "sha256:new"
+    assert doc["update_available"] is False and not any(c[:2] == ["bootc", "upgrade"] for c in f.calls)
     assert sum(1 for c in f.calls if c[0] == "skopeo") == 3
 
 

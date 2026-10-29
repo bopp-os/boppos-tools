@@ -81,18 +81,18 @@ def check(run: Run = _run, which: Callable[[str], str | None] = shutil.which,
     available = bool(staged_digest and staged_digest != current)
 
     if not available:
-        # bootc only shows a staged image after an earlier check; ask the registry directly first.
+        # bootc only shows a staged image after an earlier check. The registry digest can only rule an
+        # update out: an install from containers-storage (offline installer media) records a local
+        # manifest digest that never matches the registry's, so a different digest proves nothing.
+        remote = ""
         if which("skopeo") and image_ref:
-            remote = ""
             for _ in range(RETRIES):  # a few tries: the network may just be waking from sleep
                 out = run(["skopeo", "inspect", "--format", "{{.Digest}}", f"docker://{image_ref}"])
                 remote = out.stdout.strip() if out.returncode == 0 else ""
                 if remote:
                     break
                 sleep(RETRY_DELAY)
-            if remote and remote != current:
-                available, staged_digest = True, remote
-        if not available:
+        if remote != current:  # unknown or different: bootc decides
             text = ""
             for _ in range(RETRIES):
                 out = run(["bootc", "upgrade", "--check"])
