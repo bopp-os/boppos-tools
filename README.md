@@ -226,7 +226,7 @@ sudo bopp-kargs COMMAND [ARGS]
 #### Commands:
 * **`status`**: boot entries (booted one marked) and whether changes are currently possible.
 * **`list [index]`**: arguments of the next-boot entry, or of entry `index`.
-* **`add <argument>`** / **`remove <argument>`**: change one argument. `add` skips arguments that are already present. Add uses `ostree admin kargs edit-in-place --append-if-missing=`; ostree has no delete option, so `remove` writes the full list back with `ostree admin instutil set-kargs`. Both need root (`sudo`). `--dry-run` shows the plan.
+* **`add <argument>`** / **`remove <argument>`**: change one argument. `add` skips arguments that are already present. Both write the full list back with `ostree admin instutil set-kargs`, which makes ostree write a new boot version and regenerate a GRUB menu (`edit-in-place` would only change the entry file, which a generated grub.cfg never sees). On GRUB without `blscfg`, bopp-kargs refuses to change anything unless ostree will regenerate grub.cfg (`sysroot.bootloader=grub2` in `/ostree/repo/config`, or `auto` without static bootupd configs), and warns when grub.cfg does not carry an added argument afterwards. `status` shows this as `layout`. Both need root (`sudo`). `--dry-run` shows the plan.
 * **`edit`**: edit the arguments in `$EDITOR`; the difference is applied as add/remove.
 * **`diff [a] [b]`**: arguments that differ between two entries.
 * **`dropins`**: preset files and whether each matches this device.

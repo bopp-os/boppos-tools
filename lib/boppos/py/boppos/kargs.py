@@ -5,6 +5,7 @@ Everything takes a `root` so tests run against fixture trees, never the real /bo
 
 from __future__ import annotations
 
+import configparser
 import fnmatch
 import os
 import re
@@ -178,11 +179,99 @@ def target_entry(entries: list[Entry], status: dict, cmdline: str) -> Entry:
         raise KargError("a rollback is queued; reboot before changing kernel arguments", "staged")
     key = booted_deploy_key(cmdline)
     if key is None:
-        raise KargError("running kernel has no ostree= argument", "not-ostree")
+        raise KargError(not_ostree_message(cmdline), "not-ostree")
     for entry in entries:
         if entry.deploy_key == key:
             return entry
+    if not entries:
+        raise KargError(f"the running kernel has ostree=, but there are no boot entries in /{BLS_DIR} "
+                        "(is /boot mounted?). Nothing was changed.", "no-entry")
     raise KargError("no boot entry matches the running deployment", "no-entry")
+
+
+def not_ostree_message(cmdline: str) -> str:
+    """Why bopp-kargs cannot work here: what it looked for, what it found, and that nothing changed."""
+    if any(key_of(t) == "composefs" for t in tokenize(cmdline)):
+        found = ("It has composefs= instead: this is a composefs-native bootc install, which bopp-kargs does "
+                 "not manage.")
+    else:
+        found = ("It has neither ostree= nor composefs=, so this is not an installed bootc/ostree system "
+                 "(a live ISO, a container or a classic install, for example).")
+    return ("bopp-kargs only edits ostree installs: it needs ostree= on the running kernel's command line "
+            f"(/proc/cmdline) and a matching boot entry in /{BLS_DIR}.\n{found}\nNothing was changed.")
+
+
+# --- bootloader layout ------------------------------------------------------------------------
+
+# Where ostree's grub2 backend looks for a GRUB menu (libostree ostree-bootloader-grub2.c): the BIOS paths,
+# then EFI/<vendor>/grub.cfg on a mounted ESP.
+GRUB_CFGS = ("boot/grub/grub.cfg", "boot/grub2/grub.cfg")
+REPO_CONFIG = "ostree/repo/config"
+BOOTUPD_STATE = "boot/bootupd-state.json"
+
+
+@dataclass
+class Layout:
+    bootloader: str  # sysroot.bootloader in the ostree repo config; "auto" when unset
+    grub_cfg: Path | None
+    grub_reads_bls: bool  # the menu runs blscfg, so GRUB reads /boot/loader/entries itself
+    problem: str | None  # why a kernel-argument change would not reach the boot menu
+
+    def as_json(self) -> dict:
+        return {"bootloader": self.bootloader, "grub_cfg": str(self.grub_cfg) if self.grub_cfg else None,
+                "grub_reads_bls": self.grub_reads_bls, "problem": self.problem}
+
+
+def repo_bootloader(root: str | Path = "/") -> str:
+    parser = configparser.ConfigParser(interpolation=None, strict=False)
+    try:
+        parser.read_string((Path(root) / REPO_CONFIG).read_text(errors="replace"))
+    except (OSError, configparser.Error):
+        return "auto"
+    return parser.get("sysroot", "bootloader", fallback="auto").strip() or "auto"
+
+
+def _find_grub_cfg(root: Path) -> Path | None:
+    for rel in GRUB_CFGS:
+        if (root / rel).exists():
+            return root / rel
+    for cfg in sorted((root / "boot/efi/EFI").glob("*/grub.cfg")):
+        if cfg.parent.name != "BOOT":
+            return cfg
+    return None
+
+
+def bootloader_layout(root: str | Path = "/") -> Layout:
+    """How kernel arguments get from ostree's boot entries into the boot menu.
+
+    systemd-boot (no grub.cfg) and a GRUB that runs blscfg read the entries directly. A static grub.cfg,
+    which is what grub-mkconfig with /etc/grub.d/15_ostree writes, only changes when ostree's grub2 backend
+    regenerates it, so ostree must use that backend: sysroot.bootloader=grub2, or auto (which finds the same
+    files) as long as bootupd does not declare static configs, which turns auto detection off.
+    """
+    root = Path(root)
+    bootloader = repo_bootloader(root)
+    cfg = _find_grub_cfg(root)
+    reads_bls = False
+    if cfg is not None:
+        try:
+            reads_bls = re.search(r"^\s*blscfg\b", cfg.read_text(errors="replace"), re.M) is not None
+        except OSError:
+            pass
+    problem = None
+    if cfg is not None and not reads_bls and bootloader != "grub2":
+        try:
+            state = (root / BOOTUPD_STATE).read_text(errors="replace")
+        except OSError:
+            state = ""
+        static = '"static-configs"' in state and '"static-configs":null' not in state
+        if bootloader != "auto" or static:
+            why = "with a static bootupd config, which turns auto detection off" if bootloader == "auto" else ""
+            problem = (f"/{cfg.relative_to(root)} is a GRUB menu that ostree must regenerate, but the ostree repo "
+                       f"config has sysroot.bootloader={bootloader} {why}".rstrip() +
+                       ", so a kernel-argument change would never reach the boot menu. Nothing was changed. "
+                       "Fix: sudo ostree config --repo=/ostree/repo set sysroot.bootloader grub2")
+    return Layout(bootloader, cfg, reads_bls, problem)
 
 
 # --- drop-ins ---------------------------------------------------------------------------------
@@ -401,18 +490,21 @@ def run_cmd(argv: list[str]) -> None:
 
 def write_options(current: list[str], to_add: list[str], to_remove: list[str], run: Runner,
                   force: bool = False, allow: frozenset[str] | set[str] = frozenset()) -> None:
-    """Additions go through edit-in-place. ostree has no delete option, so removals rewrite
-    the full list with `instutil set-kargs`, which replaces the cmdline of deployment 0."""
-    if to_remove:
-        new = add_tokens(remove_tokens(current, to_remove, force), to_add, force, allow)
-        if not any(t.startswith("ostree=") for t in new):
-            raise KargError("refusing to write a cmdline without ostree=", "protected")
-        lost = [t for t in current if is_critical(t) and t not in new]
-        if lost and not force:  # belt and braces: whatever the caller asked, keep what boot needs
-            raise KargError(f"refusing to drop boot-critical arguments: {' '.join(lost)}", "critical")
-        run(["ostree", "admin", "instutil", "set-kargs", *new])
-    elif to_add:
-        run(["ostree", "admin", "kargs", "edit-in-place", *[f"--append-if-missing={a}" for a in to_add]])
+    """Rewrite the full list with `instutil set-kargs`, which replaces the cmdline of deployment 0.
+
+    Not `ostree admin kargs edit-in-place`: that only rewrites the entry file under /boot/loader/entries and
+    never calls the bootloader backend, so on GRUB with a generated grub.cfg the change would never reach the
+    menu. set-kargs writes the deployments again (a new boot version), which regenerates grub.cfg.
+    """
+    if not (to_add or to_remove):
+        return
+    new = add_tokens(remove_tokens(current, to_remove, force), to_add, force, allow)
+    if not any(t.startswith("ostree=") for t in new):
+        raise KargError("refusing to write a cmdline without ostree=", "protected")
+    lost = [t for t in current if is_critical(t) and t not in new]
+    if lost and not force:  # belt and braces: whatever the caller asked, keep what boot needs
+        raise KargError(f"refusing to drop boot-critical arguments: {' '.join(lost)}", "critical")
+    run(["ostree", "admin", "instutil", "set-kargs", *new])
 
 
 def apply_changes(
@@ -458,8 +550,13 @@ def apply_dropins(
 
 def _commit(root, entry, to_add, to_remove, run, dry_run, managed, force=False, allow=frozenset()):
     changed = bool(to_add or to_remove)
+    layout = bootloader_layout(root)
+    if changed and layout.problem:
+        raise KargError(layout.problem, "bootloader-config")
+    warning = None
     if changed and not dry_run:
         write_options(entry.options, to_add, to_remove, run, force, allow)
+        warning = _menu_warning(layout, to_add)
     if managed is not None and not dry_run and (changed or set(managed) != set(read_managed(root))):
         write_managed(root, managed)
     return {
@@ -468,7 +565,23 @@ def _commit(root, entry, to_add, to_remove, run, dry_run, managed, force=False, 
         "changed": changed,
         "reboot_required": changed and not dry_run,
         "dry_run": dry_run,
+        "warning": warning,
     }
+
+
+def _menu_warning(layout: Layout, added: list[str]) -> str | None:
+    """A generated grub.cfg should now carry what was added; say so when it does not."""
+    if layout.grub_cfg is None or layout.grub_reads_bls or not added:
+        return None
+    try:
+        menu = set(layout.grub_cfg.read_text(errors="replace").split())
+    except OSError as exc:
+        return f"could not read {layout.grub_cfg} to check the boot menu: {exc}"
+    missing = [t for t in added if t not in menu]
+    if missing:
+        return (f"the boot entry was updated, but {layout.grub_cfg} does not contain {' '.join(missing)}; "
+                "the boot menu may not have been regenerated (check sysroot.bootloader in /ostree/repo/config)")
+    return None
 
 
 KARGS_WARNING = (

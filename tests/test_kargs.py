@@ -105,12 +105,13 @@ def test_refuses_when_rollback_queued(tmp_path):
 # --- apply with explicit args --------------------------------------------------------------
 
 
-def test_add_uses_edit_in_place_and_is_idempotent(tmp_path):
+def test_add_rewrites_the_full_list_so_grub_is_regenerated_and_is_idempotent(tmp_path):
+    # edit-in-place only rewrites the entry file; set-kargs makes ostree regenerate a generated grub.cfg
     root = make_root(tmp_path)
     rec = Recorder()
     res = kargs.apply_changes(root, STATUS, CMDLINE, add=["amd_pstate=active", "quiet"], run=rec)
     assert res["added"] == ["amd_pstate=active"] and res["reboot_required"]
-    assert rec.calls == [["ostree", "admin", "kargs", "edit-in-place", "--append-if-missing=amd_pstate=active"]]
+    assert rec.calls == [["ostree", "admin", "instutil", "set-kargs", *BASE_OPTS.split(), "amd_pstate=active"]]
     rec.calls.clear()
     res = kargs.apply_changes(root, STATUS, CMDLINE, add=["quiet"], run=rec)
     assert not res["changed"] and rec.calls == []
@@ -550,3 +551,96 @@ def test_switching_a_shipped_restricted_preset_off_keeps_it_valid(tmp_path):
     dropin(root, "usr/lib/bopp-kargs.d", "91-fix", "description = d\nrisk = r\nkargs = acpi=strict\nenabled = true\n")
     d = kargs.set_enabled(root, "91-fix", False)
     assert d.source == "etc" and d.error is None and d.enabled is False
+
+
+# --- bootloader layout and systems bopp-kargs cannot manage -------------------------------
+
+
+def grub(root: Path, text: str = "menuentry 'BoppOS' {\n  linux /vmlinuz quiet ostree=/ostree/boot.1/x\n}\n",
+         where: str = "boot/grub/grub.cfg") -> Path:
+    p = root / where
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(text)
+    return p
+
+
+def repo_config(root: Path, bootloader: str) -> None:
+    p = root / "ostree/repo/config"
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(f"[core]\nrepo_version=1\nmode=bare\n\n[sysroot]\nbootloader={bootloader}\n")
+
+
+def test_layout_without_grub_needs_nothing(tmp_path):
+    layout = kargs.bootloader_layout(make_root(tmp_path))
+    assert layout.grub_cfg is None and layout.problem is None and layout.bootloader == "auto"
+
+
+def test_layout_static_grub_with_bootloader_grub2_is_fine(tmp_path):
+    root = make_root(tmp_path)
+    grub(root)
+    repo_config(root, "grub2")
+    layout = kargs.bootloader_layout(root)
+    assert layout.grub_cfg == root / "boot/grub/grub.cfg" and not layout.grub_reads_bls and layout.problem is None
+
+
+def test_layout_grub_that_runs_blscfg_reads_the_entries_itself(tmp_path):
+    root = make_root(tmp_path)
+    grub(root, "insmod blscfg\nblscfg\n", "boot/grub2/grub.cfg")
+    repo_config(root, "none")
+    layout = kargs.bootloader_layout(root)
+    assert layout.grub_reads_bls and layout.problem is None
+
+
+@pytest.mark.parametrize("bootloader, bootupd", [("none", None), ("auto", '{"static-configs":{"x":1}}')])
+def test_static_grub_that_ostree_would_not_regenerate_is_refused_before_anything_runs(tmp_path, bootloader, bootupd):
+    root = make_root(tmp_path)
+    grub(root)
+    repo_config(root, bootloader)
+    if bootupd:
+        (root / "boot/bootupd-state.json").write_text(bootupd)
+    rec = Recorder()
+    with pytest.raises(KargError) as exc:
+        kargs.apply_changes(root, STATUS, CMDLINE, add=["foo=1"], run=rec)
+    assert exc.value.code == "bootloader-config" and rec.calls == []
+    assert "sysroot.bootloader grub2" in str(exc.value)
+
+
+def test_auto_without_static_bootupd_config_finds_grub_itself(tmp_path):
+    root = make_root(tmp_path)
+    grub(root)
+    (root / "boot/bootupd-state.json").write_text('{"static-configs":null}')
+    assert kargs.bootloader_layout(root).problem is None
+
+
+def test_warns_when_the_regenerated_menu_lacks_the_added_argument(tmp_path):
+    root = make_root(tmp_path)
+    cfg = grub(root)
+    repo_config(root, "grub2")
+    res = kargs.apply_changes(root, STATUS, CMDLINE, add=["foo=1"], run=Recorder())  # the fake changes nothing
+    assert "foo=1" in res["warning"]
+
+    def regenerate(argv):
+        cfg.write_text("linux /vmlinuz " + " ".join(argv[4:]) + "\n")
+
+    assert kargs.apply_changes(root, STATUS, CMDLINE, add=["foo=1"], run=regenerate)["warning"] is None
+
+
+def test_without_ostree_the_message_says_what_was_checked_and_found(tmp_path):
+    root = make_root(tmp_path)
+    with pytest.raises(KargError) as exc:
+        kargs.apply_changes(root, STATUS, "BOOT_IMAGE=/vmlinuz root=UUID=1 rw", add=["x"], run=Recorder())
+    msg = str(exc.value)
+    assert exc.value.code == "not-ostree"
+    assert "/proc/cmdline" in msg and "not an installed bootc/ostree system" in msg and "Nothing was changed" in msg
+
+
+def test_composefs_installs_are_named_as_such(tmp_path):
+    with pytest.raises(KargError) as exc:
+        kargs.target_entry(kargs.load_entries(make_root(tmp_path)), STATUS, "root=UUID=1 composefs=abc rw")
+    assert exc.value.code == "not-ostree" and "composefs-native bootc install" in str(exc.value)
+
+
+def test_ostree_without_boot_entries_asks_whether_boot_is_mounted(tmp_path):
+    with pytest.raises(KargError) as exc:
+        kargs.target_entry([], STATUS, CMDLINE)
+    assert exc.value.code == "no-entry" and "/boot mounted" in str(exc.value)
