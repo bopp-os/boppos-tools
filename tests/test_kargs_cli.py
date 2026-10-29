@@ -70,3 +70,15 @@ def test_dropins_json_carries_the_fit_and_the_graphics_vendors(tmp_path, capsys)
     assert data["gpus"] == ["amd"]
     assert [by[n]["fit"] for n in ("amd", "nv", "risky", "plain")] == ["fits", "unsupported", "risky", "optional"]
     assert "NVIDIA" in by["nv"]["fit_reason"] and by["bad"]["fit"] == ""
+
+
+def test_status_reports_the_layout_and_blocks_off_ostree(tmp_path, capsys):
+    root = make_root(tmp_path)
+    rc, out = run_cli(root, capsys, "--json", "status")
+    assert json.loads(out)["layout"] == {"bootloader": "auto", "grub_cfg": None, "grub_reads_bls": False,
+                                         "problem": None}
+    (root / "proc/cmdline").write_text("root=UUID=1 rw")
+    status = root / "bootc.json"
+    rc = kargs_cli.main(["--root", str(root), "--bootc-status", str(status), "--json", "status"])
+    data = json.loads(capsys.readouterr().out)
+    assert rc == 0 and not data["editable"] and "ostree=" in data["blocked_reason"]

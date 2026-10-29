@@ -1,8 +1,9 @@
 #!/usr/bin/python3 -I
-"""Root helper for the first-boot setup (boppos-deck --oobe). See oobe_helper.py for what it may do.
+"""Root helper for the first run (boppos-deck --first-run). See oobe_helper.py for what it may do.
 
-Refuses everything once /var/lib/boppos/oobe-done exists. polkit (org.boppos.deck.oobe) waives the password only for
-the boppos-oobe account while setup is unfinished; anyone else needs an administrator password."""
+Refuses everything unless /var/lib/boppos/first-run exists. polkit (org.boppos.deck.oobe) waives the password for the
+boppos-oobe account during setup, and for a wheel user's own set-start-in and finish-first-run during the welcome
+tour; anything else needs an administrator password."""
 
 import os
 import subprocess
@@ -13,7 +14,7 @@ from pathlib import Path
 # libexec/boppos/<helper> -> ../../lib/boppos/py: /usr/lib/boppos/py when installed, the repo's lib/ in a checkout
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "lib/boppos/py"))
 
-from boppos.oobe_helper import Run, Write, steps_for  # noqa: E402
+from boppos.oobe_helper import Remove, Run, Symlink, Write, steps_for  # noqa: E402
 from boppos.privileged import UsageError  # noqa: E402
 
 
@@ -27,18 +28,42 @@ def write(step):
     os.replace(tmp, path)
 
 
+def in_chroot() -> bool:
+    """systemd-detect-virt --chroot exits 0 inside a chroot, where localectl and friends cannot reach systemd."""
+    try:
+        return subprocess.run(["/usr/bin/systemd-detect-virt", "--chroot"], check=False).returncode == 0
+    except OSError:
+        return False
+
+
+def caller_uid() -> int | None:
+    """Who asked: pkexec sets PKEXEC_UID, sudo SUDO_UID. None when root ran the helper itself."""
+    for var in ("PKEXEC_UID", "SUDO_UID"):
+        if os.environ.get(var, "").isdigit():
+            return int(os.environ[var])
+    return None
+
+
 def main(argv):
+    caller = caller_uid()  # read before the environment is cleared
     os.environ.clear()
     os.environ.update(PATH="/usr/sbin:/usr/bin", LANG="C.UTF-8")
     stdin = sys.stdin.read(4096) if argv[:1] == ["create-user"] else None
     try:
-        steps = steps_for(argv, stdin)
+        steps = steps_for(argv, stdin, chroot=in_chroot(), caller=caller)
     except UsageError as exc:
         print(f"oobe-helper: {exc}", file=sys.stderr)
         return 2
     for step in steps:
         if isinstance(step, Write):
             write(step)
+        elif isinstance(step, Symlink):
+            tmp = Path(step.path).with_name(f".{Path(step.path).name}.new")
+            tmp.unlink(missing_ok=True)
+            tmp.symlink_to(step.target)
+            os.replace(tmp, step.path)
+        elif isinstance(step, Remove):
+            Path(step.path).unlink(missing_ok=True)
         elif isinstance(step, Run):
             proc = subprocess.run(step.argv, input=step.stdin, text=True, check=False)
             if proc.returncode:

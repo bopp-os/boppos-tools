@@ -10,7 +10,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from . import flatpaks, hwprofiles, kargs
+from . import firstrun, flatpaks, hwprofiles, kargs, oobe
 
 FLAG = "welcome-done"
 
@@ -22,6 +22,8 @@ DRY_RUN = False
 WIRED = frozenset({"flatpaks", "steam_shortcuts", "decky", "kargs"})
 
 KARGS_WARNING = kargs.KARGS_WARNING
+
+SESSIONS = oobe.SESSIONS  # the labels of the "start in" choice, shared with the setup
 
 
 @dataclass(frozen=True)
@@ -36,6 +38,7 @@ STEPS = (
     Step("welcome", "Welcome"),
     Step("apps", "Apps"),
     Step("hardware", "Hardware"),
+    Step("session", "Start in"),
     Step("security", "Security", gaming=False, wired=False),
     Step("updates", "Updates", wired=False),
     Step("review", "Review"),
@@ -43,8 +46,10 @@ STEPS = (
 )
 
 
-def steps_for(gaming: bool) -> list[Step]:
-    return [s for s in STEPS if s.wired and (s.gaming or not gaming)]
+def steps_for(gaming: bool, ask_start_in: bool = False) -> list[Step]:
+    """ask_start_in: the "Start in" step is only there when the image can sign in automatically and the choice has
+    not been made yet (setup asks it too, and the tour does not ask twice)."""
+    return [s for s in STEPS if s.wired and (s.gaming or not gaming) and (s.key != "session" or ask_start_in)]
 
 
 def state_dir(env: dict[str, str] | None = None) -> Path:
@@ -80,10 +85,11 @@ class Choices:
     tpm_unlock: bool = False
     auto_updates: bool = False
     dev_container: bool = False
+    start_in: str = ""  # "gaming" or "desktop" (boppos.firstrun.CHOICES); "" when the step was not shown
 
     def is_empty(self) -> bool:
         return not any((self.flatpaks, self.decky, self.steam_shortcuts, self.kargs, self.firmware_check,
-                        self.howdy, self.tpm_unlock, self.auto_updates, self.dev_container))
+                        self.howdy, self.tpm_unlock, self.auto_updates, self.dev_container, self.start_in))
 
 
 @dataclass(frozen=True)
@@ -220,6 +226,8 @@ class Action:
 def build_plan(choices: Choices, gaming: bool = False) -> list[Action]:
     """The actions the choices add up to, in the order they would run. Pure: it changes nothing."""
     plan: list[Action] = []
+    if choices.start_in:
+        plan.append(Action("Start", "Sign in automatically to " + SESSIONS[choices.start_in][0]))
     if choices.flatpaks:
         names = ", ".join(sorted(flatpaks.display_name(r) for r in choices.flatpaks))
         plan.append(Action("Apps", f"Install {len(choices.flatpaks)} Flatpak(s) for this user, with progress: {names}"))
@@ -232,6 +240,18 @@ def build_plan(choices: Choices, gaming: bool = False) -> list[Action]:
         plan.append(Action("Hardware", "Switch on kernel argument presets: " + ", ".join(sorted(choices.kargs))
                            + " (takes effect after a reboot; leave these off unless you need them)"))
     return plan
+
+
+def first_run_commands(choices: Choices, user: str, helper_cmd: Callable[[list[str]], list[str]]) -> list[list[str]]:
+    """The root-helper calls of the tour: where to start (only when it was asked), run before the apps."""
+    if choices.start_in not in firstrun.CHOICES:
+        return []
+    return [helper_cmd(["set-start-in", user, choices.start_in])]
+
+
+def finish_command(helper_cmd: Callable[[list[str]], list[str]]) -> list[str]:
+    """The last command of the tour: ends the first run by removing the marker."""
+    return helper_cmd(["finish-first-run"])
 
 
 def apply_commands(choices: Choices, tool: Callable[[str], str]) -> list[list[str]]:

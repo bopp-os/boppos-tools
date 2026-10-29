@@ -1,4 +1,5 @@
-"""The first-boot setup (`boppos-deck --oobe`): language, network, time zone, account and where to start.
+"""The first-run setup (`boppos-deck --first-run` with no account yet): language, network, time zone, account and
+where to start.
 
 A dry run for now (oobe.DRY_RUN): the choices are checked and listed, nothing is created or changed.
 """
@@ -15,7 +16,7 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 from gi.repository import Adw, GLib, Gtk  # noqa: E402
 
-from .. import oobe, system  # noqa: E402
+from .. import firstrun, oobe, system  # noqa: E402
 from .widgets import combo_row, group, info_row, plain  # noqa: E402
 
 TITLES = {
@@ -43,7 +44,11 @@ class OobeFlow(Gtk.Box):
     def __init__(self, on_finish: Callable[[bool], None]):
         super().__init__(orientation=Gtk.Orientation.VERTICAL)
         self.choices = oobe.Choices()
-        self.steps = list(oobe.STEPS)
+        # Where to start is the image's to offer (its start-in.conf); without it the step and the call are left out.
+        self.start_in, self.start_in_problem = firstrun.load_start_in()
+        if self.start_in is not None and self.choices.session not in self.start_in.choices:
+            self.choices.session = self.start_in.choices[0]
+        self.steps = [s for s in oobe.STEPS if s.key != "session" or self.start_in is not None]
         self.on_finish = on_finish
         self.index = 0
         self.zones = oobe.timezones()
@@ -125,7 +130,7 @@ class OobeFlow(Gtk.Box):
         return page(g)
 
     def session_page(self) -> Gtk.Widget:
-        keys = list(oobe.SESSIONS)
+        keys = list(self.start_in.choices)
         titles = [f"{oobe.SESSIONS[k][0]}: {oobe.SESSIONS[k][1]}" for k in keys]
         g = group("Start in", "You can change this later.")
         row = combo_row("After sign-in", titles, keys.index(self.choices.session))
@@ -142,7 +147,7 @@ class OobeFlow(Gtk.Box):
             self.review.remove(child)
             child = self.review.get_first_child()
         g = group("What would happen", "Nothing is applied in this version." if oobe.DRY_RUN else None)
-        for action in oobe.build_plan(self.choices):
+        for action in oobe.build_plan(self.choices, self.start_in is not None):
             g.add(info_row(action.text, "", action.area))
         self.review.append(page(g))
 
@@ -156,7 +161,7 @@ class OobeFlow(Gtk.Box):
     def go(self, delta: int) -> None:
         if delta > 0 and self.index == len(self.steps) - 1:
             if oobe.DRY_RUN:
-                for line in oobe.run_plan(oobe.build_plan(self.choices)):
+                for line in oobe.run_plan(oobe.build_plan(self.choices, self.start_in is not None)):
                     print(line, flush=True)
                 self.on_finish(True)
                 return
@@ -164,7 +169,8 @@ class OobeFlow(Gtk.Box):
             self.notice.set_label("Setting up…")
 
             def work() -> None:
-                ok, msg = oobe.apply_choices(self.choices, lambda a: system.helper_cmd("oobe-helper", a), _run)
+                ok, msg = oobe.apply_choices(self.choices, lambda a: system.helper_cmd("oobe-helper", a), _run,
+                                             self.start_in is not None)
                 GLib.idle_add(self.applied, ok, msg)
 
             threading.Thread(target=work, daemon=True).start()

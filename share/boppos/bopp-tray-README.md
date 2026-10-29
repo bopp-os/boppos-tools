@@ -52,7 +52,6 @@ image system.
 | `usr/lib/systemd/system/boppos-update-monitor.service` | System oneshot |
 | `usr/lib/systemd/system/boppos-update-monitor.timer` | Hourly trigger |
 | `usr/lib/systemd/user/bopp-tray.service` | User session service |
-| `etc/xdg/autostart/bopp-tray.desktop` | XDG autostart fallback |
 | `usr/share/polkit-1/rules.d/50-boppos-update-monitor.rules` | Passwordless "Check now" |
 
 ## Integration with bopp-diff
@@ -79,15 +78,13 @@ See `Containerfile.bopp-tray.snippet` for the exact lines to add to
 
 ## Autostart
 
-The tray app starts via **two** mechanisms so it works on all supported DEs:
+The tray app starts only through **`bopp-tray.service`** (systemd user unit, enabled
+globally by the image). Every supported desktop (Plasma, GNOME, Cinnamon, Niri) reaches
+`graphical-session.target`, and the unit restarts the tray if it crashes. There is no XDG
+autostart entry: Cinnamon started both, which put two icons in the tray.
 
-- **`bopp-tray.service`** (systemd user unit) — KDE Plasma and GNOME both honour
-  `graphical-session.target`.
-- **`bopp-tray.desktop`** (XDG autostart) — fallback for Niri or any DE that
-  doesn't use systemd user sessions.
-
-To avoid double-starting, `bopp-tray` uses `fcntl` file locking; a second
-instance will exit immediately.
+Whatever starts it, `bopp-tray` takes an `fcntl` lock on `$XDG_RUNTIME_DIR/bopp-tray.lock`;
+a second copy exits at once with status 0 (so systemd does not treat it as a failure).
 
 ## Manual testing
 

@@ -1,10 +1,10 @@
 [Desktop Entry]
 Type=Application
 Name=BoppOS Setup
-Comment=First-run setup wizard for BoppOS
-Exec=/usr/bin/boppos-deck --welcome --if-needed
+Comment=First-run welcome tour for BoppOS
+Exec=/usr/bin/boppos-deck --first-run
 Icon=boppos-icon
 Categories=System;Settings;
-# Opens once per user: --if-needed exits at once when the wizard has been finished
+# Does nothing unless /var/lib/boppos/first-run exists; the tour removes it when it finishes
 X-GNOME-Autostart-enabled=true
 NoDisplay=true

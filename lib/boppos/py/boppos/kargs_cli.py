@@ -167,8 +167,12 @@ def run(args: argparse.Namespace) -> int:
         blocked = status.get("error") or (
             "staged" if status.get("staged") or status.get("rollback_queued") else None
         )
+        layout = kargs.bootloader_layout(root)
+        if not blocked and key is None:
+            blocked = kargs.not_ostree_message(cmdline)
+        blocked = blocked or layout.problem
         data = {"entries": entries, "editable": not blocked, "blocked_reason": blocked,
-                "managed": kargs.read_managed(root)}
+                "managed": kargs.read_managed(root), "layout": layout.as_json()}
         text = "\n".join(
             f"{'*' if e['booted'] else ' '} [{e['index']}] {e['title']} ({e['file']})" for e in entries
         )
@@ -231,6 +235,8 @@ def _summary(res: dict) -> str:
     lines = [*(f"+ {t}" for t in res["added"]), *(f"- {t}" for t in res["removed"])]
     if res["reboot_required"]:
         lines.append("Reboot to apply.")
+    if res.get("warning"):
+        lines.append(f"Warning: {res['warning']}")
     return "\n".join(lines)
 
 

@@ -102,8 +102,13 @@ def _good(**kw):
 def test_helper_calls_create_the_user_before_signing_them_in_and_finish_last():
     verbs = [c.args[0] for c in oobe.helper_calls(_good(hostname="deck"))]
     assert verbs == ["set-locale", "set-keymap", "set-timezone", "set-hostname", "create-user",
-                     "set-autologin", "finish"]
+                     "set-start-in", "finish-setup"]
     assert "set-hostname" not in [c.args[0] for c in oobe.helper_calls(_good())]
+
+
+def test_no_start_in_call_when_the_image_cannot_sign_in_automatically():
+    assert "set-start-in" not in [c.args[0] for c in oobe.helper_calls(_good(), start_in=False)]
+    assert "Sign " not in " ".join(a.text for a in oobe.build_plan(_good(), start_in=False))
 
 
 def test_only_create_user_carries_the_password_and_never_in_args_or_repr():
@@ -134,4 +139,4 @@ def test_apply_refuses_invalid_choices_without_running_anything():
 def test_apply_runs_everything_when_all_succeed():
     ran = []
     ok, _ = oobe.apply_choices(_good(), lambda a: a, lambda argv, stdin: ran.append(argv[0]) or (0, ""))
-    assert ok and ran[-1] == "finish" and len(ran) == 6
+    assert ok and ran[-1] == "finish-setup" and len(ran) == 6

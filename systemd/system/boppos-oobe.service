@@ -1,9 +1,10 @@
 [Unit]
-Description=BoppOS first-boot setup (create the first account)
+Description=BoppOS first-run setup (create the first account)
 Documentation=https://github.com/bopp-os/boppos-tools
-# Runs before the login screen, and only while nobody has an account and setup has not finished.
-# oobe-needed (ExecCondition) checks both; a failing check skips the unit, so the login screen starts as usual.
-ConditionPathExists=!/var/lib/boppos/oobe-done
+# Runs before the login screen, and only while nobody has a real account, whether or not the installer left its
+# marker (a bare `bootc install` does not). oobe-needed (ExecCondition) checks that; a failing check skips the
+# unit, so the login screen starts as usual. When the installer already created an account, this never starts:
+# the welcome tour does the rest after sign-in.
 ConditionPathExists=/usr/bin/boppos-deck
 Before=display-manager.service getty@tty1.service
 Conflicts=getty@tty1.service
@@ -28,13 +29,14 @@ UtmpMode=user
 Environment=XDG_SESSION_TYPE=wayland
 Environment=XDG_SESSION_CLASS=user
 Environment=HOME=/var/lib/boppos-oobe
-# Same compositor as Gaming Mode; boppos-deck --oobe is the only window. Type=oneshot makes the login screen
-# wait until this exits. The loop starts the setup again if it quits without finishing (the window was closed,
-# the compositor crashed), because without an account nobody could log in; the helper writes oobe-done last.
+# Same compositor as Gaming Mode; boppos-deck --first-run is the only window (it shows the account setup, because
+# oobe-needed just said nobody has an account). Type=oneshot makes the login screen wait until this exits. The loop
+# starts the setup again if it quits without finishing (the window was closed, the compositor crashed), because
+# without an account nobody could log in; it stops as soon as an account exists.
 Type=oneshot
 TimeoutStartSec=infinity
-ExecStart=/bin/sh -c 'until [ -e /var/lib/boppos/oobe-done ]; do \
-  /usr/bin/dbus-run-session -- /usr/bin/gamescope --backend drm -e --force-windows-fullscreen -- /usr/bin/boppos-deck --oobe || sleep 2; \
+ExecStart=/bin/sh -c 'while /usr/libexec/boppos/oobe-needed; do \
+  /usr/bin/dbus-run-session -- /usr/bin/gamescope --backend drm -e --force-windows-fullscreen -- /usr/bin/boppos-deck --first-run || sleep 2; \
 done'
 # No sandboxing on purpose: the setup runs pkexec, and its helper must change /etc, the user database and the
 # time zone, which a read-only or private mount namespace would block.

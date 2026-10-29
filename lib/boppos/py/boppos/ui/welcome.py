@@ -13,8 +13,8 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 from gi.repository import Adw, Gtk  # noqa: E402
 
-from .. import hwprofiles, welcome  # noqa: E402
-from .widgets import expander_row, group, info_row, switch_row  # noqa: E402
+from .. import firstrun, hwprofiles, welcome  # noqa: E402
+from .widgets import combo_row, expander_row, group, info_row, switch_row  # noqa: E402
 
 TITLES = {
     "welcome": ("Welcome to BoppOS", "A few quick choices to set this system up. You can skip any step."),
@@ -45,8 +45,13 @@ class WelcomeFlow(Gtk.Box):
         self.gaming = gaming
         self.preview = hw is not None
         self.hw = hw or hwprofiles.detect()
-        self.steps = welcome.steps_for(gaming)
+        # Setup asks where to start too; the tour asks only when nobody has chosen yet (and the image can do it).
+        self.start_in, _problem = firstrun.load_start_in()
+        asked = self.start_in is not None and firstrun.current_start_in(self.start_in) is None
+        self.steps = welcome.steps_for(gaming, asked)
         self.choices = welcome.initial_choices(self.hw)
+        if asked:
+            self.choices.start_in = "desktop" if "desktop" in self.start_in.choices else self.start_in.choices[0]
         self.on_finish = on_finish
         self.index = 0
 
@@ -59,7 +64,7 @@ class WelcomeFlow(Gtk.Box):
         self.review = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, vexpand=True)
         builders = {
             "apps": self.apps_page, "hardware": self.hardware_page, "security": self.security_page,
-            "updates": self.updates_page,
+            "updates": self.updates_page, "session": self.session_page,
         }
         for step in self.steps:
             if step.key in TITLES:
@@ -213,6 +218,18 @@ class WelcomeFlow(Gtk.Box):
                            "system does not carry.", c.dev_container, setter(c, "dev_container")))
         groups.append(dev)
         return page(*groups)
+
+    def session_page(self) -> Gtk.Widget:
+        keys = list(self.start_in.choices)
+        titles = [f"{welcome.SESSIONS[k][0]}: {welcome.SESSIONS[k][1]}" for k in keys]
+        g = group("Start in", "You can change this later.")
+        row = combo_row("After sign-in", titles, keys.index(self.choices.start_in))
+
+        def changed(r: Adw.ComboRow, _p) -> None:
+            self.choices.start_in = keys[r.get_selected()]
+        row.connect("notify::selected", changed)
+        g.add(row)
+        return page(g)
 
     def refresh_review(self) -> None:
         child = self.review.get_first_child()
