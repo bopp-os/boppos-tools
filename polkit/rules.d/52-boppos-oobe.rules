@@ -1,26 +1,40 @@
 // /usr/share/polkit-1/rules.d/52-boppos-oobe.rules
 //
-// The first-boot setup has no administrator yet, so it cannot type a password. This waives the password for
-// ONE caller: the boppos-oobe account (a no-password system user that only boppos-oobe.service runs as), on
-// the local active seat, while /var/lib/boppos/oobe-done does not exist. oobe-helper checks the same
-// things again (and refuses once an account exists), so a rule that is too wide is not the only defence.
+// A first run cannot always type a password: during setup there is no administrator yet. While a first run is
+// pending (/var/lib/boppos/first-run exists, see docs/first-run.md) this waives the password for:
+//
+//   - the boppos-oobe account (a no-password system user that only boppos-oobe.service runs as), for the setup;
+//   - a local, active wheel user, for exactly two command lines of the welcome tour: choosing where their OWN
+//     account starts (set-start-in <their name> gaming|desktop) and finishing the first run (finish-first-run).
+//
+// oobe-helper checks the same things again (setup verbs only while nobody has an account, set-start-in only for
+// the caller's own account), so a rule that is too wide is not the only defence.
 
-function oobeStillNeeded() {
+var OOBE_HELPER = "/usr/libexec/boppos/oobe-helper";
+
+function firstRunPending() {
     try {
-        polkit.spawn(["/usr/bin/test", "!", "-e", "/var/lib/boppos/oobe-done"]);
+        polkit.spawn(["/usr/bin/test", "-e", "/var/lib/boppos/first-run"]);
         return true;
     } catch (e) {
-        return false;  // test exits 1 when the file exists; any other failure also means "do not waive"
+        return false;  // test exits 1 when the marker is gone; any other failure also means "do not waive"
     }
 }
 
 polkit.addRule(function(action, subject) {
-    if (action.id === "org.boppos.deck.oobe" &&
-        subject.user === "boppos-oobe" &&
-        subject.local &&
-        subject.active &&
-        oobeStillNeeded())
-    {
+    if (action.id !== "org.boppos.deck.oobe" || !subject.local || !subject.active) {
+        return undefined;
+    }
+    if (subject.user === "boppos-oobe" && firstRunPending()) {
         return polkit.Result.YES;
     }
+    var own = [
+        OOBE_HELPER + " set-start-in " + subject.user + " gaming",
+        OOBE_HELPER + " set-start-in " + subject.user + " desktop",
+        OOBE_HELPER + " finish-first-run"
+    ];
+    if (subject.isInGroup("wheel") && own.indexOf(action.lookup("command_line")) !== -1 && firstRunPending()) {
+        return polkit.Result.YES;
+    }
+    return undefined;
 });

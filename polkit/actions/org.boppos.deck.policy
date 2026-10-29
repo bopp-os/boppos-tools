@@ -47,8 +47,8 @@
     <annotate key="org.freedesktop.policykit.exec.path">/usr/libexec/boppos/decky-helper</annotate>
   </action>
 
-  <!-- First-boot setup: administrator password for everyone; rules.d/52-boppos-oobe.rules waives it only for
-       the boppos-oobe account while setup is unfinished. -->
+  <!-- First run: administrator password for everyone; rules.d/52-boppos-oobe.rules waives it, while a first run
+       is pending, for the boppos-oobe account (setup) and for a wheel user's own welcome-tour calls. -->
   <action id="org.boppos.deck.oobe">
     <description>Set up this computer for the first time</description>
     <message>Authentication is required to set up this computer</message>
