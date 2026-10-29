@@ -1,6 +1,6 @@
 """The first-run wizard: a linear flow of steps with Back and Next, shown by `boppos-deck --welcome`.
 
-Dry run for now: the choices are collected and the Review step lists what would happen, but nothing is applied.
+Finishing hands the choices to the update window (welcome.apply_commands), unless welcome.DRY_RUN is on.
 """
 
 from __future__ import annotations
@@ -143,7 +143,7 @@ class WelcomeFlow(Gtk.Box):
                           "Pretend hardware (--hardware)." if self.preview else "Detected from the firmware (DMI)."))
         if self.hw.gpus:
             here.add(info_row("Graphics", ", ".join(g.upper() if g != "nvidia" else "NVIDIA" for g in self.hw.gpus)))
-        if "firmware_check" not in taken:
+        if "firmware_check" not in taken and "firmware_check" in welcome.WIRED:
             here.add(self.flag_row("firmware_check"))
         options = welcome.karg_options(self.hw)
         warn = group("Kernel arguments: best left alone", welcome.KARGS_WARNING)
@@ -231,8 +231,9 @@ class WelcomeFlow(Gtk.Box):
     # --- flow --------------------------------------------------------------------------------------------
     def go(self, delta: int) -> None:
         if delta > 0 and self.index == len(self.steps) - 1:
-            for line in welcome.run_plan(welcome.build_plan(self.choices, self.gaming)):
-                print(line, flush=True)
+            if welcome.DRY_RUN:
+                for line in welcome.run_plan(welcome.build_plan(self.choices, self.gaming)):
+                    print(line, flush=True)
             self.on_finish(True)
             return
         self.index = max(0, min(len(self.steps) - 1, self.index + delta))

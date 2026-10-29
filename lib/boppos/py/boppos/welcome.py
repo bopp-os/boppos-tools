@@ -14,9 +14,12 @@ from . import flatpaks, hwprofiles, kargs
 
 FLAG = "welcome-done"
 
-# The wizard only describes what it would do. run_plan() has no code path that changes the system, and
-# the Finish button does not write the done flag, until the apply step exists and this is turned off.
-DRY_RUN = True
+# True: the wizard only describes what it would do, and Finish does not write the done flag.
+DRY_RUN = False
+
+# The choices that have a real command behind them (apply_commands). Everything else is hidden from the
+# wizard until it is wired: a switch that silently does nothing would be worse than no switch.
+WIRED = frozenset({"flatpaks", "steam_shortcuts", "decky", "kargs"})
 
 KARGS_WARNING = kargs.KARGS_WARNING
 
@@ -26,21 +29,22 @@ class Step:
     key: str
     title: str
     gaming: bool = True  # False: needs a terminal or a desktop, so Gaming Mode skips it
+    wired: bool = True  # False: nothing on the step is applied yet, so the wizard leaves it out
 
 
 STEPS = (
     Step("welcome", "Welcome"),
     Step("apps", "Apps"),
     Step("hardware", "Hardware"),
-    Step("security", "Security", gaming=False),
-    Step("updates", "Updates"),
+    Step("security", "Security", gaming=False, wired=False),
+    Step("updates", "Updates", wired=False),
     Step("review", "Review"),
     Step("done", "Done"),
 )
 
 
 def steps_for(gaming: bool) -> list[Step]:
-    return [s for s in STEPS if s.gaming or not gaming]
+    return [s for s in STEPS if s.wired and (s.gaming or not gaming)]
 
 
 def state_dir(env: dict[str, str] | None = None) -> Path:
@@ -190,6 +194,7 @@ def recommended(hw: hwprofiles.Hardware | None = None) -> list[Recommended]:
     recs = [Recommended("apps", "flatpak", r) for r in sorted(refs)]
     flags = {"firmware_check": True, "steam_shortcuts": False, "decky": False, "auto_updates": False}
     flags.update({k: bool(v) for k, v in extra.items() if k in flags})
+    flags = {k: on for k, on in flags.items() if k in WIRED}
     steps = {"firmware_check": "hardware", "steam_shortcuts": "apps", "decky": "apps", "auto_updates": "updates"}
     recs += [Recommended(steps[k], "flag", k) for k, on in flags.items() if on]
     return recs
@@ -226,24 +231,22 @@ def build_plan(choices: Choices, gaming: bool = False) -> list[Action]:
     if choices.kargs:
         plan.append(Action("Hardware", "Switch on kernel argument presets: " + ", ".join(sorted(choices.kargs))
                            + " (takes effect after a reboot; leave these off unless you need them)"))
-    if choices.firmware_check:
-        plan.append(Action("Hardware", "Check for firmware updates (fwupd)"))
-    if choices.howdy:
-        plan.append(Action("Security", "Set up face unlock (Howdy)"))
-    if choices.tpm_unlock:
-        plan.append(Action("Security", "Enrol the TPM to unlock the disk automatically"))
-    if choices.auto_updates:
-        plan.append(Action("Updates", "Turn on automatic updates"))
-    if choices.dev_container:
-        plan.append(Action("Updates", "Create the dev container (distrobox)"))
     return plan
 
 
-def install_commands(choices: Choices, tool: Callable[[str], str]) -> list[list[str]]:
-    """The commands the update window runs for the chosen apps: what the Apps page runs for a switch turned on."""
-    if not choices.flatpaks:
-        return []
-    return [[tool("install-optional-flatpaks"), "--json", "--yes", "--only", ",".join(sorted(choices.flatpaks))]]
+def apply_commands(choices: Choices, tool: Callable[[str], str]) -> list[list[str]]:
+    """The commands the update window runs, in order: apps first (the update window shows their progress), then
+    the Steam shortcut and Decky, and the kernel argument presets last because they only need a reboot."""
+    cmds: list[list[str]] = []
+    if choices.flatpaks:
+        only = ",".join(sorted(choices.flatpaks))
+        cmds.append([tool("install-optional-flatpaks"), "--json", "--yes", "--only", only])
+    if choices.steam_shortcuts:
+        cmds.append([tool("bopp-steam-shortcut"), "--json", "sync", "--add", "boppos-deck"])
+    if choices.decky:
+        cmds.append([tool("bopp-decky"), "--json", "install"])
+    cmds += [[tool("bopp-kargs"), "--json", "enable", name] for name in sorted(choices.kargs)]
+    return cmds
 
 
 def run_plan(plan: list[Action]) -> list[str]:

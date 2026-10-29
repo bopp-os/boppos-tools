@@ -18,7 +18,8 @@ def test_clear_without_flag_is_fine(tmp_path):
 def test_gaming_mode_skips_desktop_only_steps():
     desktop = [s.key for s in welcome.steps_for(False)]
     gaming = [s.key for s in welcome.steps_for(True)]
-    assert "security" in desktop and "security" not in gaming
+    assert desktop == gaming  # security is the only desktop-only step, and it is not wired yet
+    assert "security" in [s.key for s in welcome.STEPS if not s.gaming]
     assert desktop[0] == gaming[0] == "welcome" and desktop[-1] == gaming[-1] == "done"
 
 
@@ -32,7 +33,6 @@ def test_choices_empty():
 def test_initial_choices_match_todays_defaults():
     c = welcome.initial_choices(hwprofiles.PROFILES["amd-desktop"])
     assert "io.github.kolunmi.Bazaar" in c.flatpaks
-    assert c.firmware_check
     assert not (c.decky or c.steam_shortcuts or c.howdy or c.tpm_unlock)
 
 
@@ -59,9 +59,8 @@ def test_plan_lists_each_choice_in_order():
     c = welcome.Choices(flatpaks={"io.github.kolunmi.Bazaar"}, decky=True, steam_shortcuts=True,
                         kargs={"20-sleep-deep"}, firmware_check=True, howdy=True, tpm_unlock=True,
                         auto_updates=True, dev_container=True)
-    areas = [a.area for a in welcome.build_plan(c)]
-    assert areas == ["Apps", "Apps", "Apps", "Hardware", "Hardware", "Security", "Security", "Updates",
-                     "Updates"]
+    # choices that are not wired yet add nothing to the plan
+    assert [a.area for a in welcome.build_plan(c)] == ["Apps", "Apps", "Apps", "Hardware"]
 
 
 def test_gaming_plan_defers_steam_items():
@@ -86,11 +85,14 @@ def test_run_plan_is_dry(monkeypatch):
     monkeypatch.setattr(subprocess, "Popen", boom)
     plan = welcome.build_plan(welcome.Choices(decky=True, kargs={"20-sleep-deep"}, howdy=True))
     lines = welcome.run_plan(plan)
-    assert len(lines) == 3 and all(line.startswith("[dry run] would:") for line in lines)
+    assert len(lines) == 2 and all(line.startswith("[dry run] would:") for line in lines)
 
 
-def test_dry_run_is_on():
-    assert welcome.DRY_RUN is True
+def test_the_wizard_is_live_and_hides_what_is_not_wired():
+    assert welcome.DRY_RUN is False
+    assert welcome.WIRED == {"flatpaks", "steam_shortcuts", "decky", "kargs"}
+    assert {s.key for s in welcome.STEPS if not s.wired} == {"security", "updates"}
+    assert not {s.key for s in welcome.steps_for(False)} & {"security", "updates"}
 
 
 def test_no_kargs_preset_is_ever_preselected():
@@ -119,9 +121,10 @@ def test_handheld_defaults_add_steam_items_but_never_kargs():
     assert not (d.steam_shortcuts or d.decky)
 
 
-def test_vm_skips_the_firmware_check_and_laptop_gets_auto_updates():
-    assert not welcome.initial_choices(hwprofiles.PROFILES["vm"]).firmware_check
-    assert welcome.initial_choices(hwprofiles.PROFILES["intel-laptop"]).auto_updates
+def test_unwired_switches_are_never_recommended_on():
+    for hw in hwprofiles.PROFILES.values():
+        c = welcome.initial_choices(hw)
+        assert not (c.firmware_check or c.auto_updates or c.howdy or c.tpm_unlock or c.dev_container)
 
 
 def test_everything_recommended_starts_on_and_nothing_else():
@@ -138,12 +141,8 @@ def test_everything_recommended_starts_on_and_nothing_else():
 def test_recommended_follows_the_kind_and_belongs_to_a_step():
     steps = {s.key for s in welcome.STEPS}
     deck = welcome.recommended(hwprofiles.PROFILES["steam-deck"])
-    assert {("apps", "decky"), ("apps", "steam_shortcuts"), ("hardware", "firmware_check")} <= \
-        {(r.step, r.key) for r in deck}
+    assert {("apps", "decky"), ("apps", "steam_shortcuts")} <= {(r.step, r.key) for r in deck}
     assert all(r.step in steps for r in deck)
-    laptop = welcome.recommended(hwprofiles.PROFILES["intel-laptop"])
-    assert ("updates", "auto_updates") in {(r.step, r.key) for r in laptop}
-    assert all(r.key != "firmware_check" for r in welcome.recommended(hwprofiles.PROFILES["vm"]))
 
 
 def test_presets_that_cannot_work_go_last_and_say_why():
@@ -204,12 +203,17 @@ def test_every_app_of_the_curated_list_is_recommended_and_switched_on():
     assert "net.lutris.Lutris" in extra_only  # the opt-in extras stay opt-in
 
 
-def test_the_chosen_apps_install_through_one_command_the_update_window_runs():
+def test_the_choices_become_commands_in_a_fixed_order():
     tool = lambda name: f"/usr/bin/{name}"  # noqa: E731
-    assert welcome.install_commands(welcome.Choices(), tool) == []
-    c = welcome.Choices(flatpaks={"it.mijorus.gearlever", "io.github.kolunmi.Bazaar"})
-    assert welcome.install_commands(c, tool) == [[
-        "/usr/bin/install-optional-flatpaks", "--json", "--yes", "--only",
-        "io.github.kolunmi.Bazaar,it.mijorus.gearlever"]]
-    plan = welcome.build_plan(c)
+    assert welcome.apply_commands(welcome.Choices(), tool) == []
+    c = welcome.Choices(flatpaks={"it.mijorus.gearlever", "io.github.kolunmi.Bazaar"}, decky=True,
+                        steam_shortcuts=True, kargs={"b-two", "a-one"}, howdy=True, firmware_check=True)
+    assert welcome.apply_commands(c, tool) == [
+        ["/usr/bin/install-optional-flatpaks", "--json", "--yes", "--only",
+         "io.github.kolunmi.Bazaar,it.mijorus.gearlever"],
+        ["/usr/bin/bopp-steam-shortcut", "--json", "sync", "--add", "boppos-deck"],
+        ["/usr/bin/bopp-decky", "--json", "install"],
+        ["/usr/bin/bopp-kargs", "--json", "enable", "a-one"],
+        ["/usr/bin/bopp-kargs", "--json", "enable", "b-two"]]  # howdy and the firmware check run nothing
+    plan = welcome.build_plan(welcome.Choices(flatpaks={"it.mijorus.gearlever", "io.github.kolunmi.Bazaar"}))
     assert "Install 2 Flatpak" in plan[0].text and "Gear Lever" in plan[0].text

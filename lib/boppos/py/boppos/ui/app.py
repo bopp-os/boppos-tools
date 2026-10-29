@@ -837,11 +837,12 @@ class DeckWindow(Adw.ApplicationWindow):
 
     def end_welcome(self, finished: bool) -> None:
         self.stack.set_visible_child_name("main")
-        if not finished or welcome.DRY_RUN:  # a dry run applied nothing, so it must not count as set up
+        # a dry run or a --hardware preview applied nothing, so it must not count as set up
+        if not finished or welcome.DRY_RUN or self.welcome_flow.preview:
             return
         welcome.mark_done()
-        if cmds := welcome.install_commands(self.welcome_flow.choices, backend.tool):
-            self.run_job("Installing your apps", cmds, lambda _ok, _final: None)
+        if cmds := welcome.apply_commands(self.welcome_flow.choices, backend.tool):
+            self.run_job("Setting up BoppOS", cmds, lambda _ok, _final: None)
 
     def on_close_request(self, *_a) -> bool:
         if self.job and self.job.running:
