@@ -1,5 +1,8 @@
 # First run: kernel-argument presets and the installer handoff (design, 2026-10-28)
 
+The marker, the account rule and the entry point are now specified in [first-run.md](first-run.md); this file keeps the
+preset design and its open questions.
+
 Status: **design only**. Nothing here is built yet. Open questions are listed at the end and are not answered here.
 
 ## What the installer will do
@@ -13,9 +16,9 @@ Status: **design only**. Nothing here is built yet. Open questions are listed at
 
 | Piece | What it does |
 |---|---|
-| `boppos-oobe.service` + `libexec/boppos/oobe-needed` | Runs `boppos-deck --oobe` on tty1 before the login screen. It runs only while `/var/lib/boppos/oobe-done` is missing **and** there is no human account (`oobe_helper.needed`). |
-| `boppos-deck --oobe` (`oobe.py`, `ui/oobe.py`, `oobe-helper`) | Language, network, time zone, account, session. It **never touches kernel arguments**. `finish` writes `oobe-done`, sets SDDM autologin for the new user and starts the display manager. Nothing chains to `--welcome`: the welcome wizard starts only through its autostart entry at that first login. |
-| `boppos-deck --welcome --if-needed` (`autostart/bopp-welcome.desktop`) | Per user, after login. Done flag: `$XDG_STATE_HOME/boppos-deck/welcome-done` (default `~/.local/state/…`). The Hardware step lists every preset from `welcome.karg_options()`, ordered by `kargs.fit` (fits, optional, risky, unsupported). `72-amdgpu-overclock` gets a switch of its own. None is preselected (`recommended()` never returns a preset). Finish runs `bopp-kargs --json enable <name>` for each picked preset. |
+| `boppos-oobe.service` + `libexec/boppos/oobe-needed` | Runs `boppos-deck --first-run` on tty1 before the login screen, only while the first-run marker exists and there is no real account. |
+| Account setup (`oobe.py`, `ui/oobe.py`, `oobe-helper`; `--first-run` with no account, or `--oobe`) | Language, network, time zone, account, start-in. It **never touches kernel arguments**. `finish-setup` starts the display manager; the marker stays, and the tour runs at the first sign-in. |
+| Welcome tour (`--first-run` with an account, or `--welcome`; started by `autostart/bopp-welcome.desktop`) | Per sign-in while the marker exists; finishing removes it (and still writes `$XDG_STATE_HOME/boppos-deck/welcome-done` for `--welcome --if-needed`). The Hardware step lists every preset from `welcome.karg_options()`, ordered by `kargs.fit` (fits, optional, risky, unsupported). `72-amdgpu-overclock` gets a switch of its own. None is preselected (`recommended()` never returns a preset). Finish runs `bopp-kargs --json enable <name>` for each picked preset. |
 | boppos-deck, Kernel arguments page (`ui/pages.py`) | Uses `bopp-kargs --json dropins` and `kargs.sections()`. The "on" section holds presets that are `enabled`, **or** `already_active` (all their kargs are on the running cmdline but not in `/var/lib/bopp-kargs/managed`). A preset that is `already_active` but not `enabled` is switched off by removing its arguments one by one (`bopp-kargs remove`). Every other preset is switched with `bopp-kargs enable/disable`. |
 | `bopp-kargs apply/enable/disable` (`kargs.apply_dropins`) | Wanted = the kargs of enabled presets whose `match.*` (DMI) fits. It removes only tokens listed in `/var/lib/bopp-kargs/managed`. |
 
