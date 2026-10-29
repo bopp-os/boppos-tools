@@ -149,11 +149,24 @@ Needs the image: `boppos-oobe.service` enabled (`systemctl enable boppos-oobe.se
 - [ ] Reboot: the setup does not return. `systemctl status boppos-oobe` shows the condition skipped.
 - [ ] Close the window mid-way: it comes back (the unit loops until an account exists).
 - [ ] On a system that already has an account, `/usr/libexec/boppos/oobe-needed; echo $?` prints 1, and `sudo /usr/libexec/boppos/oobe-helper create-user x` is refused. With an account and no marker, every verb is refused. On a bare install (no account, no marker) the setup still starts.
-- [ ] As your own user, `pkexec /usr/libexec/boppos/oobe-helper finish` asks for an administrator password (the waiver is only for `boppos-oobe`).
+- [ ] As your own user, `pkexec /usr/libexec/boppos/oobe-helper finish-setup` asks for an administrator password (the waiver is only for `boppos-oobe`).
+- [ ] A bare `bootc install` (no installer, no `/var/lib/boppos/first-run`) still shows the setup before the greeter, and after it the account exists, the marker says `mode=welcome`, and the welcome tour opens at the first sign-in.
 
-Older dry-run checks, for `oobe.DRY_RUN = True`:
+### Wi-Fi in the setup (Network step)
 
-- [ ] `boppos-deck --oobe` opens the setup with a "Dry run" banner: Welcome, Language, Network, Time zone, Account, Start in, Review, Done.
+Needs a machine with a Wi-Fi adapter managed by NetworkManager. Untested until now: nmcli's real output, and whether NetworkManager lets the `boppos-oobe` session save a connection.
+
+- [ ] With an adapter, the Wi-Fi list appears (strongest first, the connected one first); with no adapter it is hidden and the page still shows the link state.
+- [ ] A WPA2 network: Join opens the on-screen keyboard with the password masked; a correct password connects ("Connected to …") and the status row says Connected.
+- [ ] A wrong password asks again with "That password was not accepted." on the keyboard screen; cancelling leaves the page as it was.
+- [ ] After a failed join, `nmcli connection show` has no profile for that network, and no `.wifi-*` file remains in `$XDG_RUNTIME_DIR`.
+- [ ] While joining, `ps aux | grep nmcli` never shows the password.
+- [ ] A company (802.1X) and a WEP network are listed with the reason and cannot be joined; an open network joins without a prompt.
+- [ ] If NetworkManager refuses, the page says "This account may not change the network settings" (then a polkit rule for `boppos-oobe` is needed).
+
+Dry-run checks (the command is in the README, "Running from a checkout"):
+
+- [ ] The dry-run setup opens with a "Dry run" banner: Welcome, Language, Network, Time zone, Account, Start in, Review, Done.
 - [ ] Next is greyed out with the reason shown below the page until the step is valid. On Account that means a user name (lowercase, not `root`, `steam` and similar), a password of at least 8 characters, and a valid computer name if one is given.
 - [ ] Review lists what would happen and never shows the password. Finish prints `[dry run] would: …` lines in the terminal and returns to the settings view; no account is created.
-- [ ] Not yet covered: the on-screen keyboard and controller input in the entry fields, Wi-Fi setup, the root helper that really creates the user.
+- [ ] Not yet covered: the on-screen keyboard and controller input in the entry fields, the root helper that really creates the user (see the live checks above).
