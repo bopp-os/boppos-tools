@@ -36,11 +36,12 @@ def with_user(tmp_path, **kw):
 
 def test_create_user_is_one_useradd_and_the_password_goes_on_stdin_only(tmp_path):
     steps = h.steps_for(["create-user", "ripps", "Rip S"], PW, make_root(tmp_path))
-    useradd, chpasswd = steps
+    useradd, chpasswd, _marker = steps
     assert useradd.argv == [h.USERADD, "--create-home", "--groups", "wheel", "--shell", "/bin/bash",
                             "--comment", "Rip S", "--", "ripps"]
     assert chpasswd.argv == [h.CHPASSWD] and chpasswd.stdin == "ripps:Abcdef12!x\n"
-    assert not any("Abcdef12" in a for s in steps for a in s.argv)
+    assert not any("Abcdef12" in a for s in (useradd, chpasswd) for a in s.argv)
+    assert "Abcdef12" not in _marker.text
 
 
 @pytest.mark.parametrize("args", [["root"], ["Ripps"], ["a b"], ["steam"], ["ripps", "a:b"], ["ripps", "x\ny"], []])
@@ -68,12 +69,26 @@ def test_a_nologin_account_in_the_user_range_does_not_end_setup(tmp_path):
     assert h.steps_for(["set-keymap", "de"], None, root) == [h.Run([h.LOCALECTL, "set-keymap", "de"])]
 
 
-def test_everything_is_refused_without_a_pending_first_run(tmp_path):
-    for root in (make_root(tmp_path / "a", marker=None), with_user(tmp_path / "b", marker=None)):
-        for argv in (["create-user", "ripps"], ["set-locale", "en_US.UTF-8"], ["finish-setup"],
-                     ["set-start-in", "ripps", "gaming"], ["finish-first-run"]):
-            with pytest.raises(UsageError, match="no first run"):
-                h.steps_for(argv, PW, root)
+def test_everything_is_refused_when_an_account_exists_and_there_is_no_marker(tmp_path):
+    root = with_user(tmp_path, marker=None)  # an installed system: nothing for this helper to do
+    for argv in (["create-user", "ripps"], ["set-locale", "en_US.UTF-8"], ["finish-setup"],
+                 ["set-start-in", "ripps", "gaming"], ["finish-first-run"]):
+        with pytest.raises(UsageError, match="no first run"):
+            h.steps_for(argv, PW, root)
+
+
+def test_a_bare_install_without_the_marker_can_still_be_set_up(tmp_path):
+    root = make_root(tmp_path, marker=None)
+    assert h.steps_for(["set-keymap", "de"], None, root)
+    assert h.steps_for(["create-user", "ripps"], PW, root)
+
+
+def test_create_user_leaves_the_marker_so_the_tour_follows(tmp_path):
+    *_, marker = h.steps_for(["create-user", "ripps"], PW, make_root(tmp_path, marker=None))
+    assert marker == h.Write(firstrun.MARKER, "mode=welcome\n")
+    after = with_user(tmp_path / "after", marker="mode=welcome\n")  # what the system looks like next
+    assert h.steps_for(["set-start-in", "ripps", "gaming"], None, after)
+    assert h.steps_for(["finish-first-run"], None, after, caller=1000) == [h.Remove(firstrun.MARKER)]
 
 
 def test_system_settings_map_to_fixed_commands(tmp_path):
@@ -159,15 +174,17 @@ def test_finish_first_run_removes_the_marker_for_an_account_holder_only(tmp_path
         h.steps_for(["finish-first-run"], None, make_root(tmp_path / "x"))
 
 
-def test_needed_means_pending_and_no_real_account(tmp_path):
+def test_needed_means_no_real_account_marker_or_not(tmp_path):
     assert h.needed(make_root(tmp_path))
+    assert h.needed(make_root(tmp_path / "n", marker=None))  # a bare bootc install has no marker
     assert not h.needed(with_user(tmp_path / "u"))
-    assert not h.needed(make_root(tmp_path / "n", marker=None))  # no marker: never start the setup
+    assert not h.needed(with_user(tmp_path / "m", marker=None))
 
 
 def test_polkit_waives_only_the_setup_account_and_the_users_own_tour_calls():
     rule = (REPO / "polkit/rules.d/52-boppos-oobe.rules").read_text()
     assert 'subject.user === "boppos-oobe"' in rule and "/var/lib/boppos/first-run" in rule
+    assert "markerExists() || setupNeeded()" in rule  # the setup account also works without the marker
     assert '" set-start-in " + subject.user + " gaming"' in rule and '" finish-first-run"' in rule
     assert 'subject.isInGroup("wheel")' in rule and "oobe-done" not in rule
 

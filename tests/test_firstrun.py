@@ -51,9 +51,21 @@ def test_marker_hint(tmp_path, text, hint):
     assert fr.read_hint(make_root(tmp_path, marker=text)) == hint
 
 
-def test_no_marker_means_nothing_to_do_even_without_an_account(tmp_path):
-    d = fr.decide(make_root(tmp_path))
-    assert d.mode == "none" and d.hint is None and not d.hint_disagrees
+def test_no_marker_and_an_account_means_nothing_to_do(tmp_path):
+    root = make_root(tmp_path, ROOT_LINE + account("ripps", 1000))
+    d = fr.decide(root)
+    assert d.mode == "none" and d.hint is None and not fr.pending(root)
+
+
+def test_a_bare_install_without_marker_or_account_still_gets_the_setup(tmp_path):
+    root = make_root(tmp_path)
+    d = fr.decide(root)
+    assert d.mode == "setup" and d.hint is None and not d.hint_disagrees and fr.pending(root)
+
+
+def test_a_nologin_only_system_has_no_real_account(tmp_path):
+    root = make_root(tmp_path, ROOT_LINE + account("svc", 1000, "/usr/bin/nologin") + account("nobody", 65534))
+    assert fr.decide(root).mode == "setup"
 
 
 def test_marker_and_no_account_is_setup(tmp_path):
@@ -81,14 +93,15 @@ def test_an_unknown_hint_still_means_pending(tmp_path):
 
 
 def test_startup_mode_forces_or_decides(tmp_path):
-    none = make_root(tmp_path)
-    assert fr.startup_mode(None, none) == "none"
-    assert fr.startup_mode("first-run", none) == "none"
-    assert fr.startup_mode("welcome", none) == "welcome"  # --welcome keeps working without a marker
-    assert fr.startup_mode("setup", none) == "setup"
+    done = make_root(tmp_path, ROOT_LINE + account("ripps", 1000))
+    assert fr.startup_mode(None, done) == "none"
+    assert fr.startup_mode("first-run", done) == "none"
+    assert fr.startup_mode("welcome", done) == "welcome"  # --welcome keeps working without a marker
+    assert fr.startup_mode("setup", done) == "setup"
     (tmp_path / "var/lib/boppos").mkdir(parents=True)
-    (tmp_path / "var/lib/boppos/first-run").write_text("mode=oobe\n")
-    assert fr.startup_mode("first-run", none) == "setup"
+    (tmp_path / "var/lib/boppos/first-run").write_text("mode=welcome\n")
+    assert fr.startup_mode("first-run", done) == "welcome"
+    assert fr.startup_mode("first-run", make_root(tmp_path / "bare")) == "setup"
 
 
 # --- start-in config -------------------------------------------------------------------------------------------

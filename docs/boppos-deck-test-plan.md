@@ -141,14 +141,14 @@ See docs/first-run.md. Without `/var/lib/boppos/first-run`, `--first-run` opens 
 - [ ] Finish writes `~/.local/state/boppos-deck/welcome-done`; with everything off Finish still writes it; with a first-run marker present the update window runs `finish-first-run`, which removes the marker. Cancelling the wizard writes nothing.
 - [ ] `--hardware PROFILE` previews another machine; Finish applies nothing and writes no done flag.
 
-## First-boot setup (`boppos-deck --first-run` with a marker and no account; `--oobe` forces it, live)
+## First-boot setup (`boppos-deck --first-run` with no real account, marker or not; `--oobe` forces it, live)
 
 Needs the image: `boppos-oobe.service` enabled (`systemctl enable boppos-oobe.service`) and the sysusers file applied (`systemd-sysusers`). In a VM with no account:
 - [ ] The login screen waits; the setup appears fullscreen on tty1 (gamescope) with no "Dry run" banner.
 - [ ] Finishing creates the account (in `wheel`), sets language, keyboard, time zone and name, writes the SDDM autologin drop-in (only when the image has a start-in.conf), leaves the first-run marker for the tour, and the login screen starts signed in to the chosen session. No password prompt appears during setup.
 - [ ] Reboot: the setup does not return. `systemctl status boppos-oobe` shows the condition skipped.
 - [ ] Close the window mid-way: it comes back (the unit loops until an account exists).
-- [ ] On a system that already has an account, `/usr/libexec/boppos/oobe-needed; echo $?` prints 1, and `sudo /usr/libexec/boppos/oobe-helper create-user x` is refused. With no marker, every verb is refused.
+- [ ] On a system that already has an account, `/usr/libexec/boppos/oobe-needed; echo $?` prints 1, and `sudo /usr/libexec/boppos/oobe-helper create-user x` is refused. With an account and no marker, every verb is refused. On a bare install (no account, no marker) the setup still starts.
 - [ ] As your own user, `pkexec /usr/libexec/boppos/oobe-helper finish` asks for an administrator password (the waiver is only for `boppos-oobe`).
 
 Older dry-run checks, for `oobe.DRY_RUN = True`:

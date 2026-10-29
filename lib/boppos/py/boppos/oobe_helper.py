@@ -1,10 +1,10 @@
 """What the root helper `oobe-helper` may do during a first run, as pure functions.
 
 Every verb maps to fixed commands or one fixed file; every argument is validated again here (the UI's checks are
-only a courtesy). The helper does nothing unless a first run is pending (/var/lib/boppos/first-run, see
-boppos.firstrun). The setup verbs only work while nobody has a real account, so a leftover helper on an installed
-system cannot create a second one or change the system settings. The password only ever travels on stdin to
-chpasswd, never in an argument list.
+only a courtesy). The helper does nothing unless a first run is pending: nobody has a real account yet, or the
+marker /var/lib/boppos/first-run exists (see boppos.firstrun). The setup verbs only work while nobody has a real
+account, so a leftover helper on an installed system cannot create a second one or change the system settings.
+The password only ever travels on stdin to chpasswd, never in an argument list.
 
 Setup (no real account yet; called by boppos-oobe.service's boppos-oobe account):
   set-locale, set-keymap, set-timezone, set-hostname, create-user, then set-start-in and finish-setup.
@@ -66,7 +66,7 @@ def human_users(root: str | Path = "/") -> dict[str, int]:
 
 
 def needed(root: str | Path = "/") -> bool:
-    """Whether this system needs the setup now: a first run is pending and nobody has a real account yet."""
+    """Whether this system needs the setup now: nobody has a real account yet."""
     return firstrun.decide(root).mode == "setup"
 
 
@@ -127,7 +127,7 @@ def steps_for(argv: list[str], stdin: str | None = None, root: str | Path = "/",
     """
     if not argv:
         raise UsageError(USAGE)
-    if firstrun.read_hint(root) is None:
+    if not firstrun.pending(root):
         raise UsageError("no first run is pending; this helper does nothing")
     verb, rest = ALIASES.get(argv[0], argv[0]), argv[1:]
     users = human_users(root)
@@ -140,9 +140,11 @@ def steps_for(argv: list[str], stdin: str | None = None, root: str | Path = "/",
         name, fullname = rest[0], rest[1] if len(rest) == 2 else ""
         _fail(oobe.username_problem(name) or oobe.fullname_problem(fullname))
         pw = _password(stdin)
+        # The marker follows the account, so the tour comes next whoever started: the installer or a bare install.
         return [Run([USERADD, "--create-home", "--groups", "wheel", "--shell", "/bin/bash",
                      "--comment", fullname, "--", name]),
-                Run([CHPASSWD], f"{name}:{pw}\n")]
+                Run([CHPASSWD], f"{name}:{pw}\n"),
+                Write(firstrun.MARKER, "mode=welcome\n")]
 
     if stdin:
         raise UsageError("this verb takes no stdin")

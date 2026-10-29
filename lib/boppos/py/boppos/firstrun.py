@@ -4,8 +4,10 @@ The contract with the BoppOS installer (docs/first-run.md):
 
 - /var/lib/boppos/first-run exists while a first run is pending. The installer writes one line, `mode=welcome`
   (it created an account) or `mode=oobe` (it did not). That mode is only a hint: the live system decides.
-- No marker: nothing to do. Marker and no real account: setup (create the account, system settings, where to start).
-  Marker and a real account: the welcome tour. The tour removes the marker when it finishes.
+- No real account: setup (create the account, system settings, where to start), with or without the marker, so a
+  bare `bootc install` never ends at a login screen nobody can use. The setup writes the marker itself.
+- A real account and the marker: the welcome tour, which removes the marker when it finishes.
+- A real account and no marker: nothing to do.
 
 Everything takes a `root` so tests use fake trees, never the real /etc or /var.
 """
@@ -82,10 +84,15 @@ class Decision:
 
 def decide(root: str | Path = "/") -> Decision:
     hint = read_hint(root)
-    if hint is None:
-        return Decision("none", None)
     accounts = real_accounts(root)
-    return Decision("welcome" if accounts else "setup", hint, accounts)
+    if not accounts:
+        return Decision("setup", hint)
+    return Decision("welcome" if hint is not None else "none", hint, accounts)
+
+
+def pending(root: str | Path = "/") -> bool:
+    """Whether a first run is pending: the setup is needed, or the tour is still to be shown."""
+    return decide(root).mode != "none"
 
 
 def startup_mode(force: str | None, root: str | Path = "/") -> str:

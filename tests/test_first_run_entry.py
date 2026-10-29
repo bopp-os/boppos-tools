@@ -57,6 +57,7 @@ def test_everything_that_starts_the_flow_uses_the_one_entry_point():
     desktop = (REPO / "autostart/bopp-welcome.desktop").read_text()
     assert "Exec=/usr/bin/boppos-deck --first-run\n" in desktop and "--if-needed" not in desktop
     unit = (REPO / "systemd/system/boppos-oobe.service").read_text()
-    assert "ConditionPathExists=/var/lib/boppos/first-run" in unit and "oobe-done" not in unit
+    assert "ConditionPathExists" not in unit.replace("ConditionPathExists=/usr/bin/boppos-deck", "")  # no marker needed
+    assert "oobe-done" not in unit
     assert "ExecCondition=/usr/libexec/boppos/oobe-needed" in unit and "boppos-deck --first-run" in unit
     assert "User=boppos-oobe" in unit
