@@ -47,6 +47,15 @@ helper refuses these verbs from then on):
 When it creates no account, nothing is required: the setup runs because no account exists (writing `mode=oobe` is
 still fine, and harmless).
 
+## Network in the setup
+
+The setup's network page shows whether a link is up and, when NetworkManager manages a Wi-Fi adapter, lists the
+networks to join (`boppos/network.py`, through `nmcli`). Open, WPA/WPA2 personal and WPA3 personal networks work;
+the password is typed on the window's on-screen keyboard and goes to nmcli in a 0600 file (`passwd-file`), never in
+an argument list. Company (802.1X) and WEP networks are listed as unsupported. nmcli runs as the setup user
+(`boppos-oobe`), so NetworkManager's own polkit rules decide whether it may save a connection; there is no root
+helper for this. The tour has no network page: it assumes a system that was set up already.
+
 ## Where to start (Gaming Mode or Desktop)
 
 Asked in both flows; the installer does not ask it. The app names no session and no display manager. The image

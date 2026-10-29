@@ -16,8 +16,8 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 from gi.repository import Adw, GLib, Gtk  # noqa: E402
 
-from .. import firstrun, oobe, system  # noqa: E402
-from .widgets import combo_row, group, info_row, plain  # noqa: E402
+from .. import firstrun, network, oobe, system  # noqa: E402
+from .widgets import button_row, combo_row, group, info_row, plain  # noqa: E402
 
 TITLES = {
     "welcome": ("Welcome to BoppOS", "Let's set this computer up: language, time zone and your account."),
@@ -40,9 +40,20 @@ def page(*groups: Adw.PreferencesGroup) -> Adw.PreferencesPage:
     return p
 
 
+def _capture(argv: list[str]) -> tuple[int, str]:
+    try:
+        p = subprocess.run(argv, capture_output=True, text=True, timeout=30, check=False)
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return 1, str(exc)
+    return p.returncode, p.stdout
+
+
 class OobeFlow(Gtk.Box):
-    def __init__(self, on_finish: Callable[[bool], None]):
+    def __init__(self, on_finish: Callable[[bool], None], ask_password: Callable | None = None):
+        """ask_password(message, prompt, echo, user, error, answer, cancel): the window's masked on-screen keyboard
+        prompt, used for the Wi-Fi password."""
         super().__init__(orientation=Gtk.Orientation.VERTICAL)
+        self.ask_password = ask_password
         self.choices = oobe.Choices()
         # Where to start is the image's to offer (its start-in.conf); without it the step and the call are left out.
         self.start_in, self.start_in_problem = firstrun.load_start_in()
@@ -111,11 +122,87 @@ class OobeFlow(Gtk.Box):
         return page(g)
 
     def network_page(self) -> Gtk.Widget:
+        g = group("Network", "A cable needs nothing. For Wi-Fi, pick a network below.")
+        self.net_status = info_row("", "", "")
+        g.add(self.net_status)
+        self.wifi_group = group("Wi-Fi networks")
+        self.wifi_group.set_visible(False)
+        self.wifi_rows: list[Gtk.Widget] = []
+        self.net_busy = False
+        self.update_net_status()
+        self.scan_wifi()
+        return page(g, self.wifi_group)
+
+    def update_net_status(self) -> None:
         up = oobe.online()
-        g = group("Network", "Joining Wi-Fi is not part of this preview.")
-        g.add(info_row("Connected" if up else "Not connected", "",
-                       "A network link is up." if up else "Plug in a cable or join Wi-Fi later from the desktop."))
-        return page(g)
+        self.net_status.set_title("Connected" if up else "Not connected")
+        self.net_status.set_subtitle("A network link is up." if up else
+                                     "Plug in a cable or join Wi-Fi below. You can also do it later.")
+
+    def scan_wifi(self) -> None:
+        """Look for a Wi-Fi adapter and its networks in the background; the list appears when it is ready."""
+        def work() -> None:
+            code, devices = _capture(network.device_argv())
+            nets: list[network.Wifi] = []
+            if code == 0 and network.has_wifi_device(devices):
+                code, out = _capture(network.scan_argv())
+                nets = network.parse_scan(out) if code == 0 else []
+                GLib.idle_add(self.show_wifi, nets, True)
+            else:
+                GLib.idle_add(self.show_wifi, nets, False)
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def show_wifi(self, nets: list[network.Wifi], adapter: bool) -> None:
+        for row in self.wifi_rows:
+            self.wifi_group.remove(row)
+        self.wifi_rows = []
+        self.wifi_group.set_visible(adapter)
+        rows: list[Gtk.Widget] = []
+        for n in nets:
+            how = "Open" if n.open else "Secured"
+            sub = f"{how}, signal {n.signal}%" + (", connected" if n.in_use else "")
+            if n.unsupported:
+                rows.append(info_row(n.ssid, "", n.unsupported))
+            else:
+                rows.append(button_row(n.ssid, sub, "Connected" if n.in_use else "Join",
+                                       lambda n=n: self.join_wifi(n)))
+        rows.append(button_row("Scan again", "", "Scan", self.scan_wifi))
+        for row in rows:
+            self.wifi_group.add(row)
+        self.wifi_rows = rows
+
+    def join_wifi(self, net: network.Wifi, error: str = "") -> None:
+        if oobe.DRY_RUN:
+            self.notice.set_label("Dry run: not joining any network")
+            return
+        if net.open or self.ask_password is None:
+            self.do_join(net, "")
+            return
+        self.ask_password(f"Join {net.ssid}", "Wi-Fi password:", False, "", error,
+                          lambda text: self.do_join(net, text), lambda: None)
+
+    def do_join(self, net: network.Wifi, password: str) -> None:
+        if self.net_busy:
+            return
+        self.net_busy = True
+        self.notice.set_label(f"Joining {net.ssid}…")
+
+        def work() -> None:
+            ok, msg = network.join(net, password)
+            GLib.idle_add(self.joined, net, ok, msg)
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def joined(self, net: network.Wifi, ok: bool, msg: str) -> None:
+        self.net_busy = False
+        self.refresh_gate()
+        self.notice.set_label(msg)
+        self.update_net_status()
+        if ok:
+            self.scan_wifi()
+        elif msg == "That password was not accepted." and self.ask_password is not None:
+            self.join_wifi(net, msg)  # ask again, with the reason on the keyboard screen
 
     def timezone_page(self) -> Gtk.Widget:
         g = group("Time zone")
