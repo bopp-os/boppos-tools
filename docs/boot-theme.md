@@ -1,11 +1,12 @@
 # BoppOS boot artwork (`boppos-boot-theme`)
 
-A black screen, a white wheel of fading dots turning in the middle, and the small horizontal wordmark near
-the bottom. One package, two themes.
+A black screen with the logo of whoever made the machine (the firmware logo shown at power-on: ASRock, ASUS, ...)
+where it was, a white wheel of fading dots turning below it, and the small horizontal wordmark near the bottom.
+A machine whose firmware has no logo gets the BoppOS mark in its place. One package, two themes.
 
 | Installed to | What |
 |---|---|
-| `/usr/share/plymouth/themes/boppos/` | Plymouth splash (`boppos.plymouth`, `boppos.script`, `spinner.png`, `lockup.png`) |
+| `/usr/share/plymouth/themes/boppos/` | Plymouth splash (`boppos.plymouth`; `throbber-*.png` the wheel, `watermark.png` the wordmark, `bgrt-fallback.png`, the passphrase field `entry.png`/`bullet.png`/`lock.png`) |
 | `/usr/share/grub/themes/boppos/` | GRUB theme (`theme.txt`, `mark.png`, `lockup.png`) |
 
 The logo SVGs themselves (`boppos-logo-{horizontal,stacked}-{white,black}.svg`) are in `boppos-artwork`. The PNGs
@@ -13,9 +14,16 @@ in `boot/` are rendered from them by `tools/render-boot-art` (needs `rsvg-conver
 needs no extra tools.
 
 **Neither theme has been run on a real boot yet.** The static checks in `tests/test_boot_theme.py` catch missing
-files, unbalanced braces and undefined callbacks, not how it looks. Please run the preview below first.
+files, unbalanced braces and a theme that would lose the firmware logo, not how it looks. Please run the preview
+below first.
 
 ## Plymouth
+
+The splash uses Plymouth's **two-step** module with `UseFirmwareBackground=true`, the same way the stock `bgrt`
+theme does: two-step reads the firmware logo from `/sys/firmware/acpi/bgrt` and draws it at the position the
+firmware used. Plymouth's script module cannot do that, so the theme must not become a script theme again. Two-step
+does not scale or rotate images, so the wheel is 60 pre-rendered frames and every image is rendered at its final size
+(Plymouth doubles them on HiDPI screens).
 
 The package only installs the theme. Selecting it is the image's job, because the initramfs has to be built
 with it. The image already installs `plymouth` and its dracut config already adds the `plymouth` module, so in the
@@ -55,8 +63,9 @@ sudo plymouth --quit
 sudo systemctl isolate graphical.target
 ```
 
-Check: pure black background, the wheel centred and turning smoothly, the small wordmark at the bottom, dots appearing
-as you type, the message text. If the screen stays black, look at `/tmp/plymouth.log` for a script error.
+Check: black background, the firmware logo (ASRock, ASUS, ...) where the firmware drew it, the wheel below it turning
+smoothly, the small wordmark at the bottom, the passphrase field replacing the logo and dots appearing as you type, the
+message text. If the screen stays black, look at `/tmp/plymouth.log` for a missing image.
 To get back to the previous theme: `sudo plymouth-set-default-theme <old theme>`.
 
 ## GRUB

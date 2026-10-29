@@ -1,5 +1,5 @@
 """Static checks for the boot artwork. Plymouth and GRUB cannot run in CI, so these catch the mistakes
-that would only show up as a black or default boot screen: a missing image, an undefined callback, an
+that would only show up as a black or default boot screen: a missing image, a lost firmware logo, an
 unbalanced brace, a logo that quietly turned grey."""
 
 import configparser
@@ -30,46 +30,48 @@ def balanced(text: str, pairs=("{}", "()", "[]")) -> bool:
 # --- Plymouth ------------------------------------------------------------------------------------
 
 
-def test_plymouth_descriptor_points_at_files_that_ship():
-    cp = configparser.ConfigParser()
+def plymouth_theme() -> configparser.ConfigParser:
+    cp = configparser.ConfigParser(interpolation=None)
+    cp.optionxform = str  # Plymouth's keys are case-sensitive
     cp.read(PLY / "boppos.plymouth")
-    assert cp["Plymouth Theme"]["ModuleName"] == "script"
-    assert cp["script"]["ImageDir"] == "/usr/share/plymouth/themes/boppos"
-    assert cp["script"]["ScriptFile"].endswith("/boppos/boppos.script")
-    assert (PLY / Path(cp["script"]["ScriptFile"]).name).exists()
+    return cp
 
 
-def test_plymouth_script_is_well_formed_and_only_uses_images_that_exist():
-    script = (PLY / "boppos.script").read_text()
-    assert balanced(script)
-    images = set(re.findall(r'Image\("([^"]+)"\)', script))
-    assert images == {"spinner.png", "lockup.png"}
-    assert all((PLY / name).exists() for name in images)
-    assert "[]" not in script  # Plymouth's script language has no array literal
+def test_plymouth_is_a_two_step_theme_that_keeps_the_firmware_logo():
+    # The firmware (ACPI BGRT) logo, ASRock or ASUS for example, can only be drawn by two-step: a script theme
+    # loses it. Boot, shutdown and reboot all keep it.
+    cp = plymouth_theme()
+    assert cp["Plymouth Theme"]["ModuleName"] == "two-step"
+    assert cp["two-step"]["ImageDir"] == "/usr/share/plymouth/themes/boppos"
+    for mode in ("boot-up", "shutdown", "reboot"):
+        assert cp[mode]["UseFirmwareBackground"] == "true", mode
+        assert cp[mode]["UseEndAnimation"] == "false", mode
+    assert cp["two-step"]["BackgroundStartColor"] == cp["two-step"]["BackgroundEndColor"] == "0x000000"
+    # the wheel below the logo, the wordmark at the bottom
+    assert float(cp["two-step"]["VerticalAlignment"]) > 0.5
+    assert float(cp["two-step"]["WatermarkVerticalAlignment"]) > float(cp["two-step"]["VerticalAlignment"])
 
 
-def test_every_plymouth_callback_that_is_registered_is_defined():
-    script = (PLY / "boppos.script").read_text()
-    defined = set(re.findall(r"^fun (\w+)\s*\(", script, re.M))
-    registered = re.findall(r"Plymouth\.Set\w+Function\((\w+)\)", script)
-    assert {"display_password_callback", "display_normal_callback", "refresh_callback"} <= set(registered)
-    assert set(registered) <= defined, set(registered) - defined
+def test_plymouth_ships_every_image_two_step_needs():
+    # Without entry/bullet/lock two-step does not start (no passphrase prompt on an encrypted disk); without an
+    # animation-* file it takes the throbber frames as its end animation and shows no wheel.
+    for name in ("entry.png", "bullet.png", "lock.png", "animation-0001.png", "bgrt-fallback.png", "watermark.png"):
+        assert (PLY / name).exists(), name
+    frames = sorted(PLY.glob("throbber-*.png"))
+    assert [f.name for f in frames] == [f"throbber-{i:04d}.png" for i in range(1, len(frames) + 1)]
+    assert len(frames) >= 30  # two-step plays them over 2 s at 30 frames a second
+    assert len({png_info(f)[:2] for f in frames}) == 1  # one size, or the wheel jumps
+    assert len({f.read_bytes() for f in frames}) == len(frames)  # the wheel actually turns
+    assert not list(PLY.glob("*.script"))
 
 
-def test_plymouth_background_is_black_and_the_passphrase_prompt_exists():
-    script = (PLY / "boppos.script").read_text()
-    assert "SetBackgroundTopColor(0, 0, 0)" in script and "SetBackgroundBottomColor(0, 0, 0)" in script
-    assert "SetDisplayPasswordFunction" in script  # encrypted disks must be able to ask for the passphrase
-    assert "SetDisplayQuestionFunction" in script
-
-
-def test_plymouth_art_is_rgba_and_the_lockup_keeps_the_logo_proportions():
-    for name in ("spinner.png", "lockup.png"):
-        assert png_info(PLY / name)[2] == 6
-    w, h, _ = png_info(PLY / "lockup.png")
+def test_plymouth_art_is_rgba_and_the_watermark_keeps_the_logo_proportions():
+    for path in PLY.glob("*.png"):
+        assert png_info(path)[2] == 6, path.name
+    w, h, _ = png_info(PLY / "watermark.png")
     svg = ET.parse(ART / "boppos-logo-horizontal-white.svg").getroot()
     vb = [float(v) for v in svg.get("viewBox").split()]
-    assert abs(w / h - vb[2] / vb[3]) < 0.01
+    assert abs(w / h - vb[2] / vb[3]) < 0.02
 
 
 # --- GRUB ----------------------------------------------------------------------------------------
@@ -111,16 +113,3 @@ def test_the_dark_logo_for_light_panels_has_the_same_geometry_as_the_white_one()
         white = (ART / f"boppos-logo-{layout}-white.svg").read_text().replace("#ffffff", "X")
         black = (ART / f"boppos-logo-{layout}-black.svg").read_text().replace("#16161a", "X")
         assert white == black
-
-
-def test_plymouth_layout_is_redone_when_the_screen_size_changes():
-    # Plymouth often starts on the firmware framebuffer and the GPU driver takes over at full resolution later:
-    # a layout computed once stays in the top-left corner of the bigger screen.
-    script = (PLY / "boppos.script").read_text()
-    refresh = script[script.index("fun refresh_callback"):]
-    refresh = refresh[:refresh.index("\n}\n")]
-    assert "layout();" in refresh
-    layout = script[script.index("fun layout"):script.index("# --- spinning")]
-    assert "Window.GetWidth()" in layout and "Window.GetHeight()" in layout
-    assert "w != screen.w || h != screen.h" in layout
-    assert "return" not in script  # a bare return is not reliably supported by Plymouth's script language

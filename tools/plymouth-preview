@@ -55,9 +55,17 @@ daemon_pid=""
 cleanup() {
     trap - EXIT INT TERM
     say "cleaning up"
-    sudo plymouth quit >/dev/null 2>&1 || true
+    # Every step is bounded: a daemon that stopped answering must not keep the mounts in place.
+    sudo timeout 5 plymouth quit >/dev/null 2>&1 || true
     if [ -n "$daemon_pid" ]; then
         sudo kill "$daemon_pid" >/dev/null 2>&1 || true
+        sleep 0.5
+    fi
+    # $daemon_pid is sudo's; the pid file names plymouthd itself, and only the one this preview started.
+    ply_pid=$(cat "$work/plymouthd.pid" 2>/dev/null)
+    if [ -n "$ply_pid" ] && sudo kill -0 "$ply_pid" 2>/dev/null; then
+        say "plymouthd did not exit; killing it"
+        sudo kill -KILL "$ply_pid" >/dev/null 2>&1 || true
         sleep 0.5
     fi
     if $conf_mounted; then sudo umount /etc/plymouth/plymouthd.conf 2>/dev/null || sudo umount -l /etc/plymouth/plymouthd.conf; fi
@@ -93,7 +101,9 @@ if command -v xhost >/dev/null; then
 fi
 
 # 4. start the daemon on the x11 renderer, then show the splash
+# The shell writes its pid and then execs plymouthd under it, so the cleanup knows exactly which plymouthd to kill.
 sudo env DISPLAY="$DISPLAY" XAUTHORITY="${XAUTHORITY:-}" WAYLAND_DISPLAY="${WAYLAND_DISPLAY:-}" \
+    sh -c 'echo $$ > "$1"; shift; exec "$@"' sh "$work/plymouthd.pid" \
     plymouthd --no-daemon --mode=boot --debug --debug-file="$log" &
 daemon_pid=$!
 sleep 1.5
@@ -127,12 +137,16 @@ while true; do
     case "$key" in
         b) run_boot ;;
         t) tick; say "progress $progress%" ;;
-        p) say "asking for a password; type in the preview window, Enter to accept"
-           if sudo plymouth ask-for-password --prompt="Enter disk passphrase" >/dev/null 2>&1; then
-               say "accepted (the text typed is discarded)"
-           else
-               say "cancelled"
-           fi ;;
+        # In the background: ask-for-password only returns once Enter is pressed in the preview window, and
+        # waiting for it here would leave this terminal deaf to every key, q included.
+        p) say "asking for a password; type in the preview window, Enter to accept (keys here still work)"
+           (
+               if sudo plymouth ask-for-password --prompt="Enter disk passphrase" </dev/null >/dev/null 2>&1; then
+                   say "accepted (the text typed is discarded)"
+               else
+                   say "prompt closed"
+               fi
+           ) & ;;
         m) sudo plymouth display-message --text="Waiting for the disk" ;;
         h) sudo plymouth hide-message --text="Waiting for the disk" ;;
         l) tail -n 25 "$log" ;;
