@@ -83,8 +83,9 @@ The tour asks only when no autologin file selects a session yet, so after the se
 ## Apps in the tour
 
 The Apps step lists `share/boppos/boppos-flatpaks.txt` plus `boppos-flatpaks-extra.txt`, one collapsed section per
-`## Category`. Each section header shows "N of M selected" and has a select-all/none box; "Install none" in the
-group header unticks every app in one click (finishing with nothing ticked installs no Flatpak).
+`## Category`. Each section header shows "N of M selected" and has a select-all/none box. In the group header,
+"Install none" unticks every app in one click (finishing with nothing ticked installs no Flatpak) and "Install
+defaults" goes back to exactly the apps that were ticked when the tour opened.
 
 - **Pre-ticked** is data: an app is ticked when its list line ends in `# name: Proper Name; default`. The extras
   carry no defaults. A hardware kind can add its own (`hwprofiles.KIND_DEFAULTS["handheld"]["extra_flatpaks"]`).

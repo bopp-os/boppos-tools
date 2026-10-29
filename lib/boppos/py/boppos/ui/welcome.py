@@ -50,6 +50,7 @@ class WelcomeFlow(Gtk.Box):
         asked = self.start_in is not None and firstrun.current_start_in(self.start_in) is None
         self.steps = welcome.steps_for(gaming, asked)
         self.choices = welcome.initial_choices(self.hw)
+        self.default_flatpaks = set(self.choices.flatpaks)  # what "Install defaults" goes back to
         if asked:
             self.choices.start_in = "desktop" if "desktop" in self.start_in.choices else self.start_in.choices[0]
         self.on_finish = on_finish
@@ -123,26 +124,31 @@ class WelcomeFlow(Gtk.Box):
         options = welcome.app_options()
         if not options:
             apps.add(info_row("No app list found", "", "The curated Flatpak list could not be read."))
-        set_alls = []
+        selects = []
         for category, items in options.items():
-            row, set_all = self.app_section(category, items)
+            row, select = self.app_section(category, items)
             apps.add(row)
-            set_alls.append(set_all)
-        if set_alls:
-            none = Gtk.Button(label="Install none", valign=Gtk.Align.CENTER, css_classes=["flat"],
-                              tooltip_text="Untick every app")
-            none.connect("clicked", lambda _b: [s(False) for s in set_alls])
-            apps.set_header_suffix(none)
+            selects.append(select)
+        if selects:
+            buttons = Gtk.Box(spacing=6, valign=Gtk.Align.CENTER)
+            for label, tip, keep in (
+                ("Install defaults", "Tick only the starting picks", lambda a: a.ref in self.default_flatpaks),
+                ("Install none", "Untick every app", lambda _a: False),
+            ):
+                btn = Gtk.Button(label=label, css_classes=["flat"], tooltip_text=tip)
+                btn.connect("clicked", lambda _b, keep=keep: [s(keep) for s in selects])
+                buttons.append(btn)
+            apps.set_header_suffix(buttons)
         groups.append(apps)
         return page(*groups)
 
-    def app_section(self, category: str, items: list) -> tuple[Adw.ExpanderRow, Callable[[bool], None]]:
+    def app_section(self, category: str, items: list) -> tuple[Adw.ExpanderRow, Callable]:
         """One collapsed category: "N of M selected" and a select-all/none box in the header, a switch per app.
-        Returns the row and a function that switches all of its apps on or off."""
+        Returns the row and select(keep): ticks exactly the apps for which keep(app) is true."""
         c = self.choices
         row = expander_row(category)
         check = Gtk.CheckButton(valign=Gtk.Align.CENTER, tooltip_text=f"Select all or none of {category}")
-        switches: list[Adw.SwitchRow] = []
+        switches: list[tuple[welcome.flatpaks.App, Adw.SwitchRow]] = []
 
         def refresh() -> None:
             n = sum(a.ref in c.flatpaks for a in items)
@@ -152,22 +158,23 @@ class WelcomeFlow(Gtk.Box):
             check.set_inconsistent(0 < n < len(items))
             check.handler_unblock(handler)
 
-        def set_all(active: bool) -> None:
-            for sw in switches:
-                sw.set_active(active)
+        def select(keep: Callable[[welcome.flatpaks.App], bool]) -> None:
+            for app, sw in switches:
+                sw.set_active(keep(app))
             refresh()
 
-        handler = check.connect("toggled", lambda b: set_all(b.get_active()))
+        handler = check.connect("toggled", lambda b: select(lambda _a: b.get_active()))
+
         def changed(on: Callable[[bool], None]) -> Callable[[bool], None]:
             return lambda active: (on(active), refresh())
 
         for app in items:
             sw = switch_row(app.name or app.id, app.id, app.ref in c.flatpaks, changed(toggle(c.flatpaks, app.ref)))
-            switches.append(sw)
+            switches.append((app, sw))
             row.add_row(sw)
         row.add_suffix(check)
         refresh()
-        return row, set_all
+        return row, select
 
     def hardware_page(self) -> Gtk.Widget:
         c = self.choices
