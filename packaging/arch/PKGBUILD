@@ -1,7 +1,7 @@
 # Maintainer: BoppOS Team
 pkgbase=boppos-tools
 pkgname=('boppos-tools' 'boppos-artwork' 'boppos-boot-theme')
-pkgver=1.3.1
+pkgver=1.3.2
 pkgrel=1
 arch=('any')
 url="https://github.com/bopp-os/boppos-tools"
