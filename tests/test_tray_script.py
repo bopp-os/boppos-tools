@@ -157,3 +157,26 @@ def test_deployment_state_none_when_unavailable(tray, tmp_path):
     (tmp_path / "bopp-system").write_text('#!/bin/sh\necho \'{"reboot_required": true}\'\n')
     assert tray.read_deployment_state() == {"reboot_required": True}
     json.dumps({})
+
+
+def test_a_second_copy_exits_quietly_with_status_zero(tray, monkeypatch, tmp_path):
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path / "run"))
+    tray.single_instance()  # the first copy holds the lock
+    assert tray.lock_path() == tmp_path / "run/bopp-tray.lock" and tray.lock_path().exists()
+    held = tray._instance_lock
+    with pytest.raises(SystemExit) as exc:
+        tray.single_instance()  # a second copy: flock conflicts between separate opens, even in one process
+    assert exc.value.code == 0 and tray._instance_lock is held
+
+
+def test_without_xdg_runtime_dir_the_lock_goes_to_a_cache_dir_that_is_created(tray, monkeypatch, tmp_path):
+    monkeypatch.delenv("XDG_RUNTIME_DIR", raising=False)
+    tray.STATE_FILE = tmp_path / "missing/cache/state.json"
+    tray.single_instance()
+    assert (tmp_path / "missing/cache/bopp-tray.lock").exists() and tray._instance_lock is not None
+
+
+def test_only_the_user_unit_starts_the_tray():
+    root = SCRIPT.parent.parent
+    assert not (root / "autostart/bopp-tray.desktop").exists()
+    assert "ExecStart=/usr/bin/bopp-tray" in (root / "systemd/user/bopp-tray.service").read_text()

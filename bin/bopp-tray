@@ -511,18 +511,41 @@ class BoppTray:
 
 # ── Entry point ───────────────────────────────────────────────────────────────
 
-def main() -> None:
-    # Avoid running multiple instances
-    lock_file = STATE_FILE.parent / "bopp-tray.lock"
-    try:
-        import fcntl
-        lf = open(lock_file, "w")
-        fcntl.flock(lf, fcntl.LOCK_EX | fcntl.LOCK_NB)
-    except BlockingIOError:
-        sys.exit("bopp-tray is already running")
-    except Exception:
-        pass  # non-fatal if we can't lock
+_instance_lock = None  # the open lock file; held for the life of the process
 
+
+def lock_path() -> Path:
+    """$XDG_RUNTIME_DIR is per user and per boot, so a lock left by a crash never outlives the session."""
+    runtime = os.environ.get("XDG_RUNTIME_DIR")
+    return Path(runtime) / "bopp-tray.lock" if runtime else STATE_FILE.parent / "bopp-tray.lock"
+
+
+def single_instance() -> None:
+    """Exit quietly (status 0) when another bopp-tray already runs, whatever started it: the systemd user unit
+    would otherwise count a non-zero exit as a failure and restart it every 10 s. If the lock cannot be taken
+    at all, run anyway: a second icon is better than none."""
+    global _instance_lock
+    import fcntl
+    path = lock_path()
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        fh = open(path, "w")
+    except OSError as exc:
+        log.warning("cannot open %s (%s); running without the single-instance lock", path, exc)
+        return
+    try:
+        fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        fh.close()
+        log.info("bopp-tray is already running; exiting")
+        sys.exit(0)
+    except OSError as exc:
+        log.warning("cannot lock %s (%s); running without the single-instance lock", path, exc)
+    _instance_lock = fh
+
+
+def main() -> None:
+    single_instance()
     BoppTray().run()
 
 
