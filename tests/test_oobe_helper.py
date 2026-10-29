@@ -105,3 +105,26 @@ def test_human_users_skip_system_accounts_and_nobody(tmp_path):
                      "a:x:1000:1000::/home/a:/bin/bash\nb:x:1001:1001::/home/b:/bin/bash\n")
     assert h.human_users(root) == {"a": 1000, "b": 1001}
     assert h.human_users(tmp_path / "missing") == {}
+
+
+def test_needed_only_before_setup_and_before_any_account(tmp_path):
+    (tmp_path / "etc").mkdir()
+    (tmp_path / "etc/passwd").write_text("root:x:0:0::/root:/bin/bash\nboppos-oobe:x:972:972::/x:/usr/bin/nologin\n")
+    assert h.needed(tmp_path)  # the setup account is a system user, not a person
+    (tmp_path / "etc/passwd").write_text("root:x:0:0::/root:/bin/bash\nripps:x:1000:1000::/home/ripps:/bin/bash\n")
+    assert not h.needed(tmp_path)
+    (tmp_path / "etc/passwd").write_text("root:x:0:0::/root:/bin/bash\n")
+    (tmp_path / "var/lib/boppos").mkdir(parents=True)
+    (tmp_path / "var/lib/boppos/oobe-done").touch()
+    assert not h.needed(tmp_path)
+
+
+def test_the_setup_account_never_counts_as_a_person():
+    from pathlib import Path
+    conf = (Path(__file__).parents[1] / "sysusers/boppos-oobe.conf").read_text()
+    assert "\nu boppos-oobe - " in "\n" + conf and "/usr/bin/nologin" in conf
+    unit = (Path(__file__).parents[1] / "systemd/system/boppos-oobe.service").read_text()
+    assert "ConditionPathExists=!/var/lib/boppos/oobe-done" in unit and "User=boppos-oobe" in unit
+    assert "ExecCondition=/usr/libexec/boppos/oobe-needed" in unit
+    rule = (Path(__file__).parents[1] / "polkit/rules.d/52-boppos-oobe.rules").read_text()
+    assert 'subject.user === "boppos-oobe"' in rule and "oobe-done" in rule

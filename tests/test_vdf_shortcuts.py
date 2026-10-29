@@ -338,3 +338,19 @@ def test_sync_can_remove_the_shortcut_of_an_app_that_was_just_uninstalled(tmp_pa
 def test_is_app_id():
     assert steam_apps.is_app_id("org.gimp.GIMP") and not steam_apps.is_app_id("boppos")
     assert not steam_apps.is_app_id("a b.c") and not steam_apps.is_app_id("$(id).x")
+
+
+def test_cli_sync_queue_ok_counts_a_queued_change_as_done(tmp_path, monkeypatch, capsys):
+    cfg = _setup_cli(tmp_path, monkeypatch, running=True)
+    assert cli.main(["--json", "sync", "--add", "boppos-deck", "--queue-ok"]) == 0
+    assert steam_sync.pending_path().exists() and not (cfg / "shortcuts.vdf").exists()
+    done = [json.loads(line) for line in capsys.readouterr().out.splitlines()][-1]
+    assert done["ok"] is True and done["queued"] is True
+    # a Steam that has never run has no library yet: queued too, not a failure
+    monkeypatch.setattr(ss, "steam_running", lambda *a, **k: False)
+    for d in (tmp_path / ".local/share/Steam/userdata").iterdir():
+        for sub in sorted(d.rglob("*"), reverse=True):
+            sub.rmdir() if sub.is_dir() else sub.unlink()
+        d.rmdir()
+    assert cli.main(["--json", "sync", "--add", "boppos-deck", "--queue-ok"]) == 0
+    assert cli.main(["--json", "sync", "--add", "boppos-deck"]) == cli.EXIT_NO_USERDATA

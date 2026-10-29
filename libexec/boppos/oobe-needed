@@ -1,0 +1,12 @@
+#!/usr/bin/python3 -I
+"""Exit 0 when this system still needs the first-boot setup, 1 when it does not. Read-only; boppos-oobe.service
+asks it (ExecCondition) so that installs that already have an account never start the setup."""
+
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "lib/boppos/py"))
+
+from boppos.oobe_helper import needed  # noqa: E402
+
+sys.exit(0 if needed() else 1)

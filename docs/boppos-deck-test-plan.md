@@ -130,7 +130,26 @@ Create a test user, log in on a local session (not wheel).
 - [ ] After the BoppOS shortcut is added (Steam closed, or applied on exit), start Steam: the library entry shows the blue list icon in the sidebar (a JPEG; a PNG stayed blank in testing), the horizontal capsule, and the hero and logo on its page; in Gaming Mode the portrait shows in the grid. If Steam shows no artwork, check `~/.local/share/Steam/userdata/<id>/config/grid/` for five files named `<shortcut id>.png`, `…p.png`, `…_hero.png`, `…_logo.png`, `…_icon.jpg` and tell me the shortcut id Steam uses (the file names are derived from the same crc32 Steam uses; this has not been run against a real Steam).
 - [ ] Removing the shortcut removes those five files; a file you replaced is kept.
 
-## First-boot setup (`boppos-deck --oobe`, dry run)
+## First-run wizard (`boppos-deck --welcome`, live)
+
+- [ ] `boppos-deck --welcome` has no "Dry run" banner. Steps: Welcome, Apps, Hardware, Review, Done (no Security or Updates yet: nothing there is applied).
+- [ ] Finish with Bazaar and the curated apps on opens the update window ("Setting up BoppOS") and installs them for this user, with progress and no password.
+- [ ] Steam shortcut on: the BoppOS entry appears in the Steam library (queued while Steam is running). Decky on: Decky Loader installs.
+- [ ] A kargs preset switched on is enabled after a password prompt and takes effect after a reboot; `bopp-kargs status` shows it pending.
+- [ ] Finish writes `~/.local/state/boppos-deck/welcome-done`; with everything off Finish still writes it and opens no update window. Cancelling the wizard writes nothing.
+- [ ] `--hardware PROFILE` previews another machine; Finish applies nothing and writes no done flag.
+
+## First-boot setup (`boppos-deck --oobe`, live)
+
+Needs the image: `boppos-oobe.service` enabled (`systemctl enable boppos-oobe.service`) and the sysusers file applied (`systemd-sysusers`). In a VM with no account:
+- [ ] The login screen waits; the setup appears fullscreen on tty1 (gamescope) with no "Dry run" banner.
+- [ ] Finishing creates the account (in `wheel`), sets language, keyboard, time zone and name, writes the SDDM autologin drop-in and `/var/lib/boppos/oobe-done`, and the login screen starts signed in to the chosen session. No password prompt appears during setup.
+- [ ] Reboot: the setup does not return. `systemctl status boppos-oobe` shows the condition skipped.
+- [ ] Close the window mid-way: it comes back (the unit loops until `oobe-done` exists).
+- [ ] On a system that already has an account, `/usr/libexec/boppos/oobe-needed; echo $?` prints 1, and `sudo /usr/libexec/boppos/oobe-helper create-user x` is refused.
+- [ ] As your own user, `pkexec /usr/libexec/boppos/oobe-helper finish` asks for an administrator password (the waiver is only for `boppos-oobe`).
+
+Older dry-run checks, for `oobe.DRY_RUN = True`:
 
 - [ ] `boppos-deck --oobe` opens the setup with a "Dry run" banner: Welcome, Language, Network, Time zone, Account, Start in, Review, Done.
 - [ ] Next is greyed out with the reason shown below the page until the step is valid. On Account that means a user name (lowercase, not `root`, `steam` and similar), a password of at least 8 characters, and a valid computer name if one is given.

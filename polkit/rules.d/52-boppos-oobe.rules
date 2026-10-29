@@ -1,0 +1,26 @@
+// /usr/share/polkit-1/rules.d/52-boppos-oobe.rules
+//
+// The first-boot setup has no administrator yet, so it cannot type a password. This waives the password for
+// ONE caller: the boppos-oobe account (a no-password system user that only boppos-oobe.service runs as), on
+// the local active seat, while /var/lib/boppos/oobe-done does not exist. oobe-helper checks the same
+// things again (and refuses once an account exists), so a rule that is too wide is not the only defence.
+
+function oobeStillNeeded() {
+    try {
+        polkit.spawn(["/usr/bin/test", "!", "-e", "/var/lib/boppos/oobe-done"]);
+        return true;
+    } catch (e) {
+        return false;  // test exits 1 when the file exists; any other failure also means "do not waive"
+    }
+}
+
+polkit.addRule(function(action, subject) {
+    if (action.id === "org.boppos.deck.oobe" &&
+        subject.user === "boppos-oobe" &&
+        subject.local &&
+        subject.active &&
+        oobeStillNeeded())
+    {
+        return polkit.Result.YES;
+    }
+});

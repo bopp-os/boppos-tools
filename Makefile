@@ -46,6 +46,9 @@ install-tools:
 	install -d $(DESTDIR)$(PREFIX)/share/polkit-1/actions
 	install -m 644 polkit/actions/* $(DESTDIR)$(PREFIX)/share/polkit-1/actions/
 	
+	install -d $(DESTDIR)$(PREFIX)/lib/sysusers.d
+	install -m 644 sysusers/* $(DESTDIR)$(PREFIX)/lib/sysusers.d/
+	
 	install -d $(DESTDIR)$(SYSCONFDIR)/xdg/autostart
 	install -m 644 autostart/* $(DESTDIR)$(SYSCONFDIR)/xdg/autostart/
 

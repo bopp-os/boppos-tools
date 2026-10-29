@@ -39,6 +39,8 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--remove", default="", metavar="KEY[,KEY...]", help="app ids to remove")
     s.add_argument("--restart-steam", action="store_true",
                    help="ask a running Steam to quit so the queued changes apply, and reopen it on the desktop")
+    s.add_argument("--queue-ok", action="store_true",
+                   help="queued changes count as success (Steam running, or no library yet): they apply later")
     w = sub.add_parser("apply-pending", help="apply queued changes once Steam is closed")
     w.add_argument("--wait", type=float, default=0, metavar="SECONDS", help="wait this long for Steam to quit")
     w.add_argument("--reopen-steam", action="store_true", help="start Steam again afterwards (desktop only)")
@@ -130,6 +132,8 @@ def _sync(args, home: Path) -> int:
     else:
         emit({"event": "log", "line": "Steam is running. The changes are queued and apply when it is closed."})
         code, final = EXIT_RUNNING, {"ok": False, "error": "steam-running", "queued": True}
+    if args.queue_ok and final.get("error") in ("steam-running", "no-steam-userdata"):
+        code, final = 0, {"ok": True, "queued": True}
     emit({"event": "step", "id": "steam library", "status": "ok" if final["ok"] else "fail"})
     emit({"event": "done", **final})
     return code
