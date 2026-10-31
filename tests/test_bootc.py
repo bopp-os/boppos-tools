@@ -72,6 +72,15 @@ def test_pull_progress_shows_layers_bytes_speed_and_time_left():
     assert r.feed(_pull(1_200_000_000, 450), 3.01)[0]["percent"] == 100  # the last update is never dropped
 
 
+def test_pull_progress_with_bootcs_sorted_keys():
+    # real bootc output: keys in alphabetical order, so the line starts with "bytes", not "type"
+    line = json.dumps(json.loads(_pull(0, 0)), sort_keys=True, separators=(",", ":"))
+    assert line.startswith('{"bytes":')
+    events = ProgressReader().feed(line, 0.0)
+    assert events[0] == {"event": "log", "line": "Downloading 450 layers (1.2 GB)"}
+    assert ProgressReader().feed('{"bytes":5}', 0.0) is None  # JSON without a type is not bootc progress
+
+
 def test_step_tasks_get_a_heading_and_the_active_subtask():
     r = ProgressReader()
     r.feed(_pull(0, 0), 0)

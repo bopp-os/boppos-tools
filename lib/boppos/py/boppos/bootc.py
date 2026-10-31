@@ -84,13 +84,15 @@ class ProgressReader:
 
     def feed(self, line: str, now: float) -> list[dict] | None:
         """Events for one output line, or None when the line is not bootc progress."""
-        if not line.startswith('{"type":'):
+        if not line.startswith("{"):
             return None
         try:
             ev = json.loads(line)
         except ValueError:
             return None
-        kind = ev.get("type") if isinstance(ev, dict) else None
+        if not isinstance(ev, dict) or "type" not in ev:  # bootc sorts its keys, so "type" is rarely first
+            return None
+        kind = ev["type"]
         if kind not in ("ProgressBytes", "ProgressSteps"):
             return []  # Start, or a kind added later
         out: list[dict] = []
