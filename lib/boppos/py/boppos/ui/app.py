@@ -74,6 +74,9 @@ class DeckWindow(Adw.ApplicationWindow):
         self.add_css_class("deck")
         self.dialog: Adw.AlertDialog | None = None
         self.job: backend.Job | None = None
+        self.job_background = False  # the job runs behind the status bubble, not the progress screen
+        self._done_called = True
+        self._focus_before: Gtk.Widget | None = None
         self.pad, self.mapper = pad, InputMapper()
         self.pad_family = pad.family() if pad is not None else "generic"
         # Controller prompts only when a pad is connected or we run in Gaming Mode; otherwise keyboard keys.
@@ -95,7 +98,9 @@ class DeckWindow(Adw.ApplicationWindow):
         self.stack.add_named(self.build_main(), "main")
         self.stack.add_named(self.build_progress(), "progress")
         self.stack.add_named(self.build_auth(), "auth")
-        self.toasts.set_child(self.stack)
+        overlay = Gtk.Overlay(child=self.stack)
+        overlay.add_overlay(self.build_bubble())
+        self.toasts.set_child(overlay)
 
         view = Adw.ToolbarView()
         if not gaming:
@@ -200,6 +205,28 @@ class DeckWindow(Adw.ApplicationWindow):
         for w in (self.p_title, self.p_status, self.p_spinner, self.p_bar, self.p_expander, actions):
             box.append(w)
         return box
+
+    def build_bubble(self) -> Gtk.Widget:
+        """A small status bubble over the settings view for a job that runs in the background."""
+        self.b_spinner = Gtk.Spinner(spinning=True, valign=Gtk.Align.CENTER)
+        self.b_icon = Gtk.Image(visible=False, valign=Gtk.Align.CENTER)
+        self.b_title = Gtk.Label(xalign=0)
+        self.b_title.add_css_class("job-bubble-title")
+        self.b_status = Gtk.Label(xalign=0, wrap=True, max_width_chars=48)
+        self.b_status.add_css_class("job-bubble-status")
+        self.b_bar = Gtk.ProgressBar(visible=False)
+        text = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        for w in (self.b_title, self.b_status, self.b_bar):
+            text.append(w)
+        self.bubble = Gtk.Box(spacing=14, halign=Gtk.Align.CENTER, valign=Gtk.Align.START, visible=False,
+                              can_target=False)
+        self.bubble.add_css_class("job-bubble")
+        self.bubble.set_margin_top(16)
+        self.bubble.append(self.b_spinner)
+        self.bubble.append(self.b_icon)
+        self.bubble.append(text)
+        self._bubble_timer = 0
+        return self.bubble
 
     def build_auth(self) -> Gtk.Widget:
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=14)
@@ -587,22 +614,43 @@ class DeckWindow(Adw.ApplicationWindow):
         page = next(p for p in self.pages if p.key == "system")
         page.update(targets, label)
 
-    def run_job(self, title: str, cmds: list[list[str]], on_done: Callable[[bool, dict], None]) -> None:
+    def run_job(self, title: str, cmds: list[list[str]], on_done: Callable[[bool, dict], None],
+                background: bool = False) -> None:
+        """Run cmds with the progress screen up, or with background=True behind a status bubble so the
+        settings stay usable; show_progress() opens the screen for it then."""
         if self.job and self.job.running:
             self.toast("Another action is still running")
             return
+
+        def set_status(text: str) -> None:
+            self.p_status.set_label(text)
+            self.b_status.set_label(text)
+
         self.p_title.set_label(title)
-        self.p_status.set_label("Working…")
+        set_status("Working…")
         self.p_log.get_buffer().set_text("")
         self.p_prog_mark = None
         self.p_bar.set_visible(False)
         self.p_spinner.set_spinning(True)
         self.p_spinner.set_visible(True)
-        self.p_done.set_sensitive(False)
+        self.p_done.set_sensitive(background)  # in the background, Back only hides the screen
         self.p_reboot.set_visible(False)
-        self.stack.set_visible_child_name("progress")
-        self.p_done.grab_focus()
+        self.job_background = background
         self._on_done = on_done
+        self._done_called = False
+        if background:
+            self.b_title.set_label(title)
+            self.b_spinner.set_spinning(True)
+            self.b_spinner.set_visible(True)
+            self.b_icon.set_visible(False)
+            self.b_bar.set_visible(False)
+            self.hide_bubble()
+            self.bubble.set_visible(True)
+        else:
+            self.stack.set_visible_child_name("progress")
+            self.p_done.grab_focus()
+
+        labels: dict[str, str] = {}  # step id -> the name its events gave, for the failure message
 
         def end_progress_line(buf: Gtk.TextBuffer) -> None:
             if self.p_prog_mark is not None:  # close the progress line before the next line of text
@@ -624,6 +672,8 @@ class DeckWindow(Adw.ApplicationWindow):
                     self.p_bar.set_visible(True)
                     self.p_bar.set_fraction(pct / 100)
                     self.p_bar.set_text(ev.get("bar") or f"{pct:.0f}%")
+                    self.b_bar.set_visible(True)
+                    self.b_bar.set_fraction(pct / 100)
             elif ev["event"] == "log":
                 end_progress_line(buf)
                 buf.insert(buf.get_end_iter(), ev["line"] + "\n")
@@ -631,17 +681,20 @@ class DeckWindow(Adw.ApplicationWindow):
                 # Each updater gets a heading, and a done/failed line when it finishes
                 end_progress_line(buf)
                 name = ev.get("label") or ev["id"]
+                labels[ev["id"]] = name
                 if ev["status"] == "start":
                     pos = f" ({ev['index']} of {ev['total']})" if ev.get("total", 1) > 1 else ""
-                    self.p_status.set_label(f"Updating {name}{pos}…")
+                    verb = {"install": "Installing", "remove": "Removing"}.get(ev.get("action"), "Updating")
+                    set_status(f"{verb} {name}{pos}…")
                     buf.insert_with_tags_by_name(buf.get_end_iter(), f"{name}\n", "heading")
                     self.p_bar.set_visible(False)  # the next updater's bar starts fresh
+                    self.b_bar.set_visible(False)
                 elif ev["status"] in ("ok", "fail"):
                     ok = ev["status"] == "ok"
                     buf.insert_with_tags_by_name(buf.get_end_iter(), f"{'✓' if ok else '✗'} {name}: "
                                                  f"{'done' if ok else 'failed'}\n", "ok" if ok else "fail")
                 else:
-                    self.p_status.set_label(f"{name}: {ev['status']}")
+                    set_status(f"{name}: {ev['status']}")
             if ev["event"] in ("log", "step"):
                 adj = self.p_log_scroll.get_vadjustment()
                 adj.set_value(adj.get_upper())
@@ -652,27 +705,80 @@ class DeckWindow(Adw.ApplicationWindow):
             self.p_spinner.set_visible(False)
             self.p_done.set_sensitive(True)
             self.p_done.grab_focus()
-            failed = [system.TARGET_LABELS.get(t, t) for t in final.get("failed") or []]
+            failed = [labels.get(t) or system.TARGET_LABELS.get(t, t) for t in final.get("failed") or []]
             msg = "Done." if ok else (f"Failed: {', '.join(failed)}. See Details for the log." if failed
                                       else "Something went wrong. Open Details for the log.")
             if final.get("restart_steam") and ok:
                 msg += " Restart Steam to finish."
-            self.p_status.set_label(msg)
+            set_status(msg)
             self.p_reboot.set_visible(bool(final.get("reboot_required")) and ok)
             if not ok:
                 self.p_expander.set_expanded(True)
             self._final = (ok, final)
+            if background:
+                self.b_spinner.set_spinning(False)
+                self.b_spinner.set_visible(False)
+                self.b_bar.set_visible(False)
+                self.b_icon.set_from_icon_name("emblem-ok-symbolic" if ok else "dialog-error-symbolic")
+                self.b_icon.set_visible(True)
+                self.bubble.set_visible(self.stack.get_visible_child_name() != "progress")
+                # A success fades on its own; a failure stays until the next job or until Details is opened
+                if ok:
+                    self._bubble_timer = GLib.timeout_add_seconds(6, self.bubble_timeout)
+                if self.stack.get_visible_child_name() != "progress":
+                    self.finish_job()
 
         self.job = backend.Job(cmds, on_main, on_event, on_finish)
         self.job.start()
 
     def close_progress(self) -> None:
-        if self.job and self.job.running:
+        running = bool(self.job and self.job.running)
+        if running and not self.job_background:
             return
         self.stack.set_visible_child_name("main")
-        ok, final = getattr(self, "_final", (True, {}))
-        self._on_done(ok, final)
-        self.focus_current()
+        if running:
+            self.bubble.set_visible(True)
+        else:
+            self.finish_job()
+        back, self._focus_before = self._focus_before, None
+        if back is not None and back.get_root() is self:
+            back.grab_focus()
+        else:
+            self.focus_current()
+
+    def finish_job(self) -> None:
+        if not self._done_called:
+            self._done_called = True
+            ok, final = getattr(self, "_final", (True, {}))
+            self._on_done(ok, final)
+
+    def background_job_running(self) -> bool:
+        return bool(self.job and self.job.running and self.job_background)
+
+    def background_job_failed(self) -> bool:
+        """The last job ran in the background and failed: its page offers the log until the next job."""
+        return bool(self.job and not self.job.running and self.job_background
+                    and not getattr(self, "_final", (True, {}))[0])
+
+    def show_progress(self) -> None:
+        """Open the progress screen for the last job, e.g. from a background job's Details button."""
+        if self.job is None:
+            return
+        self.hide_bubble()
+        self._focus_before = self.get_focus()
+        self.stack.set_visible_child_name("progress")
+        self.p_done.grab_focus()
+
+    def hide_bubble(self) -> None:
+        if self._bubble_timer:
+            GLib.source_remove(self._bubble_timer)
+            self._bubble_timer = 0
+        self.bubble.set_visible(False)
+
+    def bubble_timeout(self) -> bool:
+        self._bubble_timer = 0
+        self.bubble.set_visible(False)
+        return GLib.SOURCE_REMOVE
 
     def focus_current(self) -> None:
         if not self.get_focus() or self.get_focus() is self.p_done:

@@ -44,6 +44,20 @@ window.deck .progress-title { font-weight: 800; font-size: 160%; }
 window.deck .progress-log { font-family: monospace; font-size: 85%; }
 window.deck .value-label { opacity: 0.7; }
 
+/* Status bubble for a job running in the background (Apps page installs) */
+window.deck .job-bubble {
+  padding: 12px 22px;
+  border-radius: 999px;
+  background-color: @popover_bg_color;
+  color: @popover_fg_color;
+  box-shadow: 0 4px 18px alpha(black, 0.35);
+  border: 2px solid alpha(@accent_bg_color, 0.55);
+}
+window.deck .job-bubble-title { font-weight: 800; }
+window.deck .job-bubble-status { font-size: 90%; opacity: 0.85; }
+window.deck .job-bubble progressbar trough,
+window.deck .job-bubble progressbar progress { min-height: 6px; }
+
 window.deck image { -gtk-icon-size: 1.25em; }
 
 window.deck .osk-key { min-width: 2.6em; min-height: 2.4em; font-weight: 700; }

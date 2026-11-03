@@ -77,13 +77,15 @@ def main(argv: list[str] | None = None) -> int:
     if todo and not args.remove and run_stream(flatpaks.remote_add_cmd(scope), emit):
         failed.append("flathub-remote")
         todo = []
-    for app in todo:
-        emit({"event": "step", "id": app.id, "status": "start"})
+    for n, app in enumerate(todo, 1):
+        label = app.name or app.id
+        emit({"event": "step", "id": app.id, "status": "start", "label": label, "index": n, "total": len(todo),
+              "action": action})
         if args.remove:
             ok = all(run_stream(flatpaks.remove_cmd(app, sc), emit) == 0 for sc in sorted(scopes[app.id]))
         else:
             ok = run_stream(flatpaks.install_cmd(app, scope), emit) == 0
-        emit({"event": "step", "id": app.id, "status": "ok" if ok else "fail"})
+        emit({"event": "step", "id": app.id, "status": "ok" if ok else "fail", "label": label})
         if not ok:
             failed.append(app.id)
     emit({"event": "done", "ok": not failed, "failed": failed, "changed": len(todo) - len(failed)})

@@ -60,6 +60,20 @@ def test_cli_installs_only_missing(tmp_path, monkeypatch):
     assert [c[-1] for c in ran] == [flatpaks.REMOTE_URL, "org.b.B"]
 
 
+def test_cli_steps_name_the_app_and_count(tmp_path, monkeypatch, capsys):
+    f = tmp_path / "list.txt"
+    f.write_text("org.a.A  # name: Alpha\norg.b.B\n")
+    monkeypatch.setattr(flatpaks, "installed_scopes", lambda: {})
+    monkeypatch.setattr("boppos.runner.log_dir", lambda: tmp_path / "logs")
+    monkeypatch.setattr(flatpaks_cli, "run_stream", lambda cmd, emit: 0)
+    assert flatpaks_cli.main(["--list", str(f), "--yes", "--json"]) == 0
+    events = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
+    steps = [e for e in events if e["event"] == "step"]
+    assert steps[0] == {"event": "step", "id": "org.a.A", "status": "start", "label": "Alpha", "index": 1,
+                        "total": 2, "action": "install"}
+    assert steps[3] == {"event": "step", "id": "org.b.B", "status": "ok", "label": "org.b.B"}
+
+
 def test_status_errors_cleanly_without_flatpak(tmp_path, monkeypatch, capsys):
     f = tmp_path / "l.txt"
     f.write_text("org.a.A\n")
