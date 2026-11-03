@@ -749,6 +749,16 @@ class DeckWindow(Adw.ApplicationWindow):
             return False  # arrows and Tab move between keys
         return True
 
+    def focus_on_details(self, widget: Gtk.Widget | None) -> bool:
+        """True when focus is on the Details header, not inside the log it reveals."""
+        while widget is not None:
+            if widget is self.p_log_scroll:
+                return False
+            if widget is self.p_expander:
+                return True
+            widget = widget.get_parent()
+        return False
+
     def handle_action(self, a: Action) -> None:
         self.set_focus_visible(True)  # GTK only shows focus after keyboard input; a controller needs it too
         if self.stack.get_visible_child_name() == "auth":
@@ -768,8 +778,14 @@ class DeckWindow(Adw.ApplicationWindow):
                 self.auth_submit()
             return
         if self.stack.get_visible_child_name() == "progress":
-            if a == Action.ACCEPT and self.p_done.get_sensitive():
-                activate(self.p_done)
+            if a == Action.ACCEPT:
+                f = self.get_focus()
+                if self.focus_on_details(f):
+                    self.p_expander.set_expanded(not self.p_expander.get_expanded())
+                elif isinstance(f, Gtk.Button) and f.get_sensitive():
+                    activate(f)
+                elif self.p_done.get_sensitive():
+                    activate(self.p_done)
             elif a == Action.BACK and self.p_done.get_sensitive():
                 self.close_progress()
             elif a in DIRECTIONS:
