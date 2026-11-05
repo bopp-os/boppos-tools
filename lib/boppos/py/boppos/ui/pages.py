@@ -55,7 +55,9 @@ class Page:
         self.box.add_css_class("page-box")  # margins live in the CSS so a narrow window can shrink them
         clamp = Adw.Clamp(maximum_size=1400, tightening_threshold=1000)
         clamp.set_child(self.box)
-        self.widget = Gtk.ScrolledWindow(hscrollbar_policy=Gtk.PolicyType.NEVER, vexpand=True)
+        # Automatic, not never: a page's own minimum width must not set the window's, so a row that cannot
+        # shrink further scrolls sideways in a narrow window instead of hiding the other pane
+        self.widget = Gtk.ScrolledWindow(hscrollbar_policy=Gtk.PolicyType.AUTOMATIC, vexpand=True)
         self.widget.set_child(clamp)
 
     def clear(self) -> None:

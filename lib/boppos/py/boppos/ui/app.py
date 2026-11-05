@@ -72,6 +72,12 @@ class DeckWindow(Adw.ApplicationWindow):
         self.settings = backend.load_settings()
         self.advanced = bool(self.settings.get("advanced"))
         self.add_css_class("deck")
+        self.scale_css = Gtk.CssProvider()
+        Gtk.StyleContext.add_provider_for_display(Gdk.Display.get_default(), self.scale_css,
+                                                  Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION + 1)
+        self._scaled_for = (-1, -1)
+        self.apply_scale(1280, 800)
+        self.add_tick_callback(self.follow_width)
         self.dialog: Adw.AlertDialog | None = None
         self.job: backend.Job | None = None
         self.job_background = False  # the job runs behind the status bubble, not the progress screen
@@ -102,7 +108,13 @@ class DeckWindow(Adw.ApplicationWindow):
         self.stack.add_named(self.build_auth(), "auth")
         overlay = Gtk.Overlay(child=self.stack)
         overlay.add_overlay(self.build_bubble())
-        self.toasts.set_child(overlay)
+        # The view sits in a scroller that only scrolls sideways as a last resort: whatever is too wide for the
+        # window then overflows into it instead of pushing the window's minimum width past the screen edge,
+        # which would clip the title bar's close button off the right.
+        scroller = Gtk.ScrolledWindow(hscrollbar_policy=Gtk.PolicyType.AUTOMATIC,
+                                      vscrollbar_policy=Gtk.PolicyType.NEVER, hexpand=True, vexpand=True)
+        scroller.set_child(overlay)
+        self.toasts.set_child(scroller)
 
         view = Adw.ToolbarView()
         if not gaming:
@@ -130,7 +142,7 @@ class DeckWindow(Adw.ApplicationWindow):
 
     def build_main(self) -> Gtk.Widget:
         self.pages = [cls(self) for cls in ALL_PAGES]
-        self.content_stack = Gtk.Stack(vexpand=True, hexpand=True)
+        self.content_stack = Gtk.Stack(vexpand=True, hexpand=True, hhomogeneous=False)
         for p in self.pages:
             self.content_stack.add_named(p.widget, p.key)
 
@@ -411,23 +423,41 @@ class DeckWindow(Adw.ApplicationWindow):
             child.set_focusable(False)
 
     def add_breakpoints(self) -> None:
-        for min_w, css in ((1700, "size-l"), (2300, "size-xl")):
-            bp = Adw.Breakpoint.new(Adw.BreakpointCondition.parse(f"min-width: {min_w}px"))
-            bp.connect("apply", lambda _b, c=css: self.add_css_class(c))
-            bp.connect("unapply", lambda _b, c=css: self.remove_css_class(c))
-            self.add_breakpoint(bp)
-        # Narrow or portrait (a phone, a tiled window, a rotated monitor): one column at a time. Under 640px
-        # the text size drops too, since a couch-sized font leaves no room for words on a phone. Only one
-        # breakpoint is active at a time (the last that matches), so each one sets collapsed itself.
-        for cond in ("max-width: 720px", "max-aspect-ratio: 1/1 and max-width: 1699px"):
-            narrow = Adw.Breakpoint.new(Adw.BreakpointCondition.parse(cond))
-            narrow.add_setter(self.split, "collapsed", bool_value(True))
-            self.add_breakpoint(narrow)
-        small = Adw.Breakpoint.new(Adw.BreakpointCondition.parse("max-width: 640px"))
+        # Both panes stay side by side as long as there is room, even in a tall window. Under 600px (a phone, a
+        # sliver of a tiled window) there is one column at a time, and the text size drops too: a couch-sized
+        # font leaves no room for words there.
+        small = Adw.Breakpoint.new(Adw.BreakpointCondition.parse("max-width: 600px"))
         small.add_setter(self.split, "collapsed", bool_value(True))
-        small.connect("apply", lambda _b: self.add_css_class("size-s"))
+        # One column at a time: the page you are on, not the menu. B goes back to the menu.
+        small.connect("apply", lambda _b: (self.add_css_class("size-s"), self.split.set_show_content(True)))
         small.connect("unapply", lambda _b: self.remove_css_class("size-s"))
         self.add_breakpoint(small)
+
+    def follow_width(self, _widget, _clock) -> bool:
+        """Tick callback: rescale the text when the window width changes."""
+        size = (self.get_width(), self.get_height())
+        if size != self._scaled_for:
+            self._scaled_for = size
+            self.apply_scale(*size)
+        return GLib.SOURCE_CONTINUE
+
+    def apply_scale(self, width: int, height: int) -> None:
+        """One number sets the size of everything: the text grows with the window, and the rows, margins and
+        keys are in em, so they follow it. 128% at 1280px wide is the look the app had at its default size.
+        The title bar and the hint bar stop growing there (they shrink with a small window), so they never
+        take more of a big screen than they do now."""
+        # The longer side counts: a portrait window on a big screen needs the same text size as a landscape one.
+        # The floor keeps text readable in a phone-sized window, where lines wrap instead.
+        # Sub-linear (the 0.7 power): text that doubled with the window would be huge on a big screen. This
+        # gives about 128% at 1280px, 155% at 1700px and 170% at 1920px.
+        pct = max(115, min(210, round(128 * (max(width, height) / 1280) ** 0.7 / 4) * 4))
+        bar = min(pct, 128) / pct * 100
+        css = (f"window.deck, .deck-dialog {{ font-size: {pct}%; }}\n"
+               f"window.deck headerbar, window.deck .hint-bar {{ font-size: {bar:.1f}%; }}")
+        if hasattr(self.scale_css, "load_from_string"):
+            self.scale_css.load_from_string(css)
+        else:
+            self.scale_css.load_from_data(css.encode())
 
     # --- pages --------------------------------------------------------------------------------
 
@@ -615,9 +645,6 @@ class DeckWindow(Adw.ApplicationWindow):
         dlg.set_close_response("cancel")
         dlg.set_prefer_wide_layout(True)
         dlg.add_css_class("deck-dialog")
-        for size in ("size-l", "size-xl"):  # the dialog does not inherit the window's size classes
-            if self.has_css_class(size):
-                dlg.add_css_class(size)
         self.dialog = dlg
 
         def finished(d, res):
