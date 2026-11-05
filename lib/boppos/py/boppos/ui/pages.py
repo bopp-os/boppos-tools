@@ -52,13 +52,12 @@ class Page:
         self._shown: str | None = None
         self._view = None  # view_state() the content on screen was built with
         self.box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=24)
-        self.box.set_margin_top(24)
-        self.box.set_margin_bottom(24)
-        self.box.set_margin_start(24)
-        self.box.set_margin_end(24)
+        self.box.add_css_class("page-box")  # margins live in the CSS so a narrow window can shrink them
         clamp = Adw.Clamp(maximum_size=1400, tightening_threshold=1000)
         clamp.set_child(self.box)
-        self.widget = Gtk.ScrolledWindow(hscrollbar_policy=Gtk.PolicyType.NEVER, vexpand=True)
+        # Automatic, not never: a page's own minimum width must not set the window's, so a row that cannot
+        # shrink further scrolls sideways in a narrow window instead of hiding the other pane
+        self.widget = Gtk.ScrolledWindow(hscrollbar_policy=Gtk.PolicyType.AUTOMATIC, vexpand=True)
         self.widget.set_child(clamp)
 
     def clear(self) -> None:
@@ -719,10 +718,24 @@ class AppsPage(Page):
         return [k for k in uninstall if self.steam_base.get(k)]
 
     def update_apply_row(self) -> None:
+        if self.win.background_job_running():  # the row opens the log instead until the job is done
+            self.apply_row.set_sensitive(True)
+            self.apply_row.set_title("Applying changes…")
+            self.apply_row.set_subtitle("You can keep using the settings. Press for the details.")
+            self.apply_row.button.set_label("Details")
+            return
         add, rem = self.diff()
         changed = bool(add or rem)
+        if not changed and self.win.background_job_failed():
+            self.apply_row.set_sensitive(True)
+            self.apply_row.set_title("Some changes failed")
+            self.apply_row.set_subtitle("Press for the log. Switch the apps again to retry.")
+            self.apply_row.button.set_label("Details")
+            return
         self.apply_row.set_sensitive(changed)
+        self.apply_row.set_title("Apply changes")
         self.apply_row.set_subtitle(f"{len(add)} to install, {len(rem)} to remove" if changed else "No changes yet")
+        self.apply_row.button.set_label("Apply")
 
     def set_system(self, on: bool) -> None:
         self.win.settings["apps_system"] = on
@@ -753,13 +766,24 @@ class AppsPage(Page):
         return cmds
 
     def apply(self) -> None:
-        _, rem = self.diff()
+        add, rem = self.diff()
+        if self.win.background_job_running() or (not (add or rem) and self.win.background_job_failed()):
+            self.win.show_progress()
+            return
         s_rem = self.steam_removals()
         cmds = self.commands()
+        if add and not rem:
+            title = f"Installing {len(add)} app{'s' if len(add) > 1 else ''}"
+        elif rem and not add:
+            title = f"Removing {len(rem)} app{'s' if len(rem) > 1 else ''}"
+        else:
+            title = "Updating apps"
 
         def go():
             self.want = {}
-            self.win.run_job("Updating apps", cmds, lambda ok, final: self.refresh())
+            # In the background: the bubble shows what is installing, and the rest of the app stays usable
+            self.win.run_job(title, cmds, lambda ok, final: self.refresh(), background=True)
+            self.update_apply_row()
 
         def steam_then_go():
             if s_rem and self.steam_running:

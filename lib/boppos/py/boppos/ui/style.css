@@ -1,13 +1,8 @@
 /* boppos-deck: one look for controller and desktop. Rows are the only focus stops; the focus
    ring is thick on purpose so it reads from a couch. Size classes are set from the window width. */
 
-window.deck { font-size: 128%; }
-window.deck.size-l { font-size: 165%; }
-window.deck.size-xl { font-size: 210%; }
-
-window.deck row { min-height: 60px; }
-window.deck.size-l row { min-height: 76px; }
-window.deck.size-xl row { min-height: 96px; }
+/* The text size is set from the window width in code (apply_scale); lengths here are in em so they follow it. */
+window.deck row { min-height: 3.2em; }
 
 window.deck row:focus,
 window.deck row:focus-visible,
@@ -16,8 +11,6 @@ window.deck row:focus-within {
   outline-offset: -4px;
   background-color: alpha(@accent_bg_color, 0.18);
 }
-window.deck.size-xl row:focus,
-window.deck.size-xl row:focus-visible { outline-width: 6px; outline-offset: -6px; }
 
 window.deck button:focus,
 window.deck button:focus-visible,
@@ -26,7 +19,7 @@ window.deck switch:focus-visible {
   outline-offset: 2px;
 }
 
-window.deck .navigation-sidebar row { border-radius: 12px; margin: 3px 8px; }
+window.deck .navigation-sidebar row { border-radius: 12px; margin: 3px 6px; }
 window.deck .navigation-sidebar row:selected { background-color: alpha(@accent_bg_color, 0.30); }
 window.deck .sidebar-title { font-weight: 800; font-size: 130%; padding: 18px 20px 6px 20px; }
 
@@ -39,14 +32,41 @@ window.deck .hint-key {
   background-color: alpha(@window_fg_color, 0.18);
 }
 window.deck .hint-label { margin-right: 22px; opacity: 0.85; }
+window.deck .page-box { margin: 1.3em; }
 
 window.deck .progress-title { font-weight: 800; font-size: 160%; }
 window.deck .progress-log { font-family: monospace; font-size: 85%; }
 window.deck .value-label { opacity: 0.7; }
 
+/* Status bubble for a job running in the background (Apps page installs) */
+window.deck .job-bubble {
+  padding: 12px 22px;
+  border-radius: 999px;
+  background-color: @popover_bg_color;
+  color: @popover_fg_color;
+  box-shadow: 0 4px 18px alpha(black, 0.35);
+  border: 2px solid alpha(@accent_bg_color, 0.55);
+}
+window.deck .job-bubble-title { font-weight: 800; }
+window.deck .job-bubble-status { font-size: 90%; opacity: 0.85; }
+window.deck .job-bubble progressbar trough,
+window.deck .job-bubble progressbar progress { min-height: 6px; }
+
 window.deck image { -gtk-icon-size: 1.25em; }
 
 window.deck .osk-key { min-width: 2.6em; min-height: 2.4em; font-weight: 700; }
+window.deck .osk-space { min-width: 7em; }
+
+/* Narrow windows (under 600px wide): tighter spacing so nothing is cut off */
+window.deck.size-s row { min-height: 2.8em; }
+window.deck.size-s .page-box { margin: 0.65em; }
+window.deck.size-s .progress-title { font-size: 130%; }
+window.deck.size-s .hint-bar { padding: 6px 10px; }
+window.deck.size-s .hint-label { margin-right: 12px; }
+window.deck.size-s .osk-key { min-width: 1.7em; min-height: 2.2em; padding-left: 2px; padding-right: 2px; }
+window.deck.size-s .osk-space { min-width: 3.5em; }
+window.deck.size-s .osk-display { font-size: 130%; letter-spacing: 2px; }
+window.deck.size-s .job-bubble { padding: 8px 14px; border-radius: 22px; }
 window.deck .osk-display {
   font-size: 160%;
   letter-spacing: 4px;
@@ -62,9 +82,6 @@ window.deck .glyph-a { color: #6fd36f; }
 window.deck .glyph-b { color: #ff7a7a; }
 
 /* Confirmation dialogs are drawn outside the window's style scope, so they get the same look explicitly */
-.deck-dialog { font-size: 128%; }
-.deck-dialog.size-l { font-size: 165%; }
-.deck-dialog.size-xl { font-size: 210%; }
 .deck-dialog button { min-height: 2.4em; min-width: 6em; }
 .deck-dialog button:focus,
 .deck-dialog button:focus-visible {

@@ -14,7 +14,7 @@ import gi
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
-from gi.repository import Adw, Gdk, Gio, GLib, GObject, Gtk  # noqa: E402
+from gi.repository import Adw, Gdk, Gio, GLib, GObject, Gtk, Pango  # noqa: E402
 
 from .. import firstrun, hwprofiles, oobe, system, welcome  # noqa: E402
 from . import agent as polkit_agent  # noqa: E402
@@ -72,8 +72,17 @@ class DeckWindow(Adw.ApplicationWindow):
         self.settings = backend.load_settings()
         self.advanced = bool(self.settings.get("advanced"))
         self.add_css_class("deck")
+        self.scale_css = Gtk.CssProvider()
+        Gtk.StyleContext.add_provider_for_display(Gdk.Display.get_default(), self.scale_css,
+                                                  Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION + 1)
+        self._scaled_for = (-1, -1)
+        self.apply_scale(1280, 800)
+        self.add_tick_callback(self.follow_width)
         self.dialog: Adw.AlertDialog | None = None
         self.job: backend.Job | None = None
+        self.job_background = False  # the job runs behind the status bubble, not the progress screen
+        self._done_called = True
+        self._focus_before: Gtk.Widget | None = None
         self.pad, self.mapper = pad, InputMapper()
         self.pad_family = pad.family() if pad is not None else "generic"
         # Controller prompts only when a pad is connected or we run in Gaming Mode; otherwise keyboard keys.
@@ -91,11 +100,21 @@ class DeckWindow(Adw.ApplicationWindow):
         self.auth_prev = "main"
 
         self.toasts = Adw.ToastOverlay()
-        self.stack = Gtk.Stack(transition_type=Gtk.StackTransitionType.CROSSFADE)
+        # Not homogeneous: the window's minimum width is the page on screen, not the widest page there is
+        self.stack = Gtk.Stack(transition_type=Gtk.StackTransitionType.CROSSFADE, hhomogeneous=False,
+                               vhomogeneous=False)
         self.stack.add_named(self.build_main(), "main")
         self.stack.add_named(self.build_progress(), "progress")
         self.stack.add_named(self.build_auth(), "auth")
-        self.toasts.set_child(self.stack)
+        overlay = Gtk.Overlay(child=self.stack)
+        overlay.add_overlay(self.build_bubble())
+        # The view sits in a scroller that only scrolls sideways as a last resort: whatever is too wide for the
+        # window then overflows into it instead of pushing the window's minimum width past the screen edge,
+        # which would clip the title bar's close button off the right.
+        scroller = Gtk.ScrolledWindow(hscrollbar_policy=Gtk.PolicyType.AUTOMATIC,
+                                      vscrollbar_policy=Gtk.PolicyType.NEVER, hexpand=True, vexpand=True)
+        scroller.set_child(overlay)
+        self.toasts.set_child(scroller)
 
         view = Adw.ToolbarView()
         if not gaming:
@@ -123,7 +142,7 @@ class DeckWindow(Adw.ApplicationWindow):
 
     def build_main(self) -> Gtk.Widget:
         self.pages = [cls(self) for cls in ALL_PAGES]
-        self.content_stack = Gtk.Stack(vexpand=True, hexpand=True)
+        self.content_stack = Gtk.Stack(vexpand=True, hexpand=True, hhomogeneous=False)
         for p in self.pages:
             self.content_stack.add_named(p.widget, p.key)
 
@@ -136,7 +155,7 @@ class DeckWindow(Adw.ApplicationWindow):
             box.set_margin_bottom(6)
             box.set_margin_start(8)
             box.append(Gtk.Image.new_from_icon_name(p.icon))
-            label = Gtk.Label(label=p.title, xalign=0, hexpand=True)
+            label = Gtk.Label(label=p.title, xalign=0, hexpand=True, ellipsize=Pango.EllipsizeMode.END)
             box.append(label)
             row = Gtk.ListBoxRow()
             row.set_child(box)
@@ -156,9 +175,9 @@ class DeckWindow(Adw.ApplicationWindow):
         side.append(scroller)
 
         self.split = Adw.NavigationSplitView()
-        self.split.set_min_sidebar_width(300)
-        self.split.set_max_sidebar_width(460)
-        self.split.set_sidebar_width_fraction(0.28)
+        self.split.set_min_sidebar_width(220)
+        self.split.set_max_sidebar_width(380)
+        self.split.set_sidebar_width_fraction(0.24)
         self.sidebar_page = Adw.NavigationPage.new(side, "BoppOS")
         self.content_page = Adw.NavigationPage.new(self.content_stack, self.pages[0].title)
         self.split.set_sidebar(self.sidebar_page)
@@ -201,6 +220,28 @@ class DeckWindow(Adw.ApplicationWindow):
             box.append(w)
         return box
 
+    def build_bubble(self) -> Gtk.Widget:
+        """A small status bubble over the settings view for a job that runs in the background."""
+        self.b_spinner = Gtk.Spinner(spinning=True, valign=Gtk.Align.CENTER)
+        self.b_icon = Gtk.Image(visible=False, valign=Gtk.Align.CENTER)
+        self.b_title = Gtk.Label(xalign=0)
+        self.b_title.add_css_class("job-bubble-title")
+        self.b_status = Gtk.Label(xalign=0, wrap=True, max_width_chars=48)
+        self.b_status.add_css_class("job-bubble-status")
+        self.b_bar = Gtk.ProgressBar(visible=False)
+        text = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        for w in (self.b_title, self.b_status, self.b_bar):
+            text.append(w)
+        self.bubble = Gtk.Box(spacing=14, halign=Gtk.Align.CENTER, valign=Gtk.Align.START, visible=False,
+                              can_target=False)
+        self.bubble.add_css_class("job-bubble")
+        self.bubble.set_margin_top(16)
+        self.bubble.append(self.b_spinner)
+        self.bubble.append(self.b_icon)
+        self.bubble.append(text)
+        self._bubble_timer = 0
+        return self.bubble
+
     def build_auth(self) -> Gtk.Widget:
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=14)
         for side in ("top", "bottom", "start", "end"):
@@ -230,22 +271,26 @@ class DeckWindow(Adw.ApplicationWindow):
                 buttons.append(b)
             self.osk_keys.append(buttons)
             keys.append(row)
-        bottom = Gtk.Box(spacing=6, halign=Gtk.Align.CENTER)
+        # A flow box, so the bottom row wraps in a narrow window instead of setting the window's width
+        bottom = Gtk.FlowBox(selection_mode=Gtk.SelectionMode.NONE, focusable=False, homogeneous=False,
+                             halign=Gtk.Align.CENTER, column_spacing=6, row_spacing=6, max_children_per_line=7)
         self.osk_shift = self.osk_button("Shift", lambda: self.osk_action("shift"), bottom)
         self.osk_sym = self.osk_button("123", lambda: self.osk_action("symbols"), bottom)
         space = self.osk_button("Space", lambda: self.osk_press(" "), bottom)
-        space.set_size_request(260, -1)
+        space.add_css_class("osk-space")
         self.osk_button("Delete", lambda: self.osk_action("backspace"), bottom)
         self.osk_show = self.osk_button("Show", lambda: self.osk_action("visible"), bottom)
         ok = self.osk_button("OK", self.auth_submit, bottom)
         ok.add_css_class("suggested-action")
         self.osk_button("Cancel", self.auth_cancel, bottom)
+        for child in self._flow_children(bottom):
+            child.set_focusable(False)  # focus goes to the buttons, not to their wrappers
         keys.append(bottom)
         box.append(keys)
         self.osk_refresh()
         return box
 
-    def osk_button(self, label: str, fn: Callable[[], None], parent: Gtk.Box) -> Gtk.Button:
+    def osk_button(self, label: str, fn: Callable[[], None], parent: Gtk.FlowBox) -> Gtk.Button:
         b = Gtk.Button(label=label)
         b.add_css_class("osk-key")
         b.connect("clicked", lambda _b: fn())
@@ -334,13 +379,22 @@ class DeckWindow(Adw.ApplicationWindow):
             req["cancel"]()
 
     def build_hints(self) -> Gtk.Widget:
-        self.hint_box = Gtk.Box(spacing=0)
+        # Wraps onto more lines in a narrow window; a plain box would set the window's minimum width
+        self.hint_box = Gtk.FlowBox(selection_mode=Gtk.SelectionMode.NONE, focusable=False, can_target=False,
+                                    homogeneous=False, max_children_per_line=24, column_spacing=0, row_spacing=2)
         self.hint_box.add_css_class("hint-bar")
         self.render_hints()
         return self.hint_box
 
     def pad_available(self) -> bool:
         return self.gaming or bool(self.pad and self.pad.connected)
+
+    @staticmethod
+    def _flow_children(flow: Gtk.FlowBox):
+        child = flow.get_first_child()
+        while child:
+            yield child
+            child = child.get_next_sibling()
 
     def render_hints(self) -> None:
         mode = "pad" if (self.input_mode == "pad" and self.pad_available()) else "kb"
@@ -361,18 +415,49 @@ class DeckWindow(Adw.ApplicationWindow):
                 k.add_css_class(css)
             t = Gtk.Label(label=label)
             t.add_css_class("hint-label")
-            self.hint_box.append(k)
-            self.hint_box.append(t)
+            item = Gtk.Box()
+            item.append(k)
+            item.append(t)
+            self.hint_box.append(item)
+        for child in self._flow_children(self.hint_box):
+            child.set_focusable(False)
 
     def add_breakpoints(self) -> None:
-        for min_w, css in ((1700, "size-l"), (2300, "size-xl")):
-            bp = Adw.Breakpoint.new(Adw.BreakpointCondition.parse(f"min-width: {min_w}px"))
-            bp.connect("apply", lambda _b, c=css: self.add_css_class(c))
-            bp.connect("unapply", lambda _b, c=css: self.remove_css_class(c))
-            self.add_breakpoint(bp)
-        narrow = Adw.Breakpoint.new(Adw.BreakpointCondition.parse("max-width: 900px"))
-        narrow.add_setter(self.split, "collapsed", bool_value(True))
-        self.add_breakpoint(narrow)
+        # Both panes stay side by side as long as there is room, even in a tall window. Under 600px (a phone, a
+        # sliver of a tiled window) there is one column at a time, and the text size drops too: a couch-sized
+        # font leaves no room for words there.
+        small = Adw.Breakpoint.new(Adw.BreakpointCondition.parse("max-width: 600px"))
+        small.add_setter(self.split, "collapsed", bool_value(True))
+        # One column at a time: the page you are on, not the menu. B goes back to the menu.
+        small.connect("apply", lambda _b: (self.add_css_class("size-s"), self.split.set_show_content(True)))
+        small.connect("unapply", lambda _b: self.remove_css_class("size-s"))
+        self.add_breakpoint(small)
+
+    def follow_width(self, _widget, _clock) -> bool:
+        """Tick callback: rescale the text when the window width changes."""
+        size = (self.get_width(), self.get_height())
+        if size != self._scaled_for:
+            self._scaled_for = size
+            self.apply_scale(*size)
+        return GLib.SOURCE_CONTINUE
+
+    def apply_scale(self, width: int, height: int) -> None:
+        """One number sets the size of everything: the text grows with the window, and the rows, margins and
+        keys are in em, so they follow it. 128% at 1280px wide is the look the app had at its default size.
+        The title bar and the hint bar stop growing there (they shrink with a small window), so they never
+        take more of a big screen than they do now."""
+        # The longer side counts: a portrait window on a big screen needs the same text size as a landscape one.
+        # The floor keeps text readable in a phone-sized window, where lines wrap instead.
+        # Sub-linear (the 0.7 power): text that doubled with the window would be huge on a big screen. This
+        # gives about 128% at 1280px, 155% at 1700px and 170% at 1920px.
+        pct = max(115, min(210, round(128 * (max(width, height) / 1280) ** 0.7 / 4) * 4))
+        bar = min(pct, 128) / pct * 100
+        css = (f"window.deck, .deck-dialog {{ font-size: {pct}%; }}\n"
+               f"window.deck headerbar, window.deck .hint-bar {{ font-size: {bar:.1f}%; }}")
+        if hasattr(self.scale_css, "load_from_string"):
+            self.scale_css.load_from_string(css)
+        else:
+            self.scale_css.load_from_data(css.encode())
 
     # --- pages --------------------------------------------------------------------------------
 
@@ -560,9 +645,6 @@ class DeckWindow(Adw.ApplicationWindow):
         dlg.set_close_response("cancel")
         dlg.set_prefer_wide_layout(True)
         dlg.add_css_class("deck-dialog")
-        for size in ("size-l", "size-xl"):  # the dialog does not inherit the window's size classes
-            if self.has_css_class(size):
-                dlg.add_css_class(size)
         self.dialog = dlg
 
         def finished(d, res):
@@ -587,22 +669,43 @@ class DeckWindow(Adw.ApplicationWindow):
         page = next(p for p in self.pages if p.key == "system")
         page.update(targets, label)
 
-    def run_job(self, title: str, cmds: list[list[str]], on_done: Callable[[bool, dict], None]) -> None:
+    def run_job(self, title: str, cmds: list[list[str]], on_done: Callable[[bool, dict], None],
+                background: bool = False) -> None:
+        """Run cmds with the progress screen up, or with background=True behind a status bubble so the
+        settings stay usable; show_progress() opens the screen for it then."""
         if self.job and self.job.running:
             self.toast("Another action is still running")
             return
+
+        def set_status(text: str) -> None:
+            self.p_status.set_label(text)
+            self.b_status.set_label(text)
+
         self.p_title.set_label(title)
-        self.p_status.set_label("Working…")
+        set_status("Working…")
         self.p_log.get_buffer().set_text("")
         self.p_prog_mark = None
         self.p_bar.set_visible(False)
         self.p_spinner.set_spinning(True)
         self.p_spinner.set_visible(True)
-        self.p_done.set_sensitive(False)
+        self.p_done.set_sensitive(background)  # in the background, Back only hides the screen
         self.p_reboot.set_visible(False)
-        self.stack.set_visible_child_name("progress")
-        self.p_done.grab_focus()
+        self.job_background = background
         self._on_done = on_done
+        self._done_called = False
+        if background:
+            self.b_title.set_label(title)
+            self.b_spinner.set_spinning(True)
+            self.b_spinner.set_visible(True)
+            self.b_icon.set_visible(False)
+            self.b_bar.set_visible(False)
+            self.hide_bubble()
+            self.bubble.set_visible(True)
+        else:
+            self.stack.set_visible_child_name("progress")
+            self.p_done.grab_focus()
+
+        labels: dict[str, str] = {}  # step id -> the name its events gave, for the failure message
 
         def end_progress_line(buf: Gtk.TextBuffer) -> None:
             if self.p_prog_mark is not None:  # close the progress line before the next line of text
@@ -624,6 +727,8 @@ class DeckWindow(Adw.ApplicationWindow):
                     self.p_bar.set_visible(True)
                     self.p_bar.set_fraction(pct / 100)
                     self.p_bar.set_text(ev.get("bar") or f"{pct:.0f}%")
+                    self.b_bar.set_visible(True)
+                    self.b_bar.set_fraction(pct / 100)
             elif ev["event"] == "log":
                 end_progress_line(buf)
                 buf.insert(buf.get_end_iter(), ev["line"] + "\n")
@@ -631,17 +736,20 @@ class DeckWindow(Adw.ApplicationWindow):
                 # Each updater gets a heading, and a done/failed line when it finishes
                 end_progress_line(buf)
                 name = ev.get("label") or ev["id"]
+                labels[ev["id"]] = name
                 if ev["status"] == "start":
                     pos = f" ({ev['index']} of {ev['total']})" if ev.get("total", 1) > 1 else ""
-                    self.p_status.set_label(f"Updating {name}{pos}…")
+                    verb = {"install": "Installing", "remove": "Removing"}.get(ev.get("action"), "Updating")
+                    set_status(f"{verb} {name}{pos}…")
                     buf.insert_with_tags_by_name(buf.get_end_iter(), f"{name}\n", "heading")
                     self.p_bar.set_visible(False)  # the next updater's bar starts fresh
+                    self.b_bar.set_visible(False)
                 elif ev["status"] in ("ok", "fail"):
                     ok = ev["status"] == "ok"
                     buf.insert_with_tags_by_name(buf.get_end_iter(), f"{'✓' if ok else '✗'} {name}: "
                                                  f"{'done' if ok else 'failed'}\n", "ok" if ok else "fail")
                 else:
-                    self.p_status.set_label(f"{name}: {ev['status']}")
+                    set_status(f"{name}: {ev['status']}")
             if ev["event"] in ("log", "step"):
                 adj = self.p_log_scroll.get_vadjustment()
                 adj.set_value(adj.get_upper())
@@ -652,27 +760,80 @@ class DeckWindow(Adw.ApplicationWindow):
             self.p_spinner.set_visible(False)
             self.p_done.set_sensitive(True)
             self.p_done.grab_focus()
-            failed = [system.TARGET_LABELS.get(t, t) for t in final.get("failed") or []]
+            failed = [labels.get(t) or system.TARGET_LABELS.get(t, t) for t in final.get("failed") or []]
             msg = "Done." if ok else (f"Failed: {', '.join(failed)}. See Details for the log." if failed
                                       else "Something went wrong. Open Details for the log.")
             if final.get("restart_steam") and ok:
                 msg += " Restart Steam to finish."
-            self.p_status.set_label(msg)
+            set_status(msg)
             self.p_reboot.set_visible(bool(final.get("reboot_required")) and ok)
             if not ok:
                 self.p_expander.set_expanded(True)
             self._final = (ok, final)
+            if background:
+                self.b_spinner.set_spinning(False)
+                self.b_spinner.set_visible(False)
+                self.b_bar.set_visible(False)
+                self.b_icon.set_from_icon_name("emblem-ok-symbolic" if ok else "dialog-error-symbolic")
+                self.b_icon.set_visible(True)
+                self.bubble.set_visible(self.stack.get_visible_child_name() != "progress")
+                # A success fades on its own; a failure stays until the next job or until Details is opened
+                if ok:
+                    self._bubble_timer = GLib.timeout_add_seconds(6, self.bubble_timeout)
+                if self.stack.get_visible_child_name() != "progress":
+                    self.finish_job()
 
         self.job = backend.Job(cmds, on_main, on_event, on_finish)
         self.job.start()
 
     def close_progress(self) -> None:
-        if self.job and self.job.running:
+        running = bool(self.job and self.job.running)
+        if running and not self.job_background:
             return
         self.stack.set_visible_child_name("main")
-        ok, final = getattr(self, "_final", (True, {}))
-        self._on_done(ok, final)
-        self.focus_current()
+        if running:
+            self.bubble.set_visible(True)
+        else:
+            self.finish_job()
+        back, self._focus_before = self._focus_before, None
+        if back is not None and back.get_root() is self:
+            back.grab_focus()
+        else:
+            self.focus_current()
+
+    def finish_job(self) -> None:
+        if not self._done_called:
+            self._done_called = True
+            ok, final = getattr(self, "_final", (True, {}))
+            self._on_done(ok, final)
+
+    def background_job_running(self) -> bool:
+        return bool(self.job and self.job.running and self.job_background)
+
+    def background_job_failed(self) -> bool:
+        """The last job ran in the background and failed: its page offers the log until the next job."""
+        return bool(self.job and not self.job.running and self.job_background
+                    and not getattr(self, "_final", (True, {}))[0])
+
+    def show_progress(self) -> None:
+        """Open the progress screen for the last job, e.g. from a background job's Details button."""
+        if self.job is None:
+            return
+        self.hide_bubble()
+        self._focus_before = self.get_focus()
+        self.stack.set_visible_child_name("progress")
+        self.p_done.grab_focus()
+
+    def hide_bubble(self) -> None:
+        if self._bubble_timer:
+            GLib.source_remove(self._bubble_timer)
+            self._bubble_timer = 0
+        self.bubble.set_visible(False)
+
+    def bubble_timeout(self) -> bool:
+        self._bubble_timer = 0
+        self.bubble.set_visible(False)
+        return GLib.SOURCE_REMOVE
 
     def focus_current(self) -> None:
         if not self.get_focus() or self.get_focus() is self.p_done:
@@ -749,6 +910,16 @@ class DeckWindow(Adw.ApplicationWindow):
             return False  # arrows and Tab move between keys
         return True
 
+    def focus_on_details(self, widget: Gtk.Widget | None) -> bool:
+        """True when focus is on the Details header, not inside the log it reveals."""
+        while widget is not None:
+            if widget is self.p_log_scroll:
+                return False
+            if widget is self.p_expander:
+                return True
+            widget = widget.get_parent()
+        return False
+
     def handle_action(self, a: Action) -> None:
         self.set_focus_visible(True)  # GTK only shows focus after keyboard input; a controller needs it too
         if self.stack.get_visible_child_name() == "auth":
@@ -768,8 +939,14 @@ class DeckWindow(Adw.ApplicationWindow):
                 self.auth_submit()
             return
         if self.stack.get_visible_child_name() == "progress":
-            if a == Action.ACCEPT and self.p_done.get_sensitive():
-                activate(self.p_done)
+            if a == Action.ACCEPT:
+                f = self.get_focus()
+                if self.focus_on_details(f):
+                    self.p_expander.set_expanded(not self.p_expander.get_expanded())
+                elif isinstance(f, Gtk.Button) and f.get_sensitive():
+                    activate(f)
+                elif self.p_done.get_sensitive():
+                    activate(self.p_done)
             elif a == Action.BACK and self.p_done.get_sensitive():
                 self.close_progress()
             elif a in DIRECTIONS:
