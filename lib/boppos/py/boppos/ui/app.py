@@ -94,7 +94,9 @@ class DeckWindow(Adw.ApplicationWindow):
         self.auth_prev = "main"
 
         self.toasts = Adw.ToastOverlay()
-        self.stack = Gtk.Stack(transition_type=Gtk.StackTransitionType.CROSSFADE)
+        # Not homogeneous: the window's minimum width is the page on screen, not the widest page there is
+        self.stack = Gtk.Stack(transition_type=Gtk.StackTransitionType.CROSSFADE, hhomogeneous=False,
+                               vhomogeneous=False)
         self.stack.add_named(self.build_main(), "main")
         self.stack.add_named(self.build_progress(), "progress")
         self.stack.add_named(self.build_auth(), "auth")
@@ -257,7 +259,9 @@ class DeckWindow(Adw.ApplicationWindow):
                 buttons.append(b)
             self.osk_keys.append(buttons)
             keys.append(row)
-        bottom = Gtk.Box(spacing=6, halign=Gtk.Align.CENTER)
+        # A flow box, so the bottom row wraps in a narrow window instead of setting the window's width
+        bottom = Gtk.FlowBox(selection_mode=Gtk.SelectionMode.NONE, focusable=False, homogeneous=False,
+                             halign=Gtk.Align.CENTER, column_spacing=6, row_spacing=6, max_children_per_line=7)
         self.osk_shift = self.osk_button("Shift", lambda: self.osk_action("shift"), bottom)
         self.osk_sym = self.osk_button("123", lambda: self.osk_action("symbols"), bottom)
         space = self.osk_button("Space", lambda: self.osk_press(" "), bottom)
@@ -267,12 +271,14 @@ class DeckWindow(Adw.ApplicationWindow):
         ok = self.osk_button("OK", self.auth_submit, bottom)
         ok.add_css_class("suggested-action")
         self.osk_button("Cancel", self.auth_cancel, bottom)
+        for child in self._flow_children(bottom):
+            child.set_focusable(False)  # focus goes to the buttons, not to their wrappers
         keys.append(bottom)
         box.append(keys)
         self.osk_refresh()
         return box
 
-    def osk_button(self, label: str, fn: Callable[[], None], parent: Gtk.Box) -> Gtk.Button:
+    def osk_button(self, label: str, fn: Callable[[], None], parent: Gtk.FlowBox) -> Gtk.Button:
         b = Gtk.Button(label=label)
         b.add_css_class("osk-key")
         b.connect("clicked", lambda _b: fn())
