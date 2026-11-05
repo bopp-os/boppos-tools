@@ -261,7 +261,7 @@ class DeckWindow(Adw.ApplicationWindow):
         self.osk_shift = self.osk_button("Shift", lambda: self.osk_action("shift"), bottom)
         self.osk_sym = self.osk_button("123", lambda: self.osk_action("symbols"), bottom)
         space = self.osk_button("Space", lambda: self.osk_press(" "), bottom)
-        space.set_size_request(260, -1)
+        space.add_css_class("osk-space")
         self.osk_button("Delete", lambda: self.osk_action("backspace"), bottom)
         self.osk_show = self.osk_button("Show", lambda: self.osk_action("visible"), bottom)
         ok = self.osk_button("OK", self.auth_submit, bottom)
@@ -361,13 +361,22 @@ class DeckWindow(Adw.ApplicationWindow):
             req["cancel"]()
 
     def build_hints(self) -> Gtk.Widget:
-        self.hint_box = Gtk.Box(spacing=0)
+        # Wraps onto more lines in a narrow window; a plain box would set the window's minimum width
+        self.hint_box = Gtk.FlowBox(selection_mode=Gtk.SelectionMode.NONE, focusable=False, can_target=False,
+                                    homogeneous=False, max_children_per_line=24, column_spacing=0, row_spacing=2)
         self.hint_box.add_css_class("hint-bar")
         self.render_hints()
         return self.hint_box
 
     def pad_available(self) -> bool:
         return self.gaming or bool(self.pad and self.pad.connected)
+
+    @staticmethod
+    def _flow_children(flow: Gtk.FlowBox):
+        child = flow.get_first_child()
+        while child:
+            yield child
+            child = child.get_next_sibling()
 
     def render_hints(self) -> None:
         mode = "pad" if (self.input_mode == "pad" and self.pad_available()) else "kb"
@@ -388,8 +397,12 @@ class DeckWindow(Adw.ApplicationWindow):
                 k.add_css_class(css)
             t = Gtk.Label(label=label)
             t.add_css_class("hint-label")
-            self.hint_box.append(k)
-            self.hint_box.append(t)
+            item = Gtk.Box()
+            item.append(k)
+            item.append(t)
+            self.hint_box.append(item)
+        for child in self._flow_children(self.hint_box):
+            child.set_focusable(False)
 
     def add_breakpoints(self) -> None:
         for min_w, css in ((1700, "size-l"), (2300, "size-xl")):
@@ -397,9 +410,18 @@ class DeckWindow(Adw.ApplicationWindow):
             bp.connect("apply", lambda _b, c=css: self.add_css_class(c))
             bp.connect("unapply", lambda _b, c=css: self.remove_css_class(c))
             self.add_breakpoint(bp)
-        narrow = Adw.Breakpoint.new(Adw.BreakpointCondition.parse("max-width: 900px"))
-        narrow.add_setter(self.split, "collapsed", bool_value(True))
-        self.add_breakpoint(narrow)
+        # Narrow or portrait (a phone, a tiled window, a rotated monitor): one column at a time. Under 640px
+        # the text size drops too, since a couch-sized font leaves no room for words on a phone. Only one
+        # breakpoint is active at a time (the last that matches), so each one sets collapsed itself.
+        for cond in ("max-width: 900px", "max-aspect-ratio: 1/1 and max-width: 1699px"):
+            narrow = Adw.Breakpoint.new(Adw.BreakpointCondition.parse(cond))
+            narrow.add_setter(self.split, "collapsed", bool_value(True))
+            self.add_breakpoint(narrow)
+        small = Adw.Breakpoint.new(Adw.BreakpointCondition.parse("max-width: 640px"))
+        small.add_setter(self.split, "collapsed", bool_value(True))
+        small.connect("apply", lambda _b: self.add_css_class("size-s"))
+        small.connect("unapply", lambda _b: self.remove_css_class("size-s"))
+        self.add_breakpoint(small)
 
     # --- pages --------------------------------------------------------------------------------
 

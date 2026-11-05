@@ -52,10 +52,7 @@ class Page:
         self._shown: str | None = None
         self._view = None  # view_state() the content on screen was built with
         self.box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=24)
-        self.box.set_margin_top(24)
-        self.box.set_margin_bottom(24)
-        self.box.set_margin_start(24)
-        self.box.set_margin_end(24)
+        self.box.add_css_class("page-box")  # margins live in the CSS so a narrow window can shrink them
         clamp = Adw.Clamp(maximum_size=1400, tightening_threshold=1000)
         clamp.set_child(self.box)
         self.widget = Gtk.ScrolledWindow(hscrollbar_policy=Gtk.PolicyType.NEVER, vexpand=True)
