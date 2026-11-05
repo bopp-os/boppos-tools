@@ -14,7 +14,7 @@ import gi
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
-from gi.repository import Adw, Gdk, Gio, GLib, GObject, Gtk  # noqa: E402
+from gi.repository import Adw, Gdk, Gio, GLib, GObject, Gtk, Pango  # noqa: E402
 
 from .. import firstrun, hwprofiles, oobe, system, welcome  # noqa: E402
 from . import agent as polkit_agent  # noqa: E402
@@ -141,7 +141,7 @@ class DeckWindow(Adw.ApplicationWindow):
             box.set_margin_bottom(6)
             box.set_margin_start(8)
             box.append(Gtk.Image.new_from_icon_name(p.icon))
-            label = Gtk.Label(label=p.title, xalign=0, hexpand=True)
+            label = Gtk.Label(label=p.title, xalign=0, hexpand=True, ellipsize=Pango.EllipsizeMode.END)
             box.append(label)
             row = Gtk.ListBoxRow()
             row.set_child(box)
@@ -161,9 +161,9 @@ class DeckWindow(Adw.ApplicationWindow):
         side.append(scroller)
 
         self.split = Adw.NavigationSplitView()
-        self.split.set_min_sidebar_width(300)
-        self.split.set_max_sidebar_width(460)
-        self.split.set_sidebar_width_fraction(0.28)
+        self.split.set_min_sidebar_width(220)
+        self.split.set_max_sidebar_width(380)
+        self.split.set_sidebar_width_fraction(0.24)
         self.sidebar_page = Adw.NavigationPage.new(side, "BoppOS")
         self.content_page = Adw.NavigationPage.new(self.content_stack, self.pages[0].title)
         self.split.set_sidebar(self.sidebar_page)
@@ -413,7 +413,7 @@ class DeckWindow(Adw.ApplicationWindow):
         # Narrow or portrait (a phone, a tiled window, a rotated monitor): one column at a time. Under 640px
         # the text size drops too, since a couch-sized font leaves no room for words on a phone. Only one
         # breakpoint is active at a time (the last that matches), so each one sets collapsed itself.
-        for cond in ("max-width: 900px", "max-aspect-ratio: 1/1 and max-width: 1699px"):
+        for cond in ("max-width: 720px", "max-aspect-ratio: 1/1 and max-width: 1699px"):
             narrow = Adw.Breakpoint.new(Adw.BreakpointCondition.parse(cond))
             narrow.add_setter(self.split, "collapsed", bool_value(True))
             self.add_breakpoint(narrow)
