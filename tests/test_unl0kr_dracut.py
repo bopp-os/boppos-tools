@@ -131,6 +131,7 @@ def test_install_ships_unl0kr_the_agent_and_enables_its_path_unit(tmp_path):
     assert "systemctl -q --root" in log and log.rstrip().endswith("enable boppos-unl0kr-agent.path")
     conf = (tmp_path / "initdir/etc/boppos-unl0kr.conf").read_text()
     assert "backend=drm" in conf and "default=breezy-dark" in conf
+    assert "[keyboard]\nautohide=false\n" in conf, "the on-screen keyboard must show with a controller attached"
 
 
 def test_install_keeps_fbdev_when_unl0kr_has_no_drm_backend(tmp_path):
@@ -144,6 +145,11 @@ def test_install_leaves_a_backend_set_in_etc_unl0kr_conf_alone(tmp_path):
     assert "backend" not in (tmp_path / "initdir/etc/boppos-unl0kr.conf").read_text()
     dracut(tmp_path, "install", etc_conf="[general]\n#backend=fbdev|drm\n")
     assert "backend=drm" in (tmp_path / "initdir/etc/boppos-unl0kr.conf").read_text()
+
+
+def test_install_leaves_an_autohide_set_in_etc_unl0kr_conf_alone(tmp_path):
+    dracut(tmp_path, "install", etc_conf="[keyboard]\nautohide=true\n")
+    assert "autohide" not in (tmp_path / "initdir/etc/boppos-unl0kr.conf").read_text()
 
 
 # --- units ---------------------------------------------------------------------------------------

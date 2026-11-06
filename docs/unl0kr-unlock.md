@@ -50,6 +50,9 @@ packaged in bopp-os/pkgbuilds. Nothing changes until an image asks for the modul
   DesignWare I2C controller and `pinctrl-amd` (the Deck and Legion Go touchscreens), and `hid-lenovo-go` when
   the kernel has it; libinput's quirks and udev rules; and the XKB data, without which unl0kr cannot compile
   a keymap for a hardware keyboard.
+- **The on-screen keyboard always shows.** unl0kr normally hides it when any keyboard device exists, and
+  the Deck's controller in lizard mode presents one. The module sets `autohide=false` unless
+  `/etc/unl0kr.conf` sets `autohide` itself.
 - **Config.** `/etc/unl0kr.conf` is copied in as is; the module layers `/etc/boppos-unl0kr.conf`
   (`backend=drm`, dark theme) over it with `-C`. A `backend=` set in `/etc/unl0kr.conf` wins, and an unl0kr
   built without DRM keeps fbdev (with a build-time warning: Plymouth may then draw over it).

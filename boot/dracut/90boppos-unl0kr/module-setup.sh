@@ -67,8 +67,10 @@ install() {
 
     # Our defaults, layered over /etc/unl0kr.conf with -C. The DRM backend because Plymouth hands the display
     # over by dropping its DRM master (plymouth deactivate), which the fbdev emulation does not notice; a dark
-    # theme to match the black splash. A backend set in /etc/unl0kr.conf wins, and an unl0kr built without
-    # the DRM backend (not linked to libdrm) keeps its fbdev default.
+    # theme to match the black splash; the on-screen keyboard always shown, since unl0kr hides it whenever any
+    # keyboard device exists, and handheld controllers (the Deck in lizard mode) present one. A backend or
+    # autohide set in /etc/unl0kr.conf wins, and an unl0kr built without the DRM backend (not linked to
+    # libdrm) keeps its fbdev default.
     local _unl0kr
     _unl0kr=$(find_binary unl0kr)
     {
@@ -79,6 +81,10 @@ install() {
             echo "backend=drm"
         else
             dwarn "boppos-unl0kr: unl0kr was built without the DRM backend, using fbdev (Plymouth may draw over it)"
+        fi
+        echo "[keyboard]"
+        if ! grep -qs '^[[:space:]]*autohide[[:space:]]*=' "${dracutsysrootdir-}/etc/unl0kr.conf"; then
+            echo "autohide=false"
         fi
         echo "[theme]"
         echo "default=breezy-dark"
