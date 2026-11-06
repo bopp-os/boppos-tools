@@ -60,7 +60,8 @@ def test_cmdline_device_is_enrolled_against_pcr7_and_crypttab_is_left_alone(tmp_
     tab = f"# keep me\ndata UUID={UUID} none luks\n"
     res, out, calls, root = run(tmp_path, crypttab=tab)
     assert res.returncode == 0, out
-    assert enrolled(calls) == [f"cryptenroll --wipe-slot=tpm2 --tpm2-device=auto --tpm2-pcrs=7 /dev/disk/by-uuid/{UUID}"]
+    want = f"cryptenroll --wipe-slot=tpm2 --tpm2-device=auto --tpm2-pcrs=7 /dev/disk/by-uuid/{UUID}"
+    assert enrolled(calls) == [want]
     assert out.count("Key slots") == 2 and "Secure Boot: enabled" in out
     assert (root / "etc/crypttab").read_text() == tab
     assert not list((root / "etc").glob("crypttab.bak*"))
