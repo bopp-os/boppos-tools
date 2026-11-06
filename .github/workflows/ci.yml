@@ -56,7 +56,7 @@ jobs:
 
       - name: Lint shell scripts (shellcheck)
         run: |
-          for f in bin/* lib/boppos/* libexec/boppos/* share/boppos/*.sh tools/*; do
+          for f in bin/* lib/boppos/* libexec/boppos/* share/boppos/*.sh tools/* boot/dracut/*/*; do
             if [ -f "$f" ] && head -n 1 "$f" | grep -E -q 'bash|/sh'; then
               shellcheck -S warning "$f"
             fi

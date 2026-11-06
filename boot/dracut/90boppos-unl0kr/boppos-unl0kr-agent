@@ -1,0 +1,149 @@
+#!/bin/bash
+# BoppOS initrd password agent: answers systemd passphrase prompts (cryptsetup, after TPM2 auto-unlock has
+# failed) with unl0kr's on-screen keyboard, for handhelds without a keyboard.
+#
+# It implements systemd's password agent protocol (https://systemd.io/PASSWORD_AGENTS/): every ask.* file in
+# /run/systemd/ask-password is a prompt; the answer goes to the file's Socket= through systemd-reply-password.
+#
+# Plymouth keeps running and keeps its own agent. For each prompt this agent asks plymouthd to deactivate
+# (it drops the DRM master and stops reading the keyboard), runs unl0kr, replies, and reactivates Plymouth,
+# which then shows its wheel while the disk unlocks. If unl0kr fails, Plymouth comes back with its own
+# passphrase prompt still pending, so a physical keyboard always has a way in.
+#
+# Long-running like systemd's own agents: started once by boppos-unl0kr-agent.path, stopped at switch-root.
+
+set -u
+
+ASK_DIR=${BOPPOS_UNL0KR_ASK_DIR:-/run/systemd/ask-password}
+STATE=${BOPPOS_UNL0KR_STATE:-/run/boppos-unl0kr}
+UNL0KR=${BOPPOS_UNL0KR_BIN:-/usr/bin/unl0kr}
+REPLY=${BOPPOS_UNL0KR_REPLY:-/usr/lib/systemd/systemd-reply-password}
+OVERRIDE=${BOPPOS_UNL0KR_CONF:-/etc/boppos-unl0kr.conf}
+PLYMOUTH=${BOPPOS_UNL0KR_PLYMOUTH:-plymouth}
+PLYMOUTH_PID=${BOPPOS_UNL0KR_PLYMOUTH_PID:-/run/plymouth/pid}
+POLL=${BOPPOS_UNL0KR_POLL:-0.5}
+# A run of unl0kr that fails this many times in a row (no display, no input device, crash) is given up for
+# this boot; Plymouth or the console agent answers from then on.
+MAX_FAILURES=2
+
+umask 077
+mkdir -p "$STATE" || exit 1
+
+log() { echo "boppos-unl0kr: $*" >&2; }
+
+# ini_get FILE KEY: the value of KEY= in the [Ask] section (systemd writes one section, no quoting).
+ini_get() {
+    local line
+    while IFS= read -r line; do
+        if [[ $line == "$2="* ]]; then
+            printf '%s' "${line#"$2="}"
+            return 0
+        fi
+    done < "$1"
+    return 1
+}
+
+# Microseconds of CLOCK_MONOTONIC, close enough from /proc/uptime in the initrd (no suspend there yet).
+now_usec() {
+    local up
+    read -r up _ < /proc/uptime
+    echo $((${up%.*} * 1000000 + 10#${up#*.} * 10000))
+}
+
+expired() { # NOTAFTER (0 or empty = no limit)
+    [[ -n $1 && $1 != 0 ]] && (($(now_usec) > $1))
+}
+
+plymouth_up() {
+    [[ -e $PLYMOUTH_PID ]] && command -v "$PLYMOUTH" > /dev/null && "$PLYMOUTH" --ping 2> /dev/null
+}
+
+plymouth_off() {
+    PLYMOUTH_WAS_UP=0
+    if plymouth_up; then
+        PLYMOUTH_WAS_UP=1
+        "$PLYMOUTH" deactivate || log "plymouth deactivate failed"
+    fi
+}
+
+plymouth_on() {
+    if [[ $PLYMOUTH_WAS_UP == 1 ]]; then
+        "$PLYMOUTH" reactivate || log "plymouth reactivate failed"
+    fi
+}
+
+# answer ASKFILE: 0 = answered, 1 = unl0kr failed, 2 = prompt went away or was not ours to answer.
+answer() {
+    local ask=$1 socket pid notafter message out rc args
+    socket=$(ini_get "$ask" Socket) || return 2
+    pid=$(ini_get "$ask" PID) || pid=
+    notafter=$(ini_get "$ask" NotAfter) || notafter=0
+    message=$(ini_get "$ask" Message) || message="Please enter the passphrase"
+
+    if [[ -n $pid ]] && ! kill -0 "$pid" 2> /dev/null; then
+        return 2
+    fi
+    expired "$notafter" && return 2
+
+    args=(-n -m "$message")
+    [[ -r $OVERRIDE ]] && args+=(-C "$OVERRIDE")
+    out="$STATE/reply"
+    : > "$out"
+
+    plymouth_off
+    "$UNL0KR" "${args[@]}" > "$out" &
+    upid=$!
+    # Stop unl0kr when the prompt is answered elsewhere (Plymouth, a FIDO2 token) or times out.
+    while kill -0 "$upid" 2> /dev/null; do
+        if [[ ! -e $ask ]] || expired "$notafter"; then
+            kill -TERM "$upid" 2> /dev/null
+            break
+        fi
+        sleep 0.2
+    done
+    wait "$upid"
+    rc=$?
+    upid=
+
+    if [[ ! -e $ask ]]; then
+        rc=2
+    elif ((rc == 0)); then
+        "$REPLY" 1 "$socket" < "$out" || rc=1
+    else
+        log "unl0kr exited with $rc, leaving the prompt to Plymouth or the console"
+        rc=1
+    fi
+    rm -f "$out"
+    plymouth_on
+    PLYMOUTH_WAS_UP=0
+    return "$rc"
+}
+
+# Stopped mid-prompt (emergency.service, switch-root): do not leave Plymouth deactivated.
+PLYMOUTH_WAS_UP=0
+upid=
+on_stop() {
+    [[ -n $upid ]] && kill -TERM "$upid" 2> /dev/null
+    rm -f "$STATE/reply"
+    plymouth_on
+    exit 0
+}
+trap on_stop TERM INT
+
+failures=0
+while :; do
+    for ask in "$ASK_DIR"/ask.*; do
+        [[ -f $ask ]] || continue
+        seen="$STATE/seen.${ask##*/}"
+        [[ -e $seen ]] && continue
+        : > "$seen"
+        ((failures >= MAX_FAILURES)) && continue
+        answer "$ask"
+        case $? in
+            0) failures=0 ;;
+            1) failures=$((failures + 1)) ;;
+        esac
+    done
+    [[ -n ${BOPPOS_UNL0KR_ONESHOT:-} ]] && exit 0
+    sleep "$POLL"
+done

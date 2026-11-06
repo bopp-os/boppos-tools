@@ -66,4 +66,12 @@ install-boot-theme:
 	install -d $(DESTDIR)$(PREFIX)/bin
 	install -m 755 boot/grub/bopp-grub-theme $(DESTDIR)$(PREFIX)/bin/
 
-install: install-tools install-artwork install-boot-theme
+# Initrd passphrase entry on the touchscreen/trackpad with unl0kr (opt-in per image: see docs/unl0kr-unlock.md)
+install-unl0kr-dracut:
+	install -d $(DESTDIR)$(PREFIX)/lib/dracut/modules.d/90boppos-unl0kr
+	install -m 755 boot/dracut/90boppos-unl0kr/module-setup.sh boot/dracut/90boppos-unl0kr/boppos-unl0kr-agent \
+		$(DESTDIR)$(PREFIX)/lib/dracut/modules.d/90boppos-unl0kr/
+	install -m 644 boot/dracut/90boppos-unl0kr/boppos-unl0kr-agent.path boot/dracut/90boppos-unl0kr/boppos-unl0kr-agent.service \
+		$(DESTDIR)$(PREFIX)/lib/dracut/modules.d/90boppos-unl0kr/
+
+install: install-tools install-artwork install-boot-theme install-unl0kr-dracut

@@ -35,11 +35,12 @@ package_boppos-artwork() {
 }
 
 package_boppos-boot-theme() {
-  pkgdesc="BoppOS boot artwork: Plymouth splash and GRUB theme"
+  pkgdesc="BoppOS boot artwork: Plymouth splash, GRUB theme and the unl0kr on-screen-keyboard unlock module"
   depends=('python')
   optdepends=('plymouth: boot splash (select it with plymouth-set-default-theme boppos)'
-              'grub: boot menu theme (put it on /boot with: sudo bopp-grub-theme install)')
+              'grub: boot menu theme (put it on /boot with: sudo bopp-grub-theme install)'
+              'unl0kr: type the disk passphrase on a touchscreen or trackpad (dracut module boppos-unl0kr)')
 
   cd "${srcdir}/${pkgbase}-${pkgver}"
-  make DESTDIR="${pkgdir}" PREFIX=/usr SYSCONFDIR=/etc install-boot-theme
+  make DESTDIR="${pkgdir}" PREFIX=/usr SYSCONFDIR=/etc install-boot-theme install-unl0kr-dracut
 }

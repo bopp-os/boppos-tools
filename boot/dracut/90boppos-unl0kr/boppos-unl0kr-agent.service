@@ -1,0 +1,10 @@
+[Unit]
+Description=Dispatch Password Requests to unl0kr (BoppOS)
+DefaultDependencies=no
+ConditionPathExists=/etc/initrd-release
+After=plymouth-start.service systemd-udev-trigger.service
+Conflicts=emergency.service shutdown.target initrd-switch-root.target
+Before=emergency.service shutdown.target initrd-switch-root.target
+
+[Service]
+ExecStart=/usr/lib/boppos-unl0kr/boppos-unl0kr-agent
