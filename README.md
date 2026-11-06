@@ -262,14 +262,23 @@ Without any `match.*` line a drop-in applies to every device. `kargs.d/` ships o
 
 ### `bopp-tpm-refresh` (TPM2 Auto-Unlock)
 
-A utility to easily re-enroll LUKS decryption keys to your hardware's TPM2 chip. Running this tool is often required after kernel or system bootloader updates when PCR measurement values shift.
+Re-enrolls the LUKS TPM2 unlock key against the current PCR 7 (Secure Boot state). The installer (fisherman) already does this once on first boot (`fisherman-tpm2-enroll.service`); run this when PCR 7 changes later, for example after a firmware update, turning Secure Boot on or off, or new Secure Boot keys or dbx. Kernel and image updates do not change PCR 7, so they do not need it.
 
 ```bash
-sudo bopp-tpm-refresh
+sudo bopp-tpm-refresh            # finds the device itself
+sudo bopp-tpm-refresh /dev/nvme0n1p3   # or UUID=...; needed when several LUKS devices are found
 ```
 
+What it does:
+1. **Finds the device**: the UUID in `rd.luks.name=`/`rd.luks.uuid=` on the kernel command line, else `/etc/crypttab`, else `lsblk`. With more than one candidate it lists them and asks for a device argument.
+2. **Checks first**: stops if first-boot enrollment is still pending (`/etc/fisherman/tpm2-enroll.key` exists), if there is no TPM2, or if the device has no password or recovery key slot (the TPM token must never be the only way in). Shows the key slots and the Secure Boot state.
+3. **Enrolls**: `systemd-cryptenroll --wipe-slot=tpm2 --tpm2-device=auto --tpm2-pcrs=7`, which asks for your passphrase or recovery key, then shows the key slots again.
+4. **Checks that boot will try the TPM**: when the device is unlocked from kernel args (the BoppOS default), it does not touch `/etc/crypttab` and only checks for `rd.luks.options=tpm2-device=auto` (add it with `sudo bopp-kargs add rd.luks.options=tpm2-device=auto`). Otherwise it adds `tpm2-device=auto` to the crypttab entry whose device matches, after saving a `crypttab.bak.<date>` copy; comments and other entries are left as they are.
+
+TPM unlock at boot also needs TPM2 support in the initramfs (the dracut `tpm2-tss` module, which the BoppOS image adds). When `lsinitrd` is available the tool warns if the booted initramfs lacks it.
+
 > [!CAUTION]
-> **DISK ENCRYPTION:** This tool interacts directly with disk encryption keys and modifies `/etc/crypttab` to bind decryption to the system TPM2 chip. Interrupted operations or misconfigurations could lead to boot unlock issues.
+> **DISK ENCRYPTION:** This tool replaces the TPM2 key slot of your encrypted disk. Keep your passphrase or recovery key: it is the way in if TPM unlock stops working.
 
 ---
 

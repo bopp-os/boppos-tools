@@ -1,35 +1,138 @@
 #!/bin/bash
-# bopp-tpm-refresh: Refreshes LUKS TPM2 enrollment for BoppOS
+# bopp-tpm-refresh: re-enroll the LUKS TPM2 unlock key against the current PCR 7.
+# The manual version of fisherman-tpm2-enroll.service, for when PCR 7 changes later
+# (firmware update, Secure Boot toggled, new Secure Boot keys or dbx).
+# Usage: sudo bopp-tpm-refresh [DEVICE]
+set -uo pipefail
 
-# 1. Identify the LUKS partition
-LUKS_PART=$(lsblk -l -p -o NAME,FSTYPE | grep "crypto_LUKS" | head -n1 | awk '{print $1}')
+# BOPP_TPM_ROOT prefixes the files read below; it exists only for the tests.
+R=${BOPP_TPM_ROOT:-}
+CMDLINE=$R/proc/cmdline
+CRYPTTAB=$R/etc/crypttab
+PENDING_KEY=$R/etc/fisherman/tpm2-enroll.key
+SB_VAR=$R/sys/firmware/efi/efivars/SecureBoot-8be4df61-93ca-11d2-aa0d-e098032b8c4c
+INITRAMFS=$R/usr/lib/modules/$(uname -r)/initramfs.img
 
-if [[ -z "$LUKS_PART" ]]; then
-    echo "❌ No LUKS encrypted partition detected. Skipping TPM refresh."
-    exit 0
+die() { echo "❌ $*" >&2; exit 1; }
+
+[[ ${1:-} == -h || ${1:-} == --help ]] && { sed -n '2,5s/^# \?//p' "$0"; exit 0; }
+[[ $EUID -eq 0 || -n $R ]] || die "Run as root: sudo bopp-tpm-refresh"
+
+if [[ -e $PENDING_KEY ]]; then
+    echo "⏳ First-boot TPM2 enrollment has not finished yet ($PENDING_KEY still exists)."
+    if systemctl -q is-failed fisherman-tpm2-enroll.service 2>/dev/null; then
+        echo "   fisherman-tpm2-enroll.service failed. See: journalctl -b -u fisherman-tpm2-enroll.service"
+        echo "   Retry it with: sudo systemctl restart fisherman-tpm2-enroll.service"
+    else
+        echo "   Let fisherman-tpm2-enroll.service finish (or reboot), then run this again if needed."
+    fi
+    exit 1
 fi
 
-echo "🔐 Encrypted partition found: $LUKS_PART"
-echo "Your TPM2 PCRs likely changed during the rebase. We need to re-enroll."
+# --- 1. Find the LUKS device: kernel command line, then crypttab, then lsblk --------
+read -r -a KARGS < "$CMDLINE"
+CMDLINE_UUIDS=()
+for a in "${KARGS[@]}"; do
+    case $a in
+        rd.luks.name=*) u=${a#rd.luks.name=}; u=${u%%=*} ;;
+        rd.luks.uuid=*) u=${a#rd.luks.uuid=}; u=${u#luks-} ;;
+        *) continue ;;
+    esac
+    CMDLINE_UUIDS+=("${u#UUID=}")
+done
 
-# 2. Perform the enrollment
-# Note: This will prompt the user for their existing recovery passphrase
+dev_of() {
+    case $1 in
+        UUID=*) echo "/dev/disk/by-uuid/${1#UUID=}" ;;
+        PARTUUID=*) echo "/dev/disk/by-partuuid/${1#PARTUUID=}" ;;
+        LABEL=*) echo "/dev/disk/by-label/${1#LABEL=}" ;;
+        *) echo "$1" ;;
+    esac
+}
 
-# By default, systemd-cryptenroll binds to PCR 7 (Secure Boot).
-# If Secure Boot is disabled, binding to PCR 7 might fail to unlock.
-# Explicitly setting --tpm2-pcrs=7 ensures predictability.
-sudo systemd-cryptenroll --tpm2-device=auto --tpm2-pcrs=7 --wipe-slot=tpm2 "$LUKS_PART"
+if [[ -n ${1:-} ]]; then
+    CANDIDATES=("$(dev_of "$1")")
+elif (( ${#CMDLINE_UUIDS[@]} )); then
+    CANDIDATES=()
+    for u in "${CMDLINE_UUIDS[@]}"; do CANDIDATES+=("/dev/disk/by-uuid/$u"); done
+else
+    mapfile -t CANDIDATES < <(
+        { [[ -r $CRYPTTAB ]] && awk '!/^[[:space:]]*(#|$)/ {print $2}' "$CRYPTTAB"; } |
+            while read -r d; do dev_of "$d"; done)
+    (( ${#CANDIDATES[@]} )) ||
+        mapfile -t CANDIDATES < <(lsblk -nrpo NAME,FSTYPE | awk '$2 == "crypto_LUKS" {print $1}')
+fi
 
-if [[ $? -eq 0 ]]; then
-    echo "✅ TPM2 successfully re-enrolled for BoppOS."
-    
-    # 3. Ensure /etc/crypttab is configured to use the TPM automatically
-    if [ -f /etc/crypttab ] && ! grep -q "tpm2-device=auto" /etc/crypttab; then
-        echo "🔧 Adding 'tpm2-device=auto' to /etc/crypttab..."
-        # Safely append tpm2-device=auto to the options column
-        sudo awk '/^luks-/ && !/tpm2-device=auto/ { if (NF==3) $4="tpm2-device=auto"; else if (NF>=4) $4=$4",tpm2-device=auto"; }1' /etc/crypttab | sudo tee /etc/crypttab.new > /dev/null
-        sudo mv /etc/crypttab.new /etc/crypttab
+case ${#CANDIDATES[@]} in
+    0) echo "ℹ️ No LUKS encrypted device found. Nothing to do."; exit 0 ;;
+    1) DEV=${CANDIDATES[0]} ;;
+    *) echo "More than one LUKS device found:"
+       printf '  %s\n' "${CANDIDATES[@]}"
+       die "Name the one to re-enroll: sudo bopp-tpm-refresh DEVICE" ;;
+esac
+cryptsetup isLuks "$DEV" 2>/dev/null || die "$DEV is not a LUKS device."
+UUID=$(cryptsetup luksUUID "$DEV") || die "Could not read the LUKS UUID of $DEV."
+echo "🔐 LUKS device: $DEV (UUID $UUID)"
+
+# --- 2. Checks before touching any key slot --------------------------------------------
+systemd-cryptenroll --tpm2-device=list 2>/dev/null | grep -q '^/dev/tpm' ||
+    die "No TPM2 device found (systemd-cryptenroll --tpm2-device=list)."
+
+if [[ -r $SB_VAR ]]; then
+    case $(od -An -tu1 -j4 -N1 "$SB_VAR" | tr -d ' ') in
+        1) echo "🛡️ Secure Boot: enabled" ;;
+        *) echo "⚠️ Secure Boot: disabled. PCR 7 records that, so turning Secure Boot on later" \
+                "will stop TPM unlock until you run this again." ;;
+    esac
+else
+    echo "⚠️ Secure Boot state unknown (no SecureBoot EFI variable). PCR 7 may not be meaningful here."
+fi
+
+if [[ -r $INITRAMFS ]] && command -v lsinitrd >/dev/null; then
+    lsinitrd -m "$INITRAMFS" 2>/dev/null | grep -qx 'tpm2-tss' ||
+        echo "⚠️ The initramfs has no tpm2-tss dracut module, so it cannot unlock with the TPM at boot."
+fi
+
+echo "Key slots before:"
+SLOTS=$(systemd-cryptenroll "$DEV") || die "Could not list the key slots of $DEV."
+echo "$SLOTS"
+awk 'NR > 1 && ($2 == "password" || $2 == "recovery") {f = 1} END {exit !f}' <<< "$SLOTS" ||
+    die "$DEV has no password or recovery key slot. Replacing the TPM2 token could lock you out; add one first (systemd-cryptenroll --recovery-key $DEV)."
+
+# --- 3. Enroll (asks for the existing passphrase or recovery key) -----------------------
+if systemd-cryptenroll --wipe-slot=tpm2 --tpm2-device=auto --tpm2-pcrs=7 "$DEV"; then
+    echo "✅ TPM2 re-enrolled against the current PCR 7."
+else
+    die "TPM2 enrollment failed. The old slots were left as they were; your passphrase still works."
+fi
+echo "Key slots after:"
+systemd-cryptenroll "$DEV"
+
+# --- 4. Make sure boot actually tries the TPM ------------------------------------------
+if printf '%s\n' "${CMDLINE_UUIDS[@]}" | grep -qixF "$UUID"; then
+    if grep -qE '(^| )rd\.luks\.options=([^ ]*[=,])?tpm2-device=' "$CMDLINE"; then
+        echo "✅ Unlocked from kernel args with tpm2-device=auto."
+    else
+        echo "⚠️ $DEV is unlocked from kernel args, but they have no tpm2-device option. Add it with:"
+        echo "   sudo bopp-kargs add rd.luks.options=tpm2-device=auto"
+    fi
+elif [[ -f $CRYPTTAB ]]; then
+    REAL=$(readlink -f "$DEV")
+    match=$(awk -v u="$UUID" -v d="$DEV" -v r="$REAL" '!/^[[:space:]]*#/ &&
+        (tolower($2) == "uuid=" tolower(u) || $2 == "/dev/disk/by-uuid/" u || $2 == d || $2 == r) {print NR; exit}' "$CRYPTTAB")
+    if [[ -z $match ]]; then
+        echo "⚠️ No /etc/crypttab entry or kernel arg names $DEV, so nothing asks for TPM unlock at boot."
+    elif sed -n "${match}p" "$CRYPTTAB" | grep -q 'tpm2-device='; then
+        echo "✅ /etc/crypttab already has tpm2-device for $DEV."
+    else
+        cp -a "$CRYPTTAB" "$CRYPTTAB.bak.$(date +%Y%m%d-%H%M%S)" || die "Could not back up $CRYPTTAB."
+        tmp=$(mktemp) || exit 1
+        awk -v n="$match" 'NR == n { if (NF < 3) $3 = "-"
+            if (NF < 4 || $4 == "-") $4 = "tpm2-device=auto"; else $4 = $4 ",tpm2-device=auto" } 1' \
+            "$CRYPTTAB" > "$tmp" && cat "$tmp" > "$CRYPTTAB"
+        rm -f "$tmp"
+        echo "🔧 Added tpm2-device=auto to the $DEV entry in /etc/crypttab (backup saved next to it)."
     fi
 else
-    echo "⚠️ TPM2 enrollment failed. You may need to use your passphrase at next boot."
+    echo "⚠️ No /etc/crypttab and no kernel arg names $DEV, so nothing asks for TPM unlock at boot."
 fi
