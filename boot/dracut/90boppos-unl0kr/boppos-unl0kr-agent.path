@@ -1,0 +1,17 @@
+# Starts the BoppOS unl0kr password agent when the first passphrase prompt appears. A prompt only appears
+# after systemd-cryptsetup has tried the TPM2 token (rd.luks.options=tpm2-device=auto) and failed.
+[Unit]
+Description=Dispatch Password Requests to unl0kr Directory Watch (BoppOS)
+DefaultDependencies=no
+ConditionPathExists=/etc/initrd-release
+After=plymouth-start.service
+Before=paths.target cryptsetup.target
+Conflicts=emergency.service shutdown.target initrd-switch-root.target
+Before=emergency.service shutdown.target initrd-switch-root.target
+
+[Path]
+DirectoryNotEmpty=/run/systemd/ask-password
+MakeDirectory=yes
+
+[Install]
+WantedBy=sysinit.target

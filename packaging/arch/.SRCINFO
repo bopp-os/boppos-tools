@@ -1,12 +1,12 @@
 pkgbase = boppos-tools
-	pkgver = 1.3.6
+	pkgver = 1.3.7
 	pkgrel = 1
 	url = https://github.com/bopp-os/boppos-tools
 	arch = any
 	license = GPL3
 	makedepends = git
 	makedepends = make
-	source = boppos-tools-1.3.6.tar.gz::https://github.com/bopp-os/boppos-tools/releases/download/v1.3.6/boppos-tools-1.3.6.tar.gz
+	source = boppos-tools-1.3.7.tar.gz::https://github.com/bopp-os/boppos-tools/releases/download/v1.3.7/boppos-tools-1.3.7.tar.gz
 	sha256sums = SKIP
 
 pkgname = boppos-tools
@@ -42,7 +42,8 @@ pkgname = boppos-artwork
 	depends = hicolor-icon-theme
 
 pkgname = boppos-boot-theme
-	pkgdesc = BoppOS boot artwork: Plymouth splash and GRUB theme
+	pkgdesc = BoppOS boot artwork: Plymouth splash, GRUB theme and the unl0kr on-screen-keyboard unlock module
 	depends = python
 	optdepends = plymouth: boot splash (select it with plymouth-set-default-theme boppos)
 	optdepends = grub: boot menu theme (put it on /boot with: sudo bopp-grub-theme install)
+	optdepends = unl0kr: type the disk passphrase on a touchscreen or trackpad (dracut module boppos-unl0kr)

@@ -210,6 +210,12 @@ bottom, with a working disk-passphrase prompt) and a matching GRUB theme. It onl
 Plymouth theme is a step for the image, and `sudo bopp-grub-theme install` puts the GRUB theme on `/boot` (reversible, with `--dry-run`); both are described in [docs/boot-theme.md](docs/boot-theme.md), which also has a way to preview Plymouth without rebooting. `boppos-artwork` now also ships the logo lockups
 (`boppos-logo-{horizontal,stacked}-{white,black,blue}.svg`; *blue* is the white logo on the icon's blue gradient).
 
+The same package ships the `boppos-unl0kr` dracut module: when TPM2 auto-unlock fails on a Steam Deck or Legion Go,
+the disk passphrase can be typed on [unl0kr](https://gitlab.postmarketos.org/postmarketOS/buffybox)'s on-screen
+keyboard with the touchscreen or trackpad (a physical keyboard still works). It is opt-in: install `unl0kr` and add
+`add_dracutmodules+=" boppos-unl0kr "` to the image's dracut config. How it coexists with Plymouth and how to test
+it on hardware: [docs/unl0kr-unlock.md](docs/unl0kr-unlock.md).
+
 ## Critical System & Migration Tools
 
 The tools below modify critical system boot, encryption, or overlay structures. Always handle them with appropriate caution.

@@ -1,0 +1,165 @@
+#!/usr/bin/env python3
+"""Drive one boppos-unl0kr test VM over QMP and judge it from its serial console (run by run-tests).
+
+The initrd forwards its journal to the serial console, so the agent's own lines ("ask.X: starting unl0kr",
+"ask.X: answered") and systemd's "Finished ... Cryptography Setup" show what happened. Keys are typed with QMP
+send-key into the VM's USB keyboard, which unl0kr reads through libinput like any physical keyboard."""
+
+import argparse
+import json
+import os
+import re
+import socket
+import sys
+import time
+from pathlib import Path
+
+UNLOCKED = re.compile(r"Finished .*Cryptography Setup for|Cryptography Setup for .* finished")
+PROMPT = re.compile(r"boppos-unl0kr: (ask\.\S+): starting unl0kr")
+ANSWERED = re.compile(r"boppos-unl0kr: ask\.\S+: answered$", re.M)
+BROKEN = re.compile(r"boppos-unl0kr: (unl0kr exited with .*|.*systemd-reply-password failed"
+                    r"|plymouth (de|re)activate failed)")
+CRYPT_FAILED = re.compile(r"Failed to start .*Cryptography Setup")
+
+KEYS = {" ": "spc", "-": "minus", ".": "dot", "_": "minus", "/": "slash", ",": "comma", "=": "equal"}
+
+
+class Fail(Exception):
+    pass
+
+
+class QMP:
+    def __init__(self, path: str, deadline: float):
+        while True:
+            try:
+                self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+                self.sock.connect(path)
+                break
+            except OSError:
+                if time.monotonic() > deadline:
+                    raise Fail("QEMU's QMP socket never came up") from None
+                time.sleep(0.2)
+        self.f = self.sock.makefile("rw")
+        self.f.readline()  # greeting
+        self.cmd("qmp_capabilities")
+
+    def cmd(self, name: str, **args):
+        self.f.write(json.dumps({"execute": name, "arguments": args}) + "\n")
+        self.f.flush()
+        while True:
+            msg = json.loads(self.f.readline())
+            if "return" in msg:
+                return msg["return"]
+            if "error" in msg:
+                raise Fail(f"QMP {name}: {msg['error']}")
+
+    def screenshot(self, path: Path):
+        try:
+            self.cmd("screendump", filename=str(path), format="png")
+        except Fail as e:
+            print(f"  (screenshot {path.name} failed: {e})")
+
+    def type(self, text: str, delay: float):
+        for ch in text:
+            key = KEYS.get(ch, ch.lower())
+            keys = ([{"type": "qcode", "data": "shift"}] if ch.isupper() else []) + [{"type": "qcode", "data": key}]
+            self.cmd("send-key", keys=keys)
+            time.sleep(delay)
+        self.cmd("send-key", keys=[{"type": "qcode", "data": "ret"}])
+
+
+class Serial:
+    def __init__(self, path: Path, qemu_pid: int, deadline: float):
+        self.path, self.pid, self.deadline, self.text, self.pos = path, qemu_pid, deadline, "", 0
+
+    def read(self) -> str:
+        if self.path.exists():
+            with self.path.open(errors="replace") as f:
+                f.seek(self.pos)
+                new = f.read()
+                self.pos = f.tell()
+            self.text += new.replace("\r", "")
+        return self.text
+
+    def wait(self, pattern: re.Pattern, what: str, count: int = 1) -> list[re.Match]:
+        while True:
+            text = self.read()
+            if m := BROKEN.search(text):
+                raise Fail(f"agent reported: {m.group(1)}")
+            if CRYPT_FAILED.search(text):
+                raise Fail("systemd-cryptsetup failed")
+            found = list(pattern.finditer(text))
+            if len(found) >= count:
+                return found
+            if time.monotonic() > self.deadline:
+                raise Fail(f"timed out waiting for {what}")
+            try:
+                os.kill(self.pid, 0)
+            except ProcessLookupError:
+                raise Fail(f"QEMU exited before {what}") from None
+            time.sleep(0.5)
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--case", required=True, choices=["tpm", "keyboard", "retry", "interactive"])
+    ap.add_argument("--serial", required=True, type=Path)
+    ap.add_argument("--qmp", required=True)
+    ap.add_argument("--out", required=True, type=Path)
+    ap.add_argument("--passphrase", required=True)
+    ap.add_argument("--timeout", type=int, default=900)
+    ap.add_argument("--qemu-pid", type=int, required=True)
+    a = ap.parse_args()
+
+    start = time.monotonic()
+    deadline = start + (3600 if a.case == "interactive" else a.timeout)
+    # unl0kr needs a moment to draw after its log line; an emulated CPU needs longer.
+    settle = 3 if a.timeout <= 300 else 20
+    serial = Serial(a.serial, a.qemu_pid, deadline)
+    qmp = None
+    try:
+        qmp = QMP(a.qmp, deadline)
+        if a.case == "tpm":
+            serial.wait(UNLOCKED, "the TPM2 unlock")
+            qmp.screenshot(a.out / "1-unlocked.png")
+            if PROMPT.search(serial.read()):
+                raise Fail("unl0kr was started although the TPM2 unlocked the disk")
+        elif a.case == "interactive":
+            serial.wait(PROMPT, "the unl0kr prompt")
+            print(f"  unl0kr is up: open a VNC viewer on 127.0.0.1:5900 and enter {a.passphrase!r} "
+                  "with the mouse (or the keyboard). Waiting up to an hour.")
+            serial.wait(UNLOCKED, "the unlock")
+        else:
+            serial.wait(PROMPT, "the unl0kr prompt")
+            qmp.screenshot(a.out / "1-prompt-start.png")
+            time.sleep(settle)
+            qmp.screenshot(a.out / "2-prompt.png")
+            if a.case == "retry":
+                qmp.type("wrong-" + a.passphrase, 0.15)
+                serial.wait(PROMPT, "a second unl0kr prompt after the wrong passphrase", count=2)
+                time.sleep(settle)
+                qmp.screenshot(a.out / "3-second-prompt.png")
+            qmp.type(a.passphrase, 0.15)
+            serial.wait(ANSWERED, "the agent's reply", count=2 if a.case == "retry" else 1)
+            time.sleep(1)
+            qmp.screenshot(a.out / "4-after-reply.png")
+            serial.wait(UNLOCKED, "the unlock")
+            if len(PROMPT.findall(serial.read())) != (2 if a.case == "retry" else 1):
+                raise Fail("unexpected number of unl0kr prompts")
+    except Fail as e:
+        if qmp is not None:  # what the screen showed when it went wrong
+            try:
+                qmp.screenshot(a.out / "fail.png")
+            except OSError:
+                pass
+        print(f"  FAIL ({a.case}): {e} — see {a.serial}")
+        (a.out / "result.txt").write_text(f"FAIL: {e}\n")
+        return 1
+    took = time.monotonic() - start
+    print(f"  ok ({a.case}) in {took:.0f}s")
+    (a.out / "result.txt").write_text(f"PASS in {took:.0f}s\n")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
