@@ -78,7 +78,7 @@ boot() { # NAME DISK
     mkdir -p "$dir"
     rm -rf "$state"
     cp -a "$WORK/tpm-state" "$state"
-    cp --sparse=always "$disk" "$WORK/$name.img"
+    cp --sparse=always "$disk" "$WORK/run-$name.img"
     swtpm socket --tpm2 --tpmstate dir="$state" --ctrl type=unixio,path="$WORK/$name-swtpm.sock" \
         --daemon --pid file="$WORK/$name-swtpm.pid"
     [[ $name == interactive ]] && display=(-display none -vnc 0.0.0.0:0)
@@ -86,9 +86,10 @@ boot() { # NAME DISK
     qemu-system-x86_64 -machine q35,accel="$accel" -cpu "$cpu" -smp 2 -m 2048 -no-reboot \
         -kernel "/usr/lib/modules/$kver/vmlinuz" -initrd "$WORK/initrd.img" \
         -append "console=tty0 console=ttyS0,115200 rd.luks.uuid=$uuid rd.luks.options=tpm2-device=auto \
-root=/dev/mapper/luks-$uuid splash plymouth.ignore-serial-consoles systemd.journald.forward_to_console=1 \
+root=/dev/mapper/luks-$uuid splash plymouth.ignore-serial-consoles systemd.journald.forward_to_kmsg=1 \
+printk.devkmsg=on \
 rd.emergency=poweroff rd.shell=0 panic=-1" \
-        -drive file="$WORK/$name.img",format=raw,if=virtio \
+        -drive file="$WORK/run-$name.img",format=raw,if=virtio \
         -device virtio-vga,xres="$xres",yres="$yres" \
         -device qemu-xhci -device usb-kbd -device usb-tablet -device virtio-multitouch-pci \
         -chardev socket,id=chrtpm,path="$WORK/$name-swtpm.sock" -tpmdev emulator,id=tpm0,chardev=chrtpm \
@@ -102,7 +103,8 @@ rd.emergency=poweroff rd.shell=0 panic=-1" \
         --qemu-pid "$qpid" || rc=$?
     kill "$qpid" 2> /dev/null || true
     wait "$qpid" 2> /dev/null || true
-    kill "$(cat "$WORK/$name-swtpm.pid")" 2> /dev/null || true
+    # swtpm usually quits with QEMU and removes its pid file.
+    [[ -e $WORK/$name-swtpm.pid ]] && kill "$(cat "$WORK/$name-swtpm.pid")" 2> /dev/null
     return "$rc"
 }
 

@@ -41,7 +41,9 @@ packaged in bopp-os/pkgbuilds. Nothing changes until an image asks for the modul
   which brings the splash back with its wheel while the disk unlocks. We keep Plymouth's own agent rather
   than masking it because it is the fallback: if unl0kr fails (no display, no input, a crash) Plymouth
   returns with its passphrase prompt still pending, and a keyboard can answer it there. After two failures
-  in a row the agent stops trying for that boot. (buffybox's own `unl0kr-agent`, built with
+  in a row the agent stops trying for that boot. The first prompt can come before the GPU driver has
+  loaded, so the agent waits up to 20 seconds for `/dev/dri/card*` (or `/dev/fb0`), and an unl0kr that
+  exits within 5 seconds of starting is started again, up to 3 times. (buffybox's own `unl0kr-agent`, built with
   `-Dsystemd=true`, refuses to run while Plymouth is up, which is why this module has its own.)
 - **Input.** The module adds USB HID (`usbhid`, `hid-generic`: the Deck controller in lizard mode, where the
   right trackpad is a mouse, USB keyboards and mice), `hid-multitouch` over `i2c-hid-acpi` with the AMD

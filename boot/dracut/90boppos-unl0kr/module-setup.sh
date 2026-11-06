@@ -42,7 +42,8 @@ installkernel() {
 # called by dracut
 install() {
     inst_binary unl0kr
-    inst_multiple -o /etc/unl0kr.conf /etc/unl0kr.conf.d/*.conf /usr/share/unl0kr/unl0kr.conf.d/*.conf
+    inst_multiple -o /usr/share/unl0kr/unl0kr.conf /usr/share/unl0kr/unl0kr.conf.d/*.conf \
+        /etc/unl0kr.conf /etc/unl0kr.conf.d/*.conf
     inst_multiple /usr/lib/systemd/systemd-reply-password sleep rm mkdir
 
     # Hardware keyboards go through xkbcommon, which compiles the keymap from the XKB data at runtime.

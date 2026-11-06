@@ -176,12 +176,15 @@ def env(tmp_path):
         case "${{UNL0KR_MODE:-ok}}" in
             ok) printf 'hunter 2' ;;
             fail) exit 1 ;;
+            fail-once) [ -e {tmp_path}/failed ] || {{ : > {tmp_path}/failed; exit 1; }}; printf 'hunter 2' ;;
             hang) exec sleep 30 ;;
         esac
     """)
     executable(tmp_path / "reply", f"""printf '%s\\n' "reply $* <$(cat)>" >> {log}""")
     executable(tmp_path / "plymouth", f"""[ "$1" = --ping ] || printf '%s\\n' "plymouth $*" >> {log}""")
     (tmp_path / "plymouth.pid").write_text("1")
+    (tmp_path / "dev/dri").mkdir(parents=True)
+    (tmp_path / "dev/dri/card0").touch()
     return {
         **os.environ,
         "BOPPOS_UNL0KR_ASK_DIR": str(ask),
@@ -192,6 +195,9 @@ def env(tmp_path):
         "BOPPOS_UNL0KR_PLYMOUTH": str(tmp_path / "plymouth"),
         "BOPPOS_UNL0KR_PLYMOUTH_PID": str(tmp_path / "plymouth.pid"),
         "BOPPOS_UNL0KR_ONESHOT": "1",
+        "BOPPOS_UNL0KR_DEV": str(tmp_path / "dev"),
+        "BOPPOS_UNL0KR_START_TRIES": "1",
+        "BOPPOS_UNL0KR_RETRY_DELAY": "0",
         "LOG": str(log),
     }
 
@@ -252,6 +258,45 @@ def test_unl0kr_is_given_up_after_two_failures_in_a_row(env):
         ask(env, name=f"ask.{n}")
     run(env, UNL0KR_MODE="fail")
     assert len([c for c in calls(env) if c.startswith("unl0kr")]) == 2
+
+
+def test_an_unl0kr_that_fails_at_start_is_tried_again(env):
+    ask(env)
+    stderr = run(env, UNL0KR_MODE="fail-once", BOPPOS_UNL0KR_START_TRIES="3").stderr
+    assert calls(env) == [
+        "plymouth deactivate",
+        "unl0kr -n -m Please enter passphrase for disk root",
+        "unl0kr -n -m Please enter passphrase for disk root",
+        "reply 1 /run/systemd/ask-password/sck.abc <hunter 2>",
+        "plymouth reactivate",
+    ]
+    assert "did not start (exit 1), trying again" in stderr
+
+
+def test_start_retries_stop_at_the_limit(env):
+    ask(env)
+    run(env, UNL0KR_MODE="fail", BOPPOS_UNL0KR_START_TRIES="3")
+    assert len([c for c in calls(env) if c.startswith("unl0kr")]) == 3
+
+
+def test_unl0kr_waits_for_the_gpu_driver(env, tmp_path):
+    card = tmp_path / "dev/dri/card0"
+    card.unlink()
+    path = ask(env)
+    proc = subprocess.Popen([str(AGENT)], env=env)
+    time.sleep(0.6)
+    assert calls(env) == [], "unl0kr started before there was a display"
+    card.touch()
+    assert proc.wait(timeout=5) == 0
+    assert path.exists() and calls(env)[1].startswith("unl0kr")
+
+
+def test_unl0kr_still_runs_when_no_display_turns_up(env, tmp_path):
+    (tmp_path / "dev/dri/card0").unlink()
+    ask(env)
+    stderr = run(env, BOPPOS_UNL0KR_DISPLAY_WAIT="1").stderr
+    assert "no display device after 1s" in stderr
+    assert [c for c in calls(env) if c.startswith("unl0kr")]
 
 
 def test_each_prompt_is_answered_once(env):

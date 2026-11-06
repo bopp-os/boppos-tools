@@ -22,6 +22,15 @@ OVERRIDE=${BOPPOS_UNL0KR_CONF:-/etc/boppos-unl0kr.conf}
 PLYMOUTH=${BOPPOS_UNL0KR_PLYMOUTH:-plymouth}
 PLYMOUTH_PID=${BOPPOS_UNL0KR_PLYMOUTH_PID:-/run/plymouth/pid}
 POLL=${BOPPOS_UNL0KR_POLL:-0.5}
+DEV=${BOPPOS_UNL0KR_DEV:-/dev}
+# The GPU driver (amdgpu, or virtio-gpu in a VM) can still be loading when the first prompt appears, and
+# unl0kr exits at once without a display. Wait this many seconds for /dev/dri/card* or /dev/fb0.
+DISPLAY_WAIT=${BOPPOS_UNL0KR_DISPLAY_WAIT:-20}
+# An unl0kr that exits non-zero within START_GRACE seconds never got on screen (the display was being
+# handed from simpledrm to the real driver, say): try it this many times in all before giving up the prompt.
+START_TRIES=${BOPPOS_UNL0KR_START_TRIES:-3}
+START_GRACE=5
+RETRY_DELAY=${BOPPOS_UNL0KR_RETRY_DELAY:-2}
 # A run of unl0kr that fails this many times in a row (no display, no input device, crash) is given up for
 # this boot; Plymouth or the console agent answers from then on.
 MAX_FAILURES=2
@@ -72,6 +81,44 @@ plymouth_on() {
     fi
 }
 
+have_display() {
+    compgen -G "$DEV/dri/card*" > /dev/null || [[ -e $DEV/fb0 ]]
+}
+
+# wait_display ASKFILE: 0 once a display exists (or the wait ran out: unl0kr then fails and says why),
+# 2 when the prompt went away meanwhile.
+wait_display() {
+    local tries=$((DISPLAY_WAIT * 5))
+    until have_display; do
+        [[ -e $1 ]] || return 2
+        if ((tries-- <= 0)); then
+            log "no display device after ${DISPLAY_WAIT}s"
+            return 0
+        fi
+        sleep 0.2
+    done
+}
+
+# run_unl0kr ASKFILE NOTAFTER OUT ARGS...: unl0kr's exit status; stops it when the prompt is answered
+# elsewhere (Plymouth, a FIDO2 token) or times out.
+run_unl0kr() {
+    local ask=$1 notafter=$2 out=$3 rc
+    shift 3
+    "$UNL0KR" "$@" > "$out" &
+    upid=$!
+    while kill -0 "$upid" 2> /dev/null; do
+        if [[ ! -e $ask ]] || expired "$notafter"; then
+            kill -TERM "$upid" 2> /dev/null
+            break
+        fi
+        sleep 0.2
+    done
+    wait "$upid"
+    rc=$?
+    upid=
+    return "$rc"
+}
+
 # answer ASKFILE: 0 = answered, 1 = unl0kr failed, 2 = prompt went away or was not ours to answer.
 answer() {
     local ask=$1 socket pid notafter message out rc args
@@ -87,24 +134,25 @@ answer() {
 
     args=(-n -m "$message")
     [[ -r $OVERRIDE ]] && args+=(-C "$OVERRIDE")
+    wait_display "$ask" || return 2
     out="$STATE/reply"
     : > "$out"
 
     log "${ask##*/}: starting unl0kr"
     plymouth_off
-    "$UNL0KR" "${args[@]}" > "$out" &
-    upid=$!
-    # Stop unl0kr when the prompt is answered elsewhere (Plymouth, a FIDO2 token) or times out.
-    while kill -0 "$upid" 2> /dev/null; do
-        if [[ ! -e $ask ]] || expired "$notafter"; then
-            kill -TERM "$upid" 2> /dev/null
+    local try=1 started
+    while :; do
+        started=$(now_usec)
+        run_unl0kr "$ask" "$notafter" "$out" "${args[@]}"
+        rc=$?
+        if ((rc == 0 || try >= START_TRIES)) || [[ ! -e $ask ]] || expired "$notafter" \
+            || (($(now_usec) - started >= START_GRACE * 1000000)); then
             break
         fi
-        sleep 0.2
+        log "${ask##*/}: unl0kr did not start (exit $rc), trying again"
+        try=$((try + 1))
+        sleep "$RETRY_DELAY"
     done
-    wait "$upid"
-    rc=$?
-    upid=
 
     if [[ ! -e $ask ]]; then
         log "${ask##*/}: answered elsewhere or gone"
