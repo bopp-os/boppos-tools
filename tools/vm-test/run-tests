@@ -1,0 +1,131 @@
+#!/bin/bash
+# Runs inside the container built from tools/vm-test/Dockerfile (start it with tools/vm-test-unl0kr).
+# Installs the module from the read-only checkout at /src, builds a systemd initramfs with it, makes small LUKS2
+# test disks, and boots each case in QEMU with an emulated TPM, a virtio screen, a USB keyboard and tablet, and a
+# virtio multitouch screen. tools/vm-test/qmp-drive drives each VM and judges it from the serial console.
+set -euo pipefail
+
+SRC=/src OUT=/out WORK=/work
+PASS=bopp0s-test
+cases=()
+interactive=0
+xres=1280 yres=800
+for a; do
+    case $a in
+        --interactive) interactive=1 ;;
+        --portrait) xres=800 yres=1280 ;;
+        *) cases+=("$a") ;;
+    esac
+done
+((${#cases[@]})) || cases=(tpm keyboard retry)
+((interactive)) && cases=(interactive)
+
+mkdir -p "$WORK"
+step() { echo "==> $*"; }
+# shellcheck disable=SC2329  # run by the EXIT trap
+fixown() { [[ -n ${HOST_UID:-} ]] && chown -R "$HOST_UID:${HOST_GID:-$HOST_UID}" "$OUT" || true; }
+trap fixown EXIT
+
+step "installing boppos-boot-theme and the boppos-unl0kr module from $SRC"
+make -s -C "$SRC" DESTDIR=/ install-boot-theme install-unl0kr-dracut
+plymouth-set-default-theme boppos
+
+kernels=(/usr/lib/modules/*/vmlinuz)
+kver=$(basename "$(dirname "${kernels[0]}")")
+step "building the initramfs for $kver"
+# The VM's own devices (virtio disk, screen, touch; the emulated TPM) are added here, not in the module.
+dracut --force --no-hostonly --kver "$kver" \
+    --add "systemd-cryptsetup tpm2-tss plymouth boppos-unl0kr" \
+    --add-drivers "virtio_pci virtio_blk virtio_gpu virtio_input tpm_tis" \
+    "$WORK/initrd.img" > "$OUT/dracut.log" 2>&1 || { tail -n 30 "$OUT/dracut.log"; exit 1; }
+lsinitrd "$WORK/initrd.img" > "$OUT/initrd-contents.txt"
+for f in usr/bin/unl0kr usr/lib/boppos-unl0kr/boppos-unl0kr-agent usr/lib/systemd/systemd-reply-password \
+    etc/boppos-unl0kr.conf usr/lib/systemd/system/boppos-unl0kr-agent.path usr/share/X11/xkb/rules/evdev \
+    usr/bin/plymouth; do
+    grep -q " $f\$" "$OUT/initrd-contents.txt" || { echo "initramfs is missing $f" >&2; exit 1; }
+done
+
+step "making the LUKS2 test disks (passphrase: $PASS)"
+# pbkdf2 with few iterations: an emulated CPU would take minutes for the default argon2id.
+truncate -s 64M "$WORK/plain.img"
+printf %s "$PASS" | cryptsetup luksFormat --batch-mode --type luks2 --pbkdf pbkdf2 \
+    --pbkdf-force-iterations 1000 --key-file - "$WORK/plain.img"
+uuid=$(cryptsetup luksUUID "$WORK/plain.img")
+cp "$WORK/plain.img" "$WORK/tpm.img"
+
+# One TPM state for every VM. The enrolment uses no PCRs: the firmware's measurements at VM boot differ from
+# the ones the TPM had while enrolling, and this test is about the unlock path, not PCR policy.
+mkdir -p "$WORK/tpm-state"
+swtpm socket --tpm2 --tpmstate dir="$WORK/tpm-state" --server type=tcp,port=2321 --ctrl type=tcp,port=2322 \
+    --flags not-need-init,startup-clear --daemon --pid file="$WORK/swtpm-enrol.pid"
+sleep 1
+tpm_ok=1
+if ! PASSWORD=$PASS systemd-cryptenroll --tpm2-device=swtpm:host=127.0.0.1,port=2321 --tpm2-pcrs= \
+    "$WORK/tpm.img" > "$OUT/cryptenroll.log" 2>&1; then
+    tpm_ok=0
+    echo "TPM2 enrolment failed, the tpm case will be skipped:" >&2
+    cat "$OUT/cryptenroll.log" >&2
+fi
+kill "$(cat "$WORK/swtpm-enrol.pid")"
+sleep 1
+
+accel=tcg cpu=max timeout=900
+if [[ -w /dev/kvm ]]; then accel=kvm cpu=host timeout=180; fi
+step "QEMU: accel=$accel, screen ${xres}x${yres}"
+
+boot() { # NAME DISK
+    local name=$1 disk=$2 dir="$OUT/$1" state="$WORK/tpm-$1" display=(-display none) rc=0
+    mkdir -p "$dir"
+    rm -rf "$state"
+    cp -a "$WORK/tpm-state" "$state"
+    cp --sparse=always "$disk" "$WORK/$name.img"
+    swtpm socket --tpm2 --tpmstate dir="$state" --ctrl type=unixio,path="$WORK/$name-swtpm.sock" \
+        --daemon --pid file="$WORK/$name-swtpm.pid"
+    [[ $name == interactive ]] && display=(-display none -vnc 0.0.0.0:0)
+
+    qemu-system-x86_64 -machine q35,accel="$accel" -cpu "$cpu" -smp 2 -m 2048 -no-reboot \
+        -kernel "/usr/lib/modules/$kver/vmlinuz" -initrd "$WORK/initrd.img" \
+        -append "console=tty0 console=ttyS0,115200 rd.luks.uuid=$uuid rd.luks.options=tpm2-device=auto \
+root=/dev/mapper/luks-$uuid splash plymouth.ignore-serial-consoles systemd.journald.forward_to_console=1 \
+rd.emergency=poweroff rd.shell=0 panic=-1" \
+        -drive file="$WORK/$name.img",format=raw,if=virtio \
+        -device virtio-vga,xres="$xres",yres="$yres" \
+        -device qemu-xhci -device usb-kbd -device usb-tablet -device virtio-multitouch-pci \
+        -chardev socket,id=chrtpm,path="$WORK/$name-swtpm.sock" -tpmdev emulator,id=tpm0,chardev=chrtpm \
+        -device tpm-tis,tpmdev=tpm0 \
+        -serial file:"$dir/serial.log" -qmp unix:"$WORK/$name-qmp.sock",server=on,wait=off \
+        "${display[@]}" &
+    local qpid=$!
+
+    python3 -I "$SRC/tools/vm-test/qmp-drive" --case "$name" --serial "$dir/serial.log" \
+        --qmp "$WORK/$name-qmp.sock" --out "$dir" --passphrase "$PASS" --timeout "$timeout" \
+        --qemu-pid "$qpid" || rc=$?
+    kill "$qpid" 2> /dev/null || true
+    wait "$qpid" 2> /dev/null || true
+    kill "$(cat "$WORK/$name-swtpm.pid")" 2> /dev/null || true
+    return "$rc"
+}
+
+declare -A result
+for c in "${cases[@]}"; do
+    step "case $c"
+    case $c in
+        tpm)
+            if ((tpm_ok)); then
+                if boot tpm "$WORK/tpm.img"; then result[$c]=PASS; else result[$c]=FAIL; fi
+            else
+                result[$c]=SKIP
+            fi ;;
+        keyboard | retry | interactive)
+            if boot "$c" "$WORK/plain.img"; then result[$c]=PASS; else result[$c]=FAIL; fi ;;
+        *) echo "unknown case $c" >&2; result[$c]=FAIL ;;
+    esac
+done
+
+step "results (logs and screenshots in the --out directory)"
+fail=0
+for c in "${cases[@]}"; do
+    printf '  %-12s %s\n' "$c" "${result[$c]}"
+    [[ ${result[$c]} == FAIL ]] && fail=1
+done
+exit "$fail"

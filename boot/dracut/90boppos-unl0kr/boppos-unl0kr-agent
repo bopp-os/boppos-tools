@@ -90,6 +90,7 @@ answer() {
     out="$STATE/reply"
     : > "$out"
 
+    log "${ask##*/}: starting unl0kr"
     plymouth_off
     "$UNL0KR" "${args[@]}" > "$out" &
     upid=$!
@@ -106,9 +107,15 @@ answer() {
     upid=
 
     if [[ ! -e $ask ]]; then
+        log "${ask##*/}: answered elsewhere or gone"
         rc=2
     elif ((rc == 0)); then
-        "$REPLY" 1 "$socket" < "$out" || rc=1
+        if "$REPLY" 1 "$socket" < "$out"; then
+            log "${ask##*/}: answered"
+        else
+            log "${ask##*/}: systemd-reply-password failed"
+            rc=1
+        fi
     else
         log "unl0kr exited with $rc, leaving the prompt to Plymouth or the console"
         rc=1

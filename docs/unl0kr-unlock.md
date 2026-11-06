@@ -59,7 +59,32 @@ keyboard drawn sideways; touch still lands where it is drawn. Check this first o
 
 `tests/test_unl0kr_dracut.py` sources `module-setup.sh` with stub dracut helpers and runs the agent against a
 fake ask-password directory (prompt answered, unl0kr failing, prompt answered elsewhere, stale prompts,
-Plymouth handover). A real boot needs hardware:
+Plymouth handover).
+
+### In a VM (docker or podman, no hardware)
+
+`tools/vm-test-unl0kr` builds a container with a kernel, dracut, Plymouth (with the BoppOS theme), swtpm and
+QEMU, plus unl0kr (built from the buffybox 3.6.0 tag, or `--unl0kr-pkg FILE` for your own package). It then
+builds a real systemd initramfs with the module and boots it against small LUKS2 test disks. The container needs
+no `--privileged` and touches nothing on the host's boot; `/dev/kvm` is passed in when present (without it each
+boot takes minutes).
+
+```bash
+tools/vm-test-unl0kr
+```
+
+| Case | Checks |
+|---|---|
+| `tpm` | A TPM2-enrolled disk (emulated TPM) unlocks on its own; unl0kr never starts |
+| `keyboard` | Without the TPM2 key unl0kr appears over the paused splash; a passphrase typed on the USB keyboard unlocks |
+| `retry` | A wrong passphrase gets a second unl0kr prompt; the right one then unlocks |
+
+`--portrait` uses an 800x1280 screen like the handhelds; `--interactive` boots one VM with a VNC screen on
+`127.0.0.1:5900` so you can click the on-screen keyboard yourself (the VM has a USB tablet and a virtio
+multitouch device). Serial logs and screenshots of each step land in `./vm-test-out/<case>/`. The VM cannot
+cover the handhelds' own input drivers (i2c-hid, lizard mode, the Legion Go controllers) or amdgpu.
+
+### On hardware
 
 **1. Check the initramfs contents** (any machine with dracut, `unl0kr` and this package; nothing is booted):
 

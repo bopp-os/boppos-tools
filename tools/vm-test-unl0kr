@@ -1,0 +1,67 @@
+#!/usr/bin/env bash
+# vm-test-unl0kr: boot the boppos-unl0kr dracut module in QEMU, inside a container, and check that
+#   - a TPM2-enrolled disk still unlocks on its own and unl0kr never appears        (case: tpm)
+#   - without the TPM2 key, unl0kr appears and a typed passphrase unlocks the disk  (case: keyboard)
+#   - a wrong passphrase gets a second unl0kr prompt, then the right one unlocks    (case: retry)
+# It runs as an ordinary container: no --privileged, no host devices except /dev/kvm when present, and nothing
+# on the host's /boot or disks is touched. Results (serial logs, screenshots) go to the --out directory.
+#
+#   tools/vm-test-unl0kr                         all three cases, landscape 1280x800
+#   tools/vm-test-unl0kr keyboard retry          only those cases
+#   tools/vm-test-unl0kr --portrait              800x1280, like the Deck and Legion Go panels (no rotation)
+#   tools/vm-test-unl0kr --interactive           one VM with a VNC screen on 127.0.0.1:5900: click the
+#                                                on-screen keyboard yourself (passphrase: bopp0s-test)
+#   tools/vm-test-unl0kr --unl0kr-pkg FILE       install this unl0kr package (e.g. from bopp-os/pkgbuilds)
+#                                                instead of building buffybox from source
+#   tools/vm-test-unl0kr --out DIR               where results go (default: ./vm-test-out)
+#
+# Uses docker, or podman when docker is missing (override with CONTAINER_ENGINE=...). Without /dev/kvm QEMU
+# emulates the CPU: each boot then takes minutes instead of seconds, and the timeouts allow for it.
+set -euo pipefail
+
+root=$(cd "$(dirname "$0")/.." && pwd)
+engine=${CONTAINER_ENGINE:-}
+if [[ -z $engine ]]; then
+    if command -v docker > /dev/null; then engine=docker
+    elif command -v podman > /dev/null; then engine=podman
+    else echo "vm-test-unl0kr: needs docker or podman" >&2; exit 1
+    fi
+fi
+
+out=$PWD/vm-test-out
+pkg=
+interactive=0
+args=()
+while (($#)); do
+    case $1 in
+        --out) out=$(realpath -m "$2"); shift 2 ;;
+        --unl0kr-pkg) pkg=$(realpath "$2"); shift 2 ;;
+        --interactive) interactive=1; args+=("$1"); shift ;;
+        --portrait) args+=("$1"); shift ;;
+        -h | --help) sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        tpm | keyboard | retry) args+=("$1"); shift ;;
+        *) echo "vm-test-unl0kr: unknown argument: $1 (see --help)" >&2; exit 2 ;;
+    esac
+done
+
+image=boppos-unl0kr-vmtest
+ctx=$(mktemp -d)
+trap 'rm -rf "$ctx"' EXIT
+cp "$root/tools/vm-test/Dockerfile" "$ctx/"
+mkdir "$ctx/pkg"
+[[ -n $pkg ]] && cp "$pkg" "$ctx/pkg/"
+echo "==> building the test image ($engine, first run takes a few minutes)"
+"$engine" build -t "$image" "$ctx"
+rm -rf "$ctx"
+trap - EXIT
+
+mkdir -p "$out"
+run=(run --rm -v "$root:/src:ro" -v "$out:/out")
+# Rootful docker writes the results as root: hand them back. Rootless podman already maps root to you.
+[[ $engine == docker ]] && run+=(-e "HOST_UID=$(id -u)" -e "HOST_GID=$(id -g)")
+[[ -e /dev/kvm ]] && run+=(--device /dev/kvm)
+((interactive)) && run+=(-p 127.0.0.1:5900:5900)
+[[ -t 0 && -t 1 ]] && run+=(-it)
+
+echo "==> running the VM tests (results in $out)"
+exec "$engine" "${run[@]}" "$image" /src/tools/vm-test/run-tests "${args[@]}"

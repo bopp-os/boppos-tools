@@ -292,3 +292,27 @@ def test_unl0kr_is_closed_when_the_prompt_is_answered_elsewhere(env):
     assert proc.wait(timeout=5) == 0
     assert not [c for c in calls(env) if c.startswith("reply")]
     assert calls(env)[-1] == "plymouth reactivate"
+
+
+# --- the VM test driver --------------------------------------------------------------------------
+
+
+def test_vm_test_driver_matches_the_agents_log_lines(env, monkeypatch):
+    """tools/vm-test/qmp-drive judges a VM by the agent's log lines; keep the two in step."""
+    import importlib.machinery
+    import importlib.util
+    import sys
+
+    monkeypatch.setattr(sys, "dont_write_bytecode", True)
+
+    loader = importlib.machinery.SourceFileLoader("qmp_drive", str(ROOT / "tools/vm-test/qmp-drive"))
+    spec = importlib.util.spec_from_loader("qmp_drive", loader)
+    qd = importlib.util.module_from_spec(spec)
+    loader.exec_module(qd)
+
+    ask(env)
+    stderr = run(env).stderr
+    assert qd.PROMPT.search(stderr) and qd.ANSWERED.search(stderr), stderr
+    assert not qd.BROKEN.search(stderr)
+    failed = run({**env, "BOPPOS_UNL0KR_STATE": env["BOPPOS_UNL0KR_STATE"] + "2"}, UNL0KR_MODE="fail").stderr
+    assert qd.BROKEN.search(failed), failed
