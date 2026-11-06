@@ -3,7 +3,7 @@
 FROM docker.io/archlinux/archlinux:latest
 
 RUN pacman -Syu --noconfirm --needed \
-        linux dracut systemd cryptsetup tpm2-tss plymouth \
+        linux dracut systemd cryptsetup tpm2-tss tpm2-tools plymouth \
         libinput libxkbcommon xkeyboard-config libdrm libinih \
         qemu-base qemu-hw-display-virtio-gpu qemu-hw-display-virtio-gpu-pci qemu-hw-display-virtio-vga \
         swtpm python make git meson ninja gcc pkgconf \
