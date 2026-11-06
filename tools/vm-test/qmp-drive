@@ -116,6 +116,7 @@ def main() -> int:
     # unl0kr needs a moment to draw after its log line; an emulated CPU needs longer.
     settle = 3 if a.timeout <= 300 else 20
     serial = Serial(a.serial, a.qemu_pid, deadline)
+    qmp = None
     try:
         qmp = QMP(a.qmp, deadline)
         if a.case == "tpm":
@@ -146,6 +147,11 @@ def main() -> int:
             if len(PROMPT.findall(serial.read())) != (2 if a.case == "retry" else 1):
                 raise Fail("unexpected number of unl0kr prompts")
     except Fail as e:
+        if qmp is not None:  # what the screen showed when it went wrong
+            try:
+                qmp.screenshot(a.out / "fail.png")
+            except OSError:
+                pass
         print(f"  FAIL ({a.case}): {e} — see {a.serial}")
         (a.out / "result.txt").write_text(f"FAIL: {e}\n")
         return 1

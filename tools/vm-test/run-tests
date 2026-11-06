@@ -87,6 +87,7 @@ boot() { # NAME DISK
         -kernel "/usr/lib/modules/$kver/vmlinuz" -initrd "$WORK/initrd.img" \
         -append "console=tty0 console=ttyS0,115200 rd.luks.uuid=$uuid rd.luks.options=tpm2-device=auto \
 root=/dev/mapper/luks-$uuid splash plymouth.ignore-serial-consoles systemd.journald.forward_to_kmsg=1 \
+systemd.journald.max_level_kmsg=info loglevel=7 \
 printk.devkmsg=on \
 rd.emergency=poweroff rd.shell=0 panic=-1" \
         -drive file="$WORK/run-$name.img",format=raw,if=virtio \
