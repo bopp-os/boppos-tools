@@ -88,6 +88,20 @@ was new, it is removed again.
 on plasmalogin (see [first-run.md](first-run.md#where-to-start-gaming-mode-or-desktop)). It does not run
 `steamos-session-select`, which would also end the running session.
 
+## Controller, theme and the journal
+
+- Under the image's own gamescope (no Steam, no window manager) GTK never marks the window active, so the usual rule
+  "gamepad presses only reach the active window" is off whenever `BOPPOS_FIRST_BOOT_MISSING` is set: the window is
+  the only one there.
+- In Game Mode boppos-deck asks libadwaita for dark (`PREFER_DARK`): dark unless the system explicitly asks for
+  light. `ADW_DEBUG_COLOR_SCHEME` still wins when set.
+- At startup boppos-deck logs to stderr which SDL3 it loaded and every joystick SDL sees: name, `vid:pid`, and
+  whether SDL has a gamepad mapping for it (a joystick without one gives no input). It also logs pad hotplug, the
+  first press it received, and when presses are dropped because the window is not active. On the image:
+  `journalctl -b --user | grep boppos-deck` (or the first-boot unit's journal). Typical causes: "no joysticks"
+  means `/dev/input/event*` is not readable for the session user; "joystick only" means inputplumber's virtual
+  device is not in SDL's gamepad database.
+
 ## Not verified on hardware
 
 - The whole flow in gamescope before Steam (window size, controller input through SDL, the on-screen keyboard over

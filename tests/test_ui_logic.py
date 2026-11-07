@@ -208,3 +208,11 @@ def test_fingerprint_detects_changes_in_data_and_in_layout_settings():
     assert same != backend.fingerprint({"a": [1, 3], "b": {"x": 1}}, (False, "{}"))  # the data changed
     assert same != backend.fingerprint({"a": [1, 2], "b": {"x": 1}}, (True, "{}"))   # advanced was switched
     assert backend.fingerprint(object()) is not None  # odd values are stringified, not fatal
+
+
+def test_pad_input_needs_the_active_window_unless_it_is_the_only_one():
+    from boppos.ui.controller import pad_input_allowed
+
+    assert pad_input_allowed(True, False)
+    assert not pad_input_allowed(False, False)  # a game is in front: the presses are not for us
+    assert pad_input_allowed(False, True)  # first boot in its own gamescope: no WM ever makes it active

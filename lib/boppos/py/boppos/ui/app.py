@@ -19,7 +19,7 @@ from gi.repository import Adw, Gdk, Gio, GLib, GObject, Gtk, Pango  # noqa: E402
 from .. import firstboot, firstrun, hwprofiles, oobe, system, welcome  # noqa: E402
 from . import agent as polkit_agent  # noqa: E402
 from . import backend  # noqa: E402
-from .controller import DIRECTIONS, PAGES, Action, InputMapper, Sdl3Gamepads  # noqa: E402
+from .controller import DIRECTIONS, PAGES, Action, InputMapper, Sdl3Gamepads, pad_input_allowed  # noqa: E402
 from .hints import hint_items  # noqa: E402
 from .oobe import OobeFlow  # noqa: E402
 from .osk import PasswordBuffer  # noqa: E402
@@ -84,6 +84,11 @@ class DeckWindow(Adw.ApplicationWindow):
         self._done_called = True
         self._focus_before: Gtk.Widget | None = None
         self.pad, self.mapper = pad, InputMapper()
+        # The only window in a gamescope of its own (the image's first boot, before Steam): no window manager makes
+        # it active there, so the controller must not wait for that.
+        self.sole_window = firstboot.launched_by_image()
+        self._pad_blocked = False  # logged once per change, for hardware tests
+        self._pad_seen = False
         self.pad_family = pad.family() if pad is not None else "generic"
         # Controller prompts only when a pad is connected or we run in Gaming Mode; otherwise keyboard keys.
         self.input_mode = "pad" if self.pad_available() else "kb"
@@ -857,6 +862,7 @@ class DeckWindow(Adw.ApplicationWindow):
         for ev in self.pad.poll():
             if ev[0] in ("added", "removed"):
                 self.pad_family = self.pad.family()
+                log(f"gamepad {ev[0]}: id {ev[1]}, {self.pad.connected} open")
                 if ev[0] == "added" and self.input_mode == "kb" and not self._used_keyboard:
                     self.input_mode = "pad"  # a controller was plugged in before any key was pressed
                 self.render_hints()
@@ -864,11 +870,21 @@ class DeckWindow(Adw.ApplicationWindow):
             got = self.mapper.feed(ev, now)
             if got:  # the device that was actually used decides the glyphs
                 self.pad_family = self.pad.family(ev[-1])
+                if not self._pad_seen:
+                    self._pad_seen = True
+                    log(f"first gamepad input: id {ev[-1]} ({self.pad_family})")
             actions += got
         actions += self.mapper.tick(now)
-        if not self.is_active():  # SDL hears the controller even behind a game; those presses are not for us
+        if not pad_input_allowed(self.is_active(), self.sole_window):
+            # SDL hears the controller even behind a game; those presses are not for us
+            if actions and not self._pad_blocked:
+                log("gamepad input ignored: the window is not active")
+            self._pad_blocked = True
             self.mapper.stop_repeats()
             return GLib.SOURCE_CONTINUE
+        if self._pad_blocked and actions:
+            log("gamepad input taken again: the window is active")
+            self._pad_blocked = False
         if actions:
             self.set_input_mode("pad")
         for a in actions:
@@ -1098,10 +1114,18 @@ class DeckApp(Adw.Application):
         css.load_from_path(str(Path(__file__).with_name("style.css")))
         Gtk.StyleContext.add_provider_for_display(Gdk.Display.get_default(), css,
                                                   Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+        if self.gaming and not os.environ.get("ADW_DEBUG_COLOR_SCHEME"):
+            # Game Mode: dark unless the system asks for light (there is usually no settings portal to ask).
+            Adw.StyleManager.get_default().set_color_scheme(Adw.ColorScheme.PREFER_DARK)
         try:
             self.pad = Sdl3Gamepads()
         except OSError as exc:
-            print(f"boppos-deck: no gamepad support ({exc}); keyboard and mouse only", file=sys.stderr)
+            log(f"no gamepad support ({exc}); keyboard, mouse and touch only")
+        else:
+            for line in self.pad.describe():
+                log(line)
+            if firstboot.launched_by_image():
+                log("first boot under gamescope: gamepad input is taken whether or not the window is active")
 
     def run_test_mode(self, win: DeckWindow, mode: str) -> None:
         """BOPPOS_DECK_TEST=keyboard | keyboard-retry | text: open the on-screen keyboard on its own, with a
@@ -1184,6 +1208,11 @@ class DeckApp(Adw.Application):
         if self.pad:
             self.pad.close()
         Adw.Application.do_shutdown(self)
+
+
+def log(msg: str) -> None:
+    """One line on stderr, which reaches the journal from the session (and the image's first-boot unit)."""
+    print(f"boppos-deck: {msg}", file=sys.stderr, flush=True)
 
 
 def main() -> int:
