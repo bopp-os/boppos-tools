@@ -16,7 +16,7 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 from gi.repository import Adw, Gdk, Gio, GLib, GObject, Gtk, Pango  # noqa: E402
 
-from .. import firstrun, hwprofiles, oobe, system, welcome  # noqa: E402
+from .. import firstboot, firstrun, hwprofiles, oobe, system, welcome  # noqa: E402
 from . import agent as polkit_agent  # noqa: E402
 from . import backend  # noqa: E402
 from .controller import DIRECTIONS, PAGES, Action, InputMapper, Sdl3Gamepads  # noqa: E402
@@ -995,19 +995,24 @@ class DeckWindow(Adw.ApplicationWindow):
         elif a == Action.MENU and self.gaming:
             self.confirm_quit()
 
-    def show_welcome(self, hw: hwprofiles.Hardware | None = None) -> None:
+    def show_welcome(self, hw: hwprofiles.Hardware | None = None, first_boot: firstboot.Plan | None = None,
+                     quit_after: bool = False) -> None:
         """Replace the settings view with the first-run wizard until it is finished or skipped.
 
-        hw previews the wizard on another kind of machine instead of the one that is detected."""
+        hw previews the wizard on another kind of machine instead of the one that is detected. first_boot: what the
+        image's first-boot check found missing. quit_after: the window closes when the tour (and what it applies)
+        is done, because Steam only starts once boppos-deck has exited."""
+        self.quit_after = quit_after
         if self.stack.get_child_by_name("welcome") is None:
-            self.welcome_flow = WelcomeFlow(self.gaming, self.end_welcome, hw)
+            self.welcome_flow = WelcomeFlow(self.gaming, self.end_welcome, hw, first_boot, self.ask_password,
+                                            self.ask_text, self.confirm)
             self.stack.add_named(self.welcome_flow, "welcome")
         self.stack.set_visible_child_name("welcome")
 
     def show_oobe(self) -> None:
         """Replace the settings view with the first-boot setup (language, time zone, account)."""
         if self.stack.get_child_by_name("oobe") is None:
-            self.stack.add_named(OobeFlow(self.end_oobe, self.ask_password), "oobe")
+            self.stack.add_named(OobeFlow(self.end_oobe, self.ask_password, self.ask_text), "oobe")
         self.stack.set_visible_child_name("oobe")
 
     def end_oobe(self, finished: bool) -> None:
@@ -1018,8 +1023,14 @@ class DeckWindow(Adw.ApplicationWindow):
 
     def end_welcome(self, finished: bool) -> None:
         self.stack.set_visible_child_name("main")
+        quit_after = getattr(self, "quit_after", False)
+        done = self.get_application().quit if quit_after else (lambda: None)
         # a dry run or a --hardware preview applied nothing, so it must not count as set up
         if not finished or welcome.DRY_RUN or self.welcome_flow.preview:
+            done()
+            return
+        if self.welcome_flow.first_boot is not None and self.welcome_flow.first_boot.only_missing:
+            done()  # only Network and Steam were shown: there is nothing to apply, and the tour was done before
             return
         welcome.mark_done()
         choices = self.welcome_flow.choices
@@ -1028,9 +1039,16 @@ class DeckWindow(Adw.ApplicationWindow):
         if firstrun.read_hint() is not None:  # the last step of the first run: remove the marker
             cmds.append(welcome.finish_command(lambda a: system.helper_cmd("oobe-helper", a)))
         if cmds:
-            self.run_job("Setting up BoppOS", cmds, lambda _ok, _final: None)
+            self.run_job("Setting up BoppOS", cmds, lambda _ok, _final: done())
+            if quit_after:
+                self.p_done.set_label("Start Steam")
+        else:
+            done()
 
     def on_close_request(self, *_a) -> bool:
+        flow = getattr(self, "welcome_flow", None)
+        if flow is not None:
+            flow.stop()
         if self.job and self.job.running:
             self.toast("An action is still running")
             return True
@@ -1068,7 +1086,8 @@ class DeckApp(Adw.Application):
                              + ")", "KEY")
         self.add_main_option("if-needed", 0, GLib.OptionFlags.NONE, GLib.OptionArg.NONE,
                              "With --welcome: do nothing when the wizard was already finished", None)
-        self.gaming = backend.gaming_mode()
+        # Started by the deck image's first-boot check: inside gamescope before Steam, so one fullscreen window
+        self.gaming = backend.gaming_mode() or firstboot.launched_by_image()
         self.pad: Sdl3Gamepads | None = None
         self.agent = None
 
@@ -1140,6 +1159,14 @@ class DeckApp(Adw.Application):
         if "welcome" in opts and "if-needed" in opts and welcome.is_done():
             return 0
         flow = first_run_flow(opts, hw is not None)
+        by_image = firstboot.launched_by_image()
+        plan = None
+        if flow == "welcome" or by_image:
+            plan = firstboot.plan()
+            if by_image and flow == "none" and plan.missing:
+                flow = "welcome"  # --first-run without the marker, but Steam or the network is missing
+            elif by_image and flow == "welcome" and not plan.missing:
+                return 0  # the image found something missing that is there by now: Steam can start
         if "first-run" in opts and flow == "none":
             return 0  # no first run is pending: not even a window
         self.activate()
@@ -1150,7 +1177,7 @@ class DeckApp(Adw.Application):
             if flow == "setup":
                 win.show_oobe()
             elif flow == "welcome":
-                win.show_welcome(hw)
+                win.show_welcome(hw, plan, quit_after=by_image)
         return 0
 
     def do_shutdown(self) -> None:
