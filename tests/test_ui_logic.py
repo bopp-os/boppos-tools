@@ -216,3 +216,33 @@ def test_pad_input_needs_the_active_window_unless_it_is_the_only_one():
     assert pad_input_allowed(True, False)
     assert not pad_input_allowed(False, False)  # a game is in front: the presses are not for us
     assert pad_input_allowed(False, True)  # first boot in its own gamescope: no WM ever makes it active
+
+
+def test_drag_scroll_waits_for_the_threshold_and_stays_in_range():
+    from boppos.ui import kinetic
+
+    assert not kinetic.past_threshold(5, 6)  # a tap with a little jitter still clicks
+    assert kinetic.past_threshold(0, 12)
+    assert kinetic.clamp_value(-30, 0, 1000, 400) == 0
+    assert kinetic.clamp_value(900, 0, 1000, 400) == 600
+    assert kinetic.clamp_value(50, 0, 300, 400) == 0  # shorter than the view: nothing to scroll
+
+
+def test_fling_keeps_going_after_a_flick_and_stops_after_a_slow_drag():
+    from boppos.ui import kinetic
+
+    f = kinetic.Fling()
+    for i in range(6):  # finger moves up 40 px every 10 ms: content scrolls down at 4000 px/s
+        f.track(i * 0.01, -40.0 * i)
+    v = f.release(0.05)
+    assert 3000 < v <= kinetic.MAX_FLING
+    total, steps = 0.0, 0
+    while f.velocity and steps < 1000:
+        total += f.step(1 / 60)
+        steps += 1
+    assert 0 < total < v / kinetic.FRICTION + 1 and f.velocity == 0  # decays to a stop, never runs away
+
+    slow = kinetic.Fling()
+    slow.track(0.0, 0.0)
+    slow.track(0.1, -5.0)
+    assert slow.release(0.1) == 0.0  # 50 px/s: let go and it stays put

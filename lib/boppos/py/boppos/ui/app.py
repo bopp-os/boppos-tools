@@ -18,7 +18,7 @@ from gi.repository import Adw, Gdk, Gio, GLib, GObject, Gtk, Pango  # noqa: E402
 
 from .. import firstboot, firstrun, hwprofiles, oobe, system, welcome  # noqa: E402
 from . import agent as polkit_agent  # noqa: E402
-from . import backend  # noqa: E402
+from . import backend, kinetic  # noqa: E402
 from .controller import DIRECTIONS, PAGES, Action, InputMapper, Sdl3Gamepads, pad_input_allowed  # noqa: E402
 from .hints import hint_items  # noqa: E402
 from .oobe import OobeFlow  # noqa: E402
@@ -134,6 +134,19 @@ class DeckWindow(Adw.ApplicationWindow):
         keys.connect("key-pressed", self.on_key)
         self.add_controller(keys)
         self.connect("close-request", self.on_close_request)
+        self._drag_adj: Gtk.Adjustment | None = None
+        self._drag_claimed = False
+        self._drag_start = 0.0
+        self._fling = kinetic.Fling()
+        self._fling_adj: Gtk.Adjustment | None = None
+        self._fling_tick = 0
+        self._fling_last = 0.0
+        if gaming:  # gamescope turns a finger into a mouse; a desktop mouse keeps selecting text instead
+            drag = Gtk.GestureDrag(button=Gdk.BUTTON_PRIMARY, propagation_phase=Gtk.PropagationPhase.CAPTURE)
+            drag.connect("drag-begin", self.on_drag_begin)
+            drag.connect("drag-update", self.on_drag_update)
+            drag.connect("drag-end", self.on_drag_end)
+            self.add_controller(drag)
         self.connect("notify::focus-widget", self.on_focus_changed)
 
         GLib.timeout_add(1500, self.prefetch)
@@ -720,6 +733,8 @@ class DeckWindow(Adw.ApplicationWindow):
 
         def on_event(ev: dict) -> None:
             buf = self.p_log.get_buffer()
+            if self.sole_window and ev["event"] == "log":  # no Steam, no desktop: the journal is the only record
+                log(f"job: {ev.get('line', '')}")
             if ev["event"] == "progress":
                 # A redrawn bar replaces its previous line instead of adding one, and drives the bar above.
                 if self.p_prog_mark is None:
@@ -848,6 +863,76 @@ class DeckWindow(Adw.ApplicationWindow):
         backend.run_json([backend.tool("bopp-system"), "reboot"], timeout=10)
 
     # --- input --------------------------------------------------------------------------------
+
+    def on_drag_begin(self, gesture: Gtk.GestureDrag, x: float, y: float) -> None:
+        """A primary-button press anywhere: find the scrollable view under it (see ui/kinetic.py). Nothing is
+        claimed yet, so the press still reaches the button under it."""
+        self.stop_fling()
+        self._drag_adj, self._drag_claimed = None, False
+        dev = gesture.get_device()
+        if dev is not None and dev.get_source() == Gdk.InputSource.TOUCHSCREEN:
+            gesture.set_state(Gtk.EventSequenceState.DENIED)  # real touch: GtkScrolledWindow scrolls by itself
+            return
+        widget = self.pick(x, y, Gtk.PickFlags.DEFAULT)
+        while widget is not None and widget is not self:
+            if isinstance(widget, (Gtk.Range, Gtk.Text)):
+                break  # a slider or a text field wants the drag for itself
+            if isinstance(widget, Gtk.ScrolledWindow):
+                adj = widget.get_vadjustment()
+                if adj is not None and adj.get_upper() - adj.get_lower() > adj.get_page_size() + 1:
+                    self._drag_adj = adj
+                    break
+            widget = widget.get_parent()
+        if self._drag_adj is None:
+            gesture.set_state(Gtk.EventSequenceState.DENIED)
+            return
+        self._drag_start = self._drag_adj.get_value()
+        self._fling.track(time.monotonic(), 0.0)
+
+    def on_drag_update(self, gesture: Gtk.GestureDrag, dx: float, dy: float) -> None:
+        adj = self._drag_adj
+        if adj is None:
+            return
+        self._fling.track(time.monotonic(), dy)
+        if not self._drag_claimed:
+            if not kinetic.past_threshold(dx, dy):
+                return  # still a tap
+            self._drag_claimed = True
+            gesture.set_state(Gtk.EventSequenceState.CLAIMED)  # the button under the finger is not clicked now
+        adj.set_value(kinetic.clamp_value(self._drag_start - dy, adj.get_lower(), adj.get_upper(),
+                                          adj.get_page_size()))
+
+    def on_drag_end(self, _gesture: Gtk.GestureDrag, _dx: float, _dy: float) -> None:
+        adj, claimed = self._drag_adj, self._drag_claimed
+        self._drag_adj, self._drag_claimed = None, False
+        if adj is None or not claimed:
+            self._fling.stop()
+            return
+        if self._fling.release(time.monotonic()):
+            self._fling_adj = adj
+            self._fling_last = time.monotonic()
+            self._fling_tick = self.add_tick_callback(self.fling_frame)
+
+    def fling_frame(self, _widget, _clock) -> bool:
+        adj = self._fling_adj
+        now = time.monotonic()
+        moved = self._fling.step(now - self._fling_last)
+        self._fling_last = now
+        if adj is not None and moved:
+            before = adj.get_value()
+            adj.set_value(kinetic.clamp_value(before + moved, adj.get_lower(), adj.get_upper(), adj.get_page_size()))
+            if adj.get_value() != before:
+                return GLib.SOURCE_CONTINUE
+        self._fling_tick = 0
+        self.stop_fling()
+        return GLib.SOURCE_REMOVE
+
+    def stop_fling(self) -> None:
+        if self._fling_tick:
+            self.remove_tick_callback(self._fling_tick)
+            self._fling_tick = 0
+        self._fling.stop()
+        self._fling_adj = None
 
     def set_input_mode(self, mode: str) -> None:
         if mode == "kb":
@@ -1050,12 +1135,18 @@ class DeckWindow(Adw.ApplicationWindow):
             return
         welcome.mark_done()
         choices = self.welcome_flow.choices
-        cmds = [*welcome.first_run_commands(choices, getpass.getuser(), lambda a: system.helper_cmd("oobe-helper", a)),
-                *welcome.apply_commands(choices, backend.tool)]
-        if firstrun.read_hint() is not None:  # the last step of the first run: remove the marker
-            cmds.append(welcome.finish_command(lambda a: system.helper_cmd("oobe-helper", a)))
+        marker = firstrun.read_hint() is not None  # the tour is the last step of the first run: remove the marker
+        cmds = welcome.tour_commands(choices, getpass.getuser(), lambda a: system.helper_cmd("oobe-helper", a),
+                                     backend.tool, marker)
+        log(f"tour finished: running {len(cmds)} command(s), first-run marker {'present' if marker else 'absent'}")
+
+        def after(ok: bool, final: dict) -> None:
+            log(f"tour commands {'succeeded' if ok else 'failed'}: {', '.join(final.get('failed') or [])}"
+                + ("; first-run marker still present" if firstrun.read_hint() is not None else ""))
+            done()
+
         if cmds:
-            self.run_job("Setting up BoppOS", cmds, lambda _ok, _final: done())
+            self.run_job("Setting up BoppOS", cmds, after)
             if quit_after:
                 self.p_done.set_label("Start Steam")
         else:

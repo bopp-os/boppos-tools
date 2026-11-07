@@ -93,6 +93,15 @@ on plasmalogin (see [first-run.md](first-run.md#where-to-start-gaming-mode-or-de
 - Under the image's own gamescope (no Steam, no window manager) GTK never marks the window active, so the usual rule
   "gamepad presses only reach the active window" is off whenever `BOPPOS_FIRST_BOOT_MISSING` is set: the window is
   the only one there.
+- Touch: gamescope gives the touchscreen to Xwayland as a mouse, and GtkScrolledWindow only drag-scrolls for touch
+  devices. In Game Mode boppos-deck scrolls on a primary-button drag (`ui/kinetic.py`): nothing is claimed until the
+  pointer moves 12 px, so a tap still clicks, and a flick keeps scrolling for a moment. Sliders and text fields keep
+  their own drags. The gamepad needs none of this: the focused row is scrolled into view, and the page keys jump
+  about a screenful.
+- The tour removes the first-run marker right after where-to-start, before the apps: the job stops at its first
+  failing command, so with the marker last a single app that could not install (offline, say) brought the tour back
+  on every boot. The result of the tour's commands, and their log lines when the image launched boppos-deck, go to
+  stderr too.
 - In Game Mode boppos-deck asks libadwaita for dark (`PREFER_DARK`): dark unless the system explicitly asks for
   light. `ADW_DEBUG_COLOR_SCHEME` still wins when set.
 - At startup boppos-deck logs to stderr which SDL3 it loaded and every joystick SDL sees: name, `vid:pid`, and

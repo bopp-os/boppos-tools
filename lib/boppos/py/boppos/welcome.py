@@ -260,6 +260,17 @@ def finish_command(helper_cmd: Callable[[list[str]], list[str]]) -> list[str]:
     return helper_cmd(["finish-first-run"])
 
 
+def tour_commands(choices: Choices, user: str, helper_cmd: Callable[[list[str]], list[str]],
+                  tool: Callable[[str], str], marker: bool) -> list[list[str]]:
+    """Everything the end of the tour runs, in order. The job stops at the first failing command, so the marker goes
+    right after where-to-start (polkit only waives the password for that while the marker exists) and before the
+    apps: an app that cannot install (offline, say) must not bring the whole tour back on every boot."""
+    cmds = first_run_commands(choices, user, helper_cmd)
+    if marker:
+        cmds.append(finish_command(helper_cmd))
+    return cmds + apply_commands(choices, tool)
+
+
 def apply_commands(choices: Choices, tool: Callable[[str], str]) -> list[list[str]]:
     """The commands the update window runs, in order: apps first (the update window shows their progress), then
     the Steam shortcut and Decky, and the kernel argument presets last because they only need a reboot."""
