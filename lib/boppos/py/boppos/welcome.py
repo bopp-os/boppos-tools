@@ -10,7 +10,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from . import firstrun, flatpaks, hwprofiles, kargs, oobe
+from . import firstboot, firstrun, flatpaks, hwprofiles, kargs, oobe
 
 FLAG = "welcome-done"
 
@@ -36,6 +36,8 @@ class Step:
 
 STEPS = (
     Step("welcome", "Welcome"),
+    Step("network", "Network"),  # only when the first-boot plan says so (boppos.firstboot)
+    Step("steam", "Steam"),  # likewise
     Step("apps", "Apps"),
     Step("hardware", "Hardware"),
     Step("session", "Start in"),
@@ -46,10 +48,20 @@ STEPS = (
 )
 
 
-def steps_for(gaming: bool, ask_start_in: bool = False) -> list[Step]:
+FIRST_BOOT_ONLY = ("network", "steam")
+
+
+def steps_for(gaming: bool, ask_start_in: bool = False, first_boot: firstboot.Plan | None = None) -> list[Step]:
     """ask_start_in: the "Start in" step is only there when the image can sign in automatically and the choice has
-    not been made yet (setup asks it too, and the tour does not ask twice)."""
-    return [s for s in STEPS if s.wired and (s.gaming or not gaming) and (s.key != "session" or ask_start_in)]
+    not been made yet (setup asks it too, and the tour does not ask twice).
+
+    first_boot: what the image's first-boot check found missing. Network and Steam are only there when it says so;
+    with only_missing, they are all there is (with Done), not the whole tour."""
+    wanted = set() if first_boot is None else {k for k in FIRST_BOOT_ONLY if k in first_boot.missing}
+    if first_boot is not None and first_boot.only_missing:
+        return [s for s in STEPS if s.key in wanted or s.key == "done"]
+    return [s for s in STEPS if s.wired and (s.gaming or not gaming) and (s.key != "session" or ask_start_in)
+            and (s.key not in FIRST_BOOT_ONLY or s.key in wanted)]
 
 
 def state_dir(env: dict[str, str] | None = None) -> Path:
@@ -246,6 +258,17 @@ def first_run_commands(choices: Choices, user: str, helper_cmd: Callable[[list[s
 def finish_command(helper_cmd: Callable[[list[str]], list[str]]) -> list[str]:
     """The last command of the tour: ends the first run by removing the marker."""
     return helper_cmd(["finish-first-run"])
+
+
+def tour_commands(choices: Choices, user: str, helper_cmd: Callable[[list[str]], list[str]],
+                  tool: Callable[[str], str], marker: bool) -> list[list[str]]:
+    """Everything the end of the tour runs, in order. The job stops at the first failing command, so the marker goes
+    right after where-to-start (polkit only waives the password for that while the marker exists) and before the
+    apps: an app that cannot install (offline, say) must not bring the whole tour back on every boot."""
+    cmds = first_run_commands(choices, user, helper_cmd)
+    if marker:
+        cmds.append(finish_command(helper_cmd))
+    return cmds + apply_commands(choices, tool)
 
 
 def apply_commands(choices: Choices, tool: Callable[[str], str]) -> list[list[str]]:

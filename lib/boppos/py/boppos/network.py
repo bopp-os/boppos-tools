@@ -33,6 +33,7 @@ class Wifi:
     signal: int  # 0-100
     security: str  # nmcli's words: "WPA2", "WPA1 WPA2", "WPA3", "802.1X", "WEP"; "" for an open network
     in_use: bool = False
+    hidden: bool = False  # typed in by name: the network does not broadcast it, so nmcli must probe for it
 
     @property
     def open(self) -> bool:
@@ -106,6 +107,16 @@ def has_wifi_device(device_list: str) -> bool:
     return False
 
 
+def wired_connected(device_list: str) -> bool:
+    """From `nmcli -t -f TYPE,STATE device`: a cable is plugged in and NetworkManager has it up."""
+    return any(line.split(":", 1) == ["ethernet", "connected"] for line in device_list.splitlines())
+
+
+def hidden_network(ssid: str, secured: bool) -> Wifi:
+    """A network typed in by name. Secured means WPA/WPA2 personal (what nearly every home router uses)."""
+    return Wifi(ssid, 0, "WPA2" if secured else "", hidden=True)
+
+
 def device_argv() -> list[str]:
     return [NMCLI, "-t", "-f", "TYPE,STATE", "device"]
 
@@ -133,13 +144,17 @@ def password_problem(password: str) -> str | None:
 def join_argvs(net: Wifi, secret_file: str | None) -> list[list[str]]:
     """The nmcli calls that save a connection and bring it up. Secured networks create the profile first (without
     the secret) and activate it with the secret read from `secret_file`."""
+    add = [NMCLI, "connection", "add", "type", "wifi", "con-name", net.ssid, "ssid", net.ssid]
+    if net.hidden:
+        add += ["802-11-wireless.hidden", "yes"]
     if net.open:
+        if net.hidden:
+            return [add, [NMCLI, "connection", "up", "id", net.ssid]]
         return [[NMCLI, "device", "wifi", "connect", net.ssid]]
     if secret_file is None:
         raise ValueError("a secured network needs a secret file")
     return [
-        [NMCLI, "connection", "add", "type", "wifi", "con-name", net.ssid, "ssid", net.ssid,
-         "wifi-sec.key-mgmt", net.key_mgmt],
+        [*add, "wifi-sec.key-mgmt", net.key_mgmt],
         [NMCLI, "connection", "up", "id", net.ssid, "passwd-file", secret_file],
     ]
 
@@ -179,7 +194,7 @@ def join(net: Wifi, password: str, run: Run = subprocess.run, tmp_dir: str | Pat
         for argv in join_argvs(net, secret):
             proc = run(argv, capture_output=True, text=True, timeout=60, check=False)
             if proc.returncode:
-                if not net.open:
+                if not net.open or net.hidden:
                     run(delete_argv(net), capture_output=True, text=True, timeout=30, check=False)
                 return False, friendly((proc.stderr or "") + (proc.stdout or ""))
         return True, f"Connected to {net.ssid}."

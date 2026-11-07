@@ -16,10 +16,10 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 from gi.repository import Adw, Gdk, Gio, GLib, GObject, Gtk, Pango  # noqa: E402
 
-from .. import firstrun, hwprofiles, oobe, system, welcome  # noqa: E402
+from .. import firstboot, firstrun, hwprofiles, oobe, system, welcome  # noqa: E402
 from . import agent as polkit_agent  # noqa: E402
-from . import backend  # noqa: E402
-from .controller import DIRECTIONS, PAGES, Action, InputMapper, Sdl3Gamepads  # noqa: E402
+from . import backend, kinetic  # noqa: E402
+from .controller import DIRECTIONS, PAGES, Action, InputMapper, Sdl3Gamepads, pad_input_allowed  # noqa: E402
 from .hints import hint_items  # noqa: E402
 from .oobe import OobeFlow  # noqa: E402
 from .osk import PasswordBuffer  # noqa: E402
@@ -84,6 +84,11 @@ class DeckWindow(Adw.ApplicationWindow):
         self._done_called = True
         self._focus_before: Gtk.Widget | None = None
         self.pad, self.mapper = pad, InputMapper()
+        # The only window in a gamescope of its own (the image's first boot, before Steam): no window manager makes
+        # it active there, so the controller must not wait for that.
+        self.sole_window = firstboot.launched_by_image()
+        self._pad_blocked = False  # logged once per change, for hardware tests
+        self._pad_seen = False
         self.pad_family = pad.family() if pad is not None else "generic"
         # Controller prompts only when a pad is connected or we run in Gaming Mode; otherwise keyboard keys.
         self.input_mode = "pad" if self.pad_available() else "kb"
@@ -129,6 +134,19 @@ class DeckWindow(Adw.ApplicationWindow):
         keys.connect("key-pressed", self.on_key)
         self.add_controller(keys)
         self.connect("close-request", self.on_close_request)
+        self._drag_adj: Gtk.Adjustment | None = None
+        self._drag_claimed = False
+        self._drag_start = 0.0
+        self._fling = kinetic.Fling()
+        self._fling_adj: Gtk.Adjustment | None = None
+        self._fling_tick = 0
+        self._fling_last = 0.0
+        if gaming:  # gamescope turns a finger into a mouse; a desktop mouse keeps selecting text instead
+            drag = Gtk.GestureDrag(button=Gdk.BUTTON_PRIMARY, propagation_phase=Gtk.PropagationPhase.CAPTURE)
+            drag.connect("drag-begin", self.on_drag_begin)
+            drag.connect("drag-update", self.on_drag_update)
+            drag.connect("drag-end", self.on_drag_end)
+            self.add_controller(drag)
         self.connect("notify::focus-widget", self.on_focus_changed)
 
         GLib.timeout_add(1500, self.prefetch)
@@ -715,6 +733,8 @@ class DeckWindow(Adw.ApplicationWindow):
 
         def on_event(ev: dict) -> None:
             buf = self.p_log.get_buffer()
+            if self.sole_window and ev["event"] == "log":  # no Steam, no desktop: the journal is the only record
+                log(f"job: {ev.get('line', '')}")
             if ev["event"] == "progress":
                 # A redrawn bar replaces its previous line instead of adding one, and drives the bar above.
                 if self.p_prog_mark is None:
@@ -844,6 +864,76 @@ class DeckWindow(Adw.ApplicationWindow):
 
     # --- input --------------------------------------------------------------------------------
 
+    def on_drag_begin(self, gesture: Gtk.GestureDrag, x: float, y: float) -> None:
+        """A primary-button press anywhere: find the scrollable view under it (see ui/kinetic.py). Nothing is
+        claimed yet, so the press still reaches the button under it."""
+        self.stop_fling()
+        self._drag_adj, self._drag_claimed = None, False
+        dev = gesture.get_device()
+        if dev is not None and dev.get_source() == Gdk.InputSource.TOUCHSCREEN:
+            gesture.set_state(Gtk.EventSequenceState.DENIED)  # real touch: GtkScrolledWindow scrolls by itself
+            return
+        widget = self.pick(x, y, Gtk.PickFlags.DEFAULT)
+        while widget is not None and widget is not self:
+            if isinstance(widget, (Gtk.Range, Gtk.Text)):
+                break  # a slider or a text field wants the drag for itself
+            if isinstance(widget, Gtk.ScrolledWindow):
+                adj = widget.get_vadjustment()
+                if adj is not None and adj.get_upper() - adj.get_lower() > adj.get_page_size() + 1:
+                    self._drag_adj = adj
+                    break
+            widget = widget.get_parent()
+        if self._drag_adj is None:
+            gesture.set_state(Gtk.EventSequenceState.DENIED)
+            return
+        self._drag_start = self._drag_adj.get_value()
+        self._fling.track(time.monotonic(), 0.0)
+
+    def on_drag_update(self, gesture: Gtk.GestureDrag, dx: float, dy: float) -> None:
+        adj = self._drag_adj
+        if adj is None:
+            return
+        self._fling.track(time.monotonic(), dy)
+        if not self._drag_claimed:
+            if not kinetic.past_threshold(dx, dy):
+                return  # still a tap
+            self._drag_claimed = True
+            gesture.set_state(Gtk.EventSequenceState.CLAIMED)  # the button under the finger is not clicked now
+        adj.set_value(kinetic.clamp_value(self._drag_start - dy, adj.get_lower(), adj.get_upper(),
+                                          adj.get_page_size()))
+
+    def on_drag_end(self, _gesture: Gtk.GestureDrag, _dx: float, _dy: float) -> None:
+        adj, claimed = self._drag_adj, self._drag_claimed
+        self._drag_adj, self._drag_claimed = None, False
+        if adj is None or not claimed:
+            self._fling.stop()
+            return
+        if self._fling.release(time.monotonic()):
+            self._fling_adj = adj
+            self._fling_last = time.monotonic()
+            self._fling_tick = self.add_tick_callback(self.fling_frame)
+
+    def fling_frame(self, _widget, _clock) -> bool:
+        adj = self._fling_adj
+        now = time.monotonic()
+        moved = self._fling.step(now - self._fling_last)
+        self._fling_last = now
+        if adj is not None and moved:
+            before = adj.get_value()
+            adj.set_value(kinetic.clamp_value(before + moved, adj.get_lower(), adj.get_upper(), adj.get_page_size()))
+            if adj.get_value() != before:
+                return GLib.SOURCE_CONTINUE
+        self._fling_tick = 0
+        self.stop_fling()
+        return GLib.SOURCE_REMOVE
+
+    def stop_fling(self) -> None:
+        if self._fling_tick:
+            self.remove_tick_callback(self._fling_tick)
+            self._fling_tick = 0
+        self._fling.stop()
+        self._fling_adj = None
+
     def set_input_mode(self, mode: str) -> None:
         if mode == "kb":
             self._used_keyboard = True
@@ -857,6 +947,7 @@ class DeckWindow(Adw.ApplicationWindow):
         for ev in self.pad.poll():
             if ev[0] in ("added", "removed"):
                 self.pad_family = self.pad.family()
+                log(f"gamepad {ev[0]}: id {ev[1]}, {self.pad.connected} open")
                 if ev[0] == "added" and self.input_mode == "kb" and not self._used_keyboard:
                     self.input_mode = "pad"  # a controller was plugged in before any key was pressed
                 self.render_hints()
@@ -864,11 +955,21 @@ class DeckWindow(Adw.ApplicationWindow):
             got = self.mapper.feed(ev, now)
             if got:  # the device that was actually used decides the glyphs
                 self.pad_family = self.pad.family(ev[-1])
+                if not self._pad_seen:
+                    self._pad_seen = True
+                    log(f"first gamepad input: id {ev[-1]} ({self.pad_family})")
             actions += got
         actions += self.mapper.tick(now)
-        if not self.is_active():  # SDL hears the controller even behind a game; those presses are not for us
+        if not pad_input_allowed(self.is_active(), self.sole_window):
+            # SDL hears the controller even behind a game; those presses are not for us
+            if actions and not self._pad_blocked:
+                log("gamepad input ignored: the window is not active")
+            self._pad_blocked = True
             self.mapper.stop_repeats()
             return GLib.SOURCE_CONTINUE
+        if self._pad_blocked and actions:
+            log("gamepad input taken again: the window is active")
+            self._pad_blocked = False
         if actions:
             self.set_input_mode("pad")
         for a in actions:
@@ -995,19 +1096,24 @@ class DeckWindow(Adw.ApplicationWindow):
         elif a == Action.MENU and self.gaming:
             self.confirm_quit()
 
-    def show_welcome(self, hw: hwprofiles.Hardware | None = None) -> None:
+    def show_welcome(self, hw: hwprofiles.Hardware | None = None, first_boot: firstboot.Plan | None = None,
+                     quit_after: bool = False) -> None:
         """Replace the settings view with the first-run wizard until it is finished or skipped.
 
-        hw previews the wizard on another kind of machine instead of the one that is detected."""
+        hw previews the wizard on another kind of machine instead of the one that is detected. first_boot: what the
+        image's first-boot check found missing. quit_after: the window closes when the tour (and what it applies)
+        is done, because Steam only starts once boppos-deck has exited."""
+        self.quit_after = quit_after
         if self.stack.get_child_by_name("welcome") is None:
-            self.welcome_flow = WelcomeFlow(self.gaming, self.end_welcome, hw)
+            self.welcome_flow = WelcomeFlow(self.gaming, self.end_welcome, hw, first_boot, self.ask_password,
+                                            self.ask_text, self.confirm)
             self.stack.add_named(self.welcome_flow, "welcome")
         self.stack.set_visible_child_name("welcome")
 
     def show_oobe(self) -> None:
         """Replace the settings view with the first-boot setup (language, time zone, account)."""
         if self.stack.get_child_by_name("oobe") is None:
-            self.stack.add_named(OobeFlow(self.end_oobe, self.ask_password), "oobe")
+            self.stack.add_named(OobeFlow(self.end_oobe, self.ask_password, self.ask_text), "oobe")
         self.stack.set_visible_child_name("oobe")
 
     def end_oobe(self, finished: bool) -> None:
@@ -1018,19 +1124,38 @@ class DeckWindow(Adw.ApplicationWindow):
 
     def end_welcome(self, finished: bool) -> None:
         self.stack.set_visible_child_name("main")
+        quit_after = getattr(self, "quit_after", False)
+        done = self.get_application().quit if quit_after else (lambda: None)
         # a dry run or a --hardware preview applied nothing, so it must not count as set up
         if not finished or welcome.DRY_RUN or self.welcome_flow.preview:
+            done()
+            return
+        if self.welcome_flow.first_boot is not None and self.welcome_flow.first_boot.only_missing:
+            done()  # only Network and Steam were shown: there is nothing to apply, and the tour was done before
             return
         welcome.mark_done()
         choices = self.welcome_flow.choices
-        cmds = [*welcome.first_run_commands(choices, getpass.getuser(), lambda a: system.helper_cmd("oobe-helper", a)),
-                *welcome.apply_commands(choices, backend.tool)]
-        if firstrun.read_hint() is not None:  # the last step of the first run: remove the marker
-            cmds.append(welcome.finish_command(lambda a: system.helper_cmd("oobe-helper", a)))
+        marker = firstrun.read_hint() is not None  # the tour is the last step of the first run: remove the marker
+        cmds = welcome.tour_commands(choices, getpass.getuser(), lambda a: system.helper_cmd("oobe-helper", a),
+                                     backend.tool, marker)
+        log(f"tour finished: running {len(cmds)} command(s), first-run marker {'present' if marker else 'absent'}")
+
+        def after(ok: bool, final: dict) -> None:
+            log(f"tour commands {'succeeded' if ok else 'failed'}: {', '.join(final.get('failed') or [])}"
+                + ("; first-run marker still present" if firstrun.read_hint() is not None else ""))
+            done()
+
         if cmds:
-            self.run_job("Setting up BoppOS", cmds, lambda _ok, _final: None)
+            self.run_job("Setting up BoppOS", cmds, after)
+            if quit_after:
+                self.p_done.set_label("Start Steam")
+        else:
+            done()
 
     def on_close_request(self, *_a) -> bool:
+        flow = getattr(self, "welcome_flow", None)
+        if flow is not None:
+            flow.stop()
         if self.job and self.job.running:
             self.toast("An action is still running")
             return True
@@ -1068,7 +1193,8 @@ class DeckApp(Adw.Application):
                              + ")", "KEY")
         self.add_main_option("if-needed", 0, GLib.OptionFlags.NONE, GLib.OptionArg.NONE,
                              "With --welcome: do nothing when the wizard was already finished", None)
-        self.gaming = backend.gaming_mode()
+        # Started by the deck image's first-boot check: inside gamescope before Steam, so one fullscreen window
+        self.gaming = backend.gaming_mode() or firstboot.launched_by_image()
         self.pad: Sdl3Gamepads | None = None
         self.agent = None
 
@@ -1079,10 +1205,18 @@ class DeckApp(Adw.Application):
         css.load_from_path(str(Path(__file__).with_name("style.css")))
         Gtk.StyleContext.add_provider_for_display(Gdk.Display.get_default(), css,
                                                   Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+        if self.gaming and not os.environ.get("ADW_DEBUG_COLOR_SCHEME"):
+            # Game Mode: dark unless the system asks for light (there is usually no settings portal to ask).
+            Adw.StyleManager.get_default().set_color_scheme(Adw.ColorScheme.PREFER_DARK)
         try:
             self.pad = Sdl3Gamepads()
         except OSError as exc:
-            print(f"boppos-deck: no gamepad support ({exc}); keyboard and mouse only", file=sys.stderr)
+            log(f"no gamepad support ({exc}); keyboard, mouse and touch only")
+        else:
+            for line in self.pad.describe():
+                log(line)
+            if firstboot.launched_by_image():
+                log("first boot under gamescope: gamepad input is taken whether or not the window is active")
 
     def run_test_mode(self, win: DeckWindow, mode: str) -> None:
         """BOPPOS_DECK_TEST=keyboard | keyboard-retry | text: open the on-screen keyboard on its own, with a
@@ -1140,6 +1274,14 @@ class DeckApp(Adw.Application):
         if "welcome" in opts and "if-needed" in opts and welcome.is_done():
             return 0
         flow = first_run_flow(opts, hw is not None)
+        by_image = firstboot.launched_by_image()
+        plan = None
+        if flow == "welcome" or by_image:
+            plan = firstboot.plan()
+            if by_image and flow == "none" and plan.missing:
+                flow = "welcome"  # --first-run without the marker, but Steam or the network is missing
+            elif by_image and flow == "welcome" and not plan.missing:
+                return 0  # the image found something missing that is there by now: Steam can start
         if "first-run" in opts and flow == "none":
             return 0  # no first run is pending: not even a window
         self.activate()
@@ -1150,13 +1292,18 @@ class DeckApp(Adw.Application):
             if flow == "setup":
                 win.show_oobe()
             elif flow == "welcome":
-                win.show_welcome(hw)
+                win.show_welcome(hw, plan, quit_after=by_image)
         return 0
 
     def do_shutdown(self) -> None:
         if self.pad:
             self.pad.close()
         Adw.Application.do_shutdown(self)
+
+
+def log(msg: str) -> None:
+    """One line on stderr, which reaches the journal from the session (and the image's first-boot unit)."""
+    print(f"boppos-deck: {msg}", file=sys.stderr, flush=True)
 
 
 def main() -> int:

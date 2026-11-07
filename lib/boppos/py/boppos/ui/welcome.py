@@ -5,21 +5,29 @@ Finishing hands the choices to the update window (welcome.apply_commands), unles
 
 from __future__ import annotations
 
+import threading
+import time
 from collections.abc import Callable
 
 import gi
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
-from gi.repository import Adw, Gtk  # noqa: E402
+from gi.repository import Adw, GLib, Gtk  # noqa: E402
 
-from .. import firstrun, hwprofiles, welcome  # noqa: E402
+from .. import firstboot, firstrun, hwprofiles, steam_client, welcome  # noqa: E402
+from .network import NetworkPanel  # noqa: E402
 from .widgets import combo_row, expander_row, group, info_row, switch_row  # noqa: E402
 
 TITLES = {
     "welcome": ("Welcome to BoppOS", "A few quick choices to set this system up. You can skip any step."),
     "done": ("All set", "You can run this wizard again from About."),
 }
+DONE_FIRST_BOOT = ("All set", "Steam starts when you finish.")
+SKIP_STEAM = ("Skip the Steam download?", "Steam then downloads its client by itself when it starts. That takes "
+              "about 5 minutes, and the screen stays black meanwhile.", "Skip")
+SKIP_NETWORK = ("Continue without a network?", "Steam needs the internet once, to download its client. Without it, "
+                "Steam cannot start. You can connect later from Steam's settings or the desktop.", "Continue")
 
 
 def toggle(choices_set: set[str], key: str) -> Callable[[bool], None]:
@@ -40,15 +48,26 @@ def page(*groups: Adw.PreferencesGroup) -> Adw.PreferencesPage:
 
 
 class WelcomeFlow(Gtk.Box):
-    def __init__(self, gaming: bool, on_finish: Callable[[bool], None], hw: hwprofiles.Hardware | None = None):
+    def __init__(self, gaming: bool, on_finish: Callable[[bool], None], hw: hwprofiles.Hardware | None = None,
+                 first_boot: firstboot.Plan | None = None, ask_password: Callable | None = None,
+                 ask_text: Callable | None = None, confirm: Callable | None = None):
+        """first_boot: what the image's first-boot check found missing (adds the Network and Steam steps, or shows
+        only them). ask_password / ask_text: the window's on-screen keyboard; confirm(heading, body, label, on_ok):
+        its yes/no dialog."""
         super().__init__(orientation=Gtk.Orientation.VERTICAL)
         self.gaming = gaming
+        self.first_boot = first_boot
+        self.ask_password, self.ask_text, self.confirm = ask_password, ask_text, confirm
+        self.steam_cancel = threading.Event()
+        self.steam_running = False
+        self.steam_tried = False  # started once on its own; after that only "Try again" starts it
+        self.steam_done = steam_client.installed()
         self.preview = hw is not None
         self.hw = hw or hwprofiles.detect()
         # Setup asks where to start too; the tour asks only when nobody has chosen yet (and the image can do it).
         self.start_in, _problem = firstrun.load_start_in()
         asked = self.start_in is not None and firstrun.current_start_in(self.start_in) is None
-        self.steps = welcome.steps_for(gaming, asked)
+        self.steps = welcome.steps_for(gaming, asked, first_boot)
         self.choices = welcome.initial_choices(self.hw)
         self.default_flatpaks = set(self.choices.flatpaks)  # what "Install defaults" goes back to
         if asked:
@@ -66,10 +85,14 @@ class WelcomeFlow(Gtk.Box):
         builders = {
             "apps": self.apps_page, "hardware": self.hardware_page, "security": self.security_page,
             "updates": self.updates_page, "session": self.session_page,
+            "network": self.network_page, "steam": self.steam_page,
         }
+        self.notice = Gtk.Label(css_classes=["dim-label"], wrap=True, margin_bottom=6)
         for step in self.steps:
             if step.key in TITLES:
                 title, text = TITLES[step.key]
+                if step.key == "done" and first_boot is not None and first_boot.missing:
+                    title, text = DONE_FIRST_BOOT
                 widget = Adw.StatusPage(title=title, description=text)
             elif step.key == "review":
                 widget = self.review
@@ -77,6 +100,7 @@ class WelcomeFlow(Gtk.Box):
                 widget = builders[step.key]()
             self.stack.add_named(widget, step.key)
         self.append(self.stack)
+        self.append(self.notice)
 
         self.progress = Gtk.Label(css_classes=["dim-label"])
         self.back = Gtk.Button(label="Back")
@@ -268,6 +292,119 @@ class WelcomeFlow(Gtk.Box):
         g.add(row)
         return page(g)
 
+    def network_page(self) -> Gtk.Widget:
+        intro = "Steam needs the internet once, to download itself. A cable needs nothing; for Wi-Fi, pick a network."
+        self.net = NetworkPanel(self.ask_password, self.ask_text, lambda t: self.notice.set_label(t),
+                                self.network_changed, welcome.DRY_RUN, intro)
+        return self.net.page
+
+    def network_changed(self) -> None:
+        if self.steps[self.index].key in ("network", "steam"):
+            self.show_step()
+
+    def steam_page(self) -> Gtk.Widget:
+        g = group("Steam", "Steam downloads its client the first time it starts. Doing it here shows the progress "
+                  "instead of a black screen.")
+        self.steam_status = info_row("Not downloaded yet", "", "")
+        g.add(self.steam_status)
+        self.steam_bar = Gtk.ProgressBar(show_text=True, margin_top=12, margin_bottom=12)
+        g.add(self.steam_bar)
+        buttons = Gtk.Box(spacing=12, halign=Gtk.Align.START)
+        self.steam_retry = Gtk.Button(label="Download")
+        self.steam_retry.connect("clicked", lambda _b: self.start_steam())
+        buttons.append(self.steam_retry)
+        self.steam_to_net = Gtk.Button(label="Network settings")
+        self.steam_to_net.connect("clicked", lambda _b: self.goto("network"))
+        self.steam_to_net.set_visible("network" in [s.key for s in self.steps])
+        buttons.append(self.steam_to_net)
+        g.add(buttons)
+        if self.steam_done:
+            self.steam_status.set_title("Steam is ready")
+            self.steam_bar.set_fraction(1)
+            self.steam_retry.set_visible(False)
+        return page(g)
+
+    def online(self) -> bool:
+        net = getattr(self, "net", None)
+        return net.online if net is not None else True
+
+    def start_steam(self) -> None:
+        if self.steam_running or self.steam_done:
+            return
+        if welcome.DRY_RUN or self.preview:
+            self.notice.set_label("Dry run: not downloading Steam")
+            return
+        self.steam_running = self.steam_tried = True
+        self.steam_cancel = threading.Event()
+        cancel = self.steam_cancel
+        self.steam_retry.set_sensitive(False)
+        self.steam_status.set_title("Downloading Steam…")
+        self.steam_status.set_subtitle("")
+        self.steam_bar.set_fraction(0)
+        last = [0.0]
+
+        def emit(ev: dict) -> None:
+            now = time.monotonic()
+            if ev.get("phase") == "download" and now - last[0] < 0.2:
+                return  # about five updates a second is plenty
+            last[0] = now
+            GLib.idle_add(self.steam_progress, ev)
+
+        def work() -> None:
+            try:
+                steam_client.install(emit=emit, cancel=cancel)
+            except steam_client.Cancelled:
+                GLib.idle_add(self.steam_finished, False, "")
+            except steam_client.SteamError as exc:
+                GLib.idle_add(self.steam_finished, False, str(exc))
+            except Exception as exc:  # noqa: BLE001 - never leave the step hanging
+                GLib.idle_add(self.steam_finished, False, f"Unexpected error: {exc}")
+            else:
+                GLib.idle_add(self.steam_finished, True, "")
+
+        threading.Thread(target=work, daemon=True).start()
+        self.show_step()
+
+    def steam_progress(self, ev: dict) -> None:
+        phase = ev.get("phase")
+        if phase == "manifest":
+            self.steam_bar.set_text("Asking Valve for the current client…")
+            self.steam_bar.pulse()
+        elif phase == "check":
+            self.steam_bar.set_text(f"Checking what is already here ({ev['index']} of {ev['count']})")
+            self.steam_bar.set_fraction(ev["index"] / ev["count"])
+        elif phase == "download":
+            total = ev.get("total") or 1
+            self.steam_bar.set_fraction(min(1, ev["done"] / total))
+            self.steam_bar.set_text(f"{steam_client.human_bytes(ev['done'])} of {steam_client.human_bytes(total)}")
+        elif phase == "unpack":
+            self.steam_status.set_title("Unpacking Steam…")
+            self.steam_bar.set_fraction(ev["index"] / ev["count"])
+            self.steam_bar.set_text(f"Package {ev['index']} of {ev['count']}")
+
+    def steam_finished(self, ok: bool, error: str) -> None:
+        self.steam_running = False
+        self.steam_done = ok
+        self.steam_retry.set_sensitive(True)
+        if ok:
+            self.steam_status.set_title("Steam is ready")
+            self.steam_status.set_subtitle("It starts when you finish.")
+            self.steam_bar.set_fraction(1)
+            self.steam_bar.set_text("Done")
+            self.steam_retry.set_visible(False)
+        elif error:
+            self.steam_status.set_title("The download did not finish")
+            self.steam_status.set_subtitle(error)
+            self.steam_retry.set_label("Try again")
+        else:
+            self.steam_status.set_title("Download stopped")
+            self.steam_retry.set_label("Download")
+        self.show_step()
+
+    def stop(self) -> None:
+        """Stop a running download (the window closes or the step is skipped)."""
+        self.steam_cancel.set()
+
     def refresh_review(self) -> None:
         child = self.review.get_first_child()
         while child is not None:
@@ -283,14 +420,44 @@ class WelcomeFlow(Gtk.Box):
         self.review.append(page(g))
 
     # --- flow --------------------------------------------------------------------------------------------
+    def goto(self, key: str) -> None:
+        keys = [s.key for s in self.steps]
+        if key in keys:
+            self.index = keys.index(key)
+            self.show_step()
+
+    def ask(self, prompt: tuple[str, str, str], on_ok: Callable[[], None]) -> None:
+        if self.confirm is None:
+            on_ok()
+        else:
+            self.confirm(*prompt, on_ok)
+
     def go(self, delta: int) -> None:
-        if delta > 0 and self.index == len(self.steps) - 1:
+        key = self.steps[self.index].key
+        if delta > 0 and key == "steam" and not self.steam_done:
+            def skip() -> None:
+                self.stop()
+                self.advance()
+            self.ask(SKIP_STEAM, skip)
+            return
+        if delta > 0 and key == "network" and not self.online():
+            self.ask(SKIP_NETWORK, self.advance)
+            return
+        if delta > 0:
+            self.advance()
+            return
+        self.index = max(0, self.index - 1)
+        self.show_step()
+
+    def advance(self) -> None:
+        if self.index == len(self.steps) - 1:
+            self.stop()
             if welcome.DRY_RUN:
                 for line in welcome.run_plan(welcome.build_plan(self.choices, self.gaming)):
                     print(line, flush=True)
             self.on_finish(True)
             return
-        self.index = max(0, min(len(self.steps) - 1, self.index + delta))
+        self.index += 1
         self.show_step()
 
     def show_step(self) -> None:
@@ -300,4 +467,19 @@ class WelcomeFlow(Gtk.Box):
         self.stack.set_visible_child_name(step.key)
         self.progress.set_label(f"{self.index + 1} of {len(self.steps)}: {step.title}")
         self.back.set_sensitive(self.index > 0)
-        self.next.set_label("Finish" if self.index == len(self.steps) - 1 else "Next")
+        last = self.index == len(self.steps) - 1
+        label = "Finish" if last else "Next"
+        if step.key == "steam":
+            if not self.steam_done:
+                label = "Skip"
+                if not self.steam_running and not self.steam_tried:
+                    if self.online():
+                        self.steam_status.set_subtitle("")
+                        GLib.idle_add(lambda: (self.start_steam(), GLib.SOURCE_REMOVE)[1])
+                    else:
+                        self.steam_status.set_title("No network")
+                        self.steam_status.set_subtitle("Steam needs the internet to download. Connect first, "
+                                                       "then come back here.")
+        elif step.key == "network" and not self.online():
+            label = "Skip"
+        self.next.set_label(label)
