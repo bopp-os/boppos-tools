@@ -270,3 +270,18 @@ def test_no_bootstrap_is_an_error_before_any_download(tmp_path, cdn):
     with pytest.raises(sc.SteamError, match="bootstrap"):
         sc.install(tmp_path, cdn=cdn.url, bootstrap=tmp_path / "missing.tar.xz")
     assert cdn.requests == []
+
+
+def test_backslash_paths_from_windows_made_zips_unpack_into_folders(tmp_path):
+    """tenfoot_images_all on the real CDN has entries like 'tenfoot\\resource\\images/'."""
+    z = tmp_path / "win.zip"
+    z.write_bytes(zipped({"tenfoot\\resource\\images/": b"", "tenfoot\\resource\\images\\a.tga": b"img",
+                          "bin\\steamui.so": b"ui"}))
+    p = sc.Package("win.zip", z.stat().st_size, "0" * 64, False)
+    dest = tmp_path / "Steam"
+    dest.mkdir()
+    later = sc.unpack_package(z, p, dest, tmp_path)
+    assert (dest / "tenfoot/resource/images/a.tga").read_bytes() == b"img"
+    assert later == [(z, "bin\\steamui.so")]  # steamui.so is still left for last
+    for bad in ("..\\..\\x", "C:\\x", "\\x"):
+        assert sc._member_path(dest, bad) is None

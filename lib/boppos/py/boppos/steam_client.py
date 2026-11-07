@@ -338,13 +338,15 @@ def unvz(src: Path, dst: Path, cancel: threading.Event | None = None) -> None:
 def _mode_for(name: str) -> int:
     """Valve's zips store 0666 for everything. Steam sets its own modes when it installs; until then, executables
     (no extension, or a .sh script) get 0755 and the rest 0644."""
-    base = name.rsplit("/", 1)[-1]
+    base = name.replace("\\", "/").rsplit("/", 1)[-1]
     return 0o755 if base.endswith(".sh") or "." not in base else 0o644
 
 
 def _member_path(dest: Path, name: str) -> Path | None:
-    """Where a zip member goes, or None when its name would leave the Steam folder."""
-    if not name or name.startswith("/") or "\\" in name or "\x00" in name:
+    """Where a zip member goes, or None when its name would leave the Steam folder. Some of Valve's zips were made on
+    Windows and separate with backslashes (tenfoot\\resource\\images/), so both count as separators."""
+    name = name.replace("\\", "/")
+    if not name or name.startswith("/") or "\x00" in name or re.match(r"^[A-Za-z]:", name):
         return None
     parts = [p for p in name.split("/") if p not in ("", ".")]
     if not parts or ".." in parts:
@@ -367,7 +369,7 @@ def _write_member(z: zipfile.ZipFile, info: zipfile.ZipInfo, target: Path) -> No
 
 
 def is_steamui(name: str) -> bool:
-    return name.rsplit("/", 1)[-1] == "steamui.so"
+    return name.replace("\\", "/").rsplit("/", 1)[-1] == "steamui.so"
 
 
 def unpack_package(pkg_file: Path, p: Package, dest: Path, scratch: Path,
@@ -387,7 +389,7 @@ def unpack_package(pkg_file: Path, p: Package, dest: Path, scratch: Path,
                 target = _member_path(dest, info.filename)
                 if target is None:
                     raise SteamError(f"{p.name}: unsafe path {info.filename!r}")
-                if info.is_dir():
+                if info.is_dir() or info.filename.endswith("\\"):
                     target.mkdir(parents=True, exist_ok=True)
                 elif is_steamui(info.filename):
                     later.append((zpath, info.filename))
