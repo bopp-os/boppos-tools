@@ -48,8 +48,9 @@ def test_launched_by_image_means_the_variable_is_set_even_empty():
     ({"BOPPOS_FIRST_BOOT_MISSING": "first-run steam"}, Live(True, False, True), {"first-run", "steam"}),
     # Steam without a network cannot download: network joins it
     ({"BOPPOS_FIRST_BOOT_MISSING": "steam"}, Live(False, False, False), {"steam", "network"}),
-    # the marker is the truth for first-run
-    ({"BOPPOS_FIRST_BOOT_MISSING": "steam"}, Live(True, False, True), {"first-run", "steam"}),
+    # named words without first-run: only those, even with the marker (the tour comes later, from Steam)
+    ({"BOPPOS_FIRST_BOOT_MISSING": "steam"}, Live(True, False, True), {"steam"}),
+    ({"BOPPOS_FIRST_BOOT_MISSING": "steam network"}, Live(True, False, False), {"steam", "network"}),
     # empty or unknown: the live system decides
     ({"BOPPOS_FIRST_BOOT_MISSING": ""}, Live(False, False, False), {"steam", "network"}),
     ({"BOPPOS_FIRST_BOOT_MISSING": "what"}, Live(False, False, True), {"steam"}),
@@ -228,3 +229,10 @@ def test_plasmalogin_start_in_is_refused_without_a_pending_first_run(tmp_path):
 
     with pytest.raises(UsageError):
         h.steps_for(["set-start-in", "ripps", "gaming"], None, deck_root(tmp_path, marker=False), caller=1000)
+
+
+def test_pre_steam_fallback_with_the_marker_shows_only_network_and_steam():
+    env = {"BOPPOS_FIRST_BOOT_MISSING": "steam network"}
+    marker_there = Live(True, False, False)
+    assert keys(env, marker_there) == ["network", "steam", "done"]
+    assert firstboot.plan(env, marker_there).only_missing  # end_welcome applies nothing: the marker stays

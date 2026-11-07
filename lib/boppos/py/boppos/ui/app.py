@@ -1164,13 +1164,18 @@ class DeckWindow(Adw.ApplicationWindow):
 
 def first_run_flow(opts: dict, preview: bool = False) -> str:
     """"setup", "welcome" or "none" for the options given. --first-run decides from the live system, --oobe and
-    --welcome force a flow (--hardware alone opens the tour preview too); --first-run wins over the forcing ones."""
+    --welcome force a flow (--hardware alone opens the tour preview too); --first-run wins over the forcing ones.
+    No options at all: the tour while the first-run marker exists (the deck image opens it from Steam), otherwise the
+    settings view."""
     if "first-run" in opts:
         return firstrun.startup_mode("first-run")
     if "oobe" in opts:
         return firstrun.startup_mode("setup")
     if "welcome" in opts or preview:
         return firstrun.startup_mode("welcome")
+    if not opts and firstrun.read_hint() is not None:
+        # a bare launch (the BoppOS shortcut in Steam) while the first run is pending: the tour, as --first-run
+        return firstrun.startup_mode("first-run")
     return "none"
 
 

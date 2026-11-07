@@ -21,6 +21,7 @@ def first_run_flow():
 
 def test_the_flags_map_to_flows(tmp_path, monkeypatch):
     flow = first_run_flow()
+    monkeypatch.setattr(firstrun, "read_hint", lambda root="/": None)  # not this machine's marker
     monkeypatch.setattr(firstrun, "decide", lambda root="/": firstrun.Decision("welcome", "oobe"))
     assert flow({"first-run": True}) == "welcome"
     assert flow({"first-run": True, "oobe": True}) == "welcome"  # --first-run decides, forcing flags do not override
@@ -74,3 +75,14 @@ def test_tour_removes_the_marker_before_the_apps_so_a_failed_app_cannot_repeat_t
         c, "ripps", helper, lambda name: name, marker=False)
     assert welcome.tour_commands(welcome.Choices(), "ripps", helper, lambda n: n, marker=True) == [
         ["pkexec", "oobe-helper", "finish-first-run"]]
+
+
+def test_a_bare_launch_opens_the_tour_while_the_marker_exists(monkeypatch):
+    flow = first_run_flow()
+    monkeypatch.setattr(firstrun, "decide", lambda root="/": firstrun.Decision("welcome", "welcome"))
+    monkeypatch.setattr(firstrun, "read_hint", lambda root="/": "welcome")
+    assert flow({}) == "welcome"  # the BoppOS shortcut in Steam during the first run
+    assert flow({"update": "system"}) == "none"  # any option keeps its own meaning
+    monkeypatch.setattr(firstrun, "read_hint", lambda root="/": None)
+    monkeypatch.setattr(firstrun, "decide", lambda root="/": firstrun.Decision("setup", None))
+    assert flow({}) == "none"  # no marker: the settings view, never the setup

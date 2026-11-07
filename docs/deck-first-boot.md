@@ -7,6 +7,16 @@ network ends on a black screen: Steam cannot download its client (`Failed to loa
 
 ## What the image does
 
+**Current flow (bopp-os/cachyos PR 51): the tour opens from Steam.** Before each Steam start the image adds the
+BoppOS shortcut (`bopp-steam-shortcut add`, `apply-pending`). While the marker exists, `deck-tour` waits for the
+Steam sign-in and runs the shortcut (`steam steam://rungameid/<id>`, exe `/usr/bin/boppos-deck`, no options). A bare
+`boppos-deck` opens the tour while the marker exists (the same flow as `--first-run`) and the settings view
+otherwise. Only when Steam has no client and there is no network does the image fall back to a pre-Steam window,
+`BOPPOS_FIRST_BOOT_MISSING="steam network" boppos-deck --welcome` in its own gamescope: that shows only Network,
+Steam and Done, and keeps the marker for the tour that follows in Steam.
+
+The pre-Steam check described below is the earlier design; boppos-deck still supports it.
+
 A user unit, `boppos-deck-first-boot.service` (`/usr/libexec/boppos/deck-first-boot` in bopp-os/cachyos), runs once per
 gamescope session **before** `steam-launcher.service`. It checks:
 
@@ -44,7 +54,8 @@ with no title bar (as in Gaming Mode), and it quits when the tour is done.
 
 - Known words are trusted; unknown words are ignored. Empty, or nothing known: the live system decides (marker,
   steamui.so, NetworkManager's state).
-- The marker always adds `first-run`. `steam` while offline always adds `network` (nothing can be downloaded otherwise).
+- Named words are the whole list: without `first-run` among them the marker is not counted (the tour comes later
+  from Steam, and the marker stays). With the variable empty or unknown, the marker adds `first-run`. `steam` while offline always adds `network` (nothing can be downloaded otherwise).
 - With `first-run`: the normal tour, with **Network** and **Steam** right after Welcome.
 - Without it (`--welcome` on a later boot): **only** the missing steps and Done; nothing is applied, the tour's done
   flag is not touched.

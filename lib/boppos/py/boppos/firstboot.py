@@ -4,8 +4,10 @@ The image's `boppos-deck-first-boot.service` runs before Steam in the gamescope 
 `boppos-deck --first-run` (the installer's marker is there) or `boppos-deck --welcome` (it is gone) with
 BOPPOS_FIRST_BOOT_MISSING set to the words it found: `first-run`, `steam`, `network` (docs/deck-first-boot.md).
 
-- The variable set with known words: those are missing. Unknown words are ignored; when none is left (or the
-  variable is empty) the live system decides, as below.
+- The variable set with known words: those are missing, and only those. Without `first-run` among them the marker
+  is not counted either: the deck image opens the tour itself later, from Steam (a bare `boppos-deck`), so before
+  Steam it asks only for what Steam needs (`steam network`), and the marker stays. Unknown words are ignored;
+  when none is left (or the variable is empty) the live system decides, as below.
 - The variable not set at all (a manual `--welcome`, the XDG autostart): nothing is assumed, but with the marker
   present (`--first-run`) the live system is still asked whether Steam and the network are there.
 - `network` is also added whenever the Steam step will be shown and the system is offline: it cannot download
@@ -75,13 +77,14 @@ def live(root: str = "/") -> Live:
 def missing(env_value: str | None, env_set: bool, state: Live) -> frozenset[str]:
     """What is missing: see the module's doc."""
     words = parse(env_value) if env_set else None
+    named = words is not None
     if words is None:
         if not (env_set or state.marker):
             return frozenset()  # a manual run: the tour as it always was
         words = frozenset(w for w, gone in (("steam", not state.steam), ("network", not state.online)) if gone)
     words = set(words)
-    if state.marker:
-        words.add("first-run")  # the marker is the truth for that one
+    if state.marker and not named:
+        words.add("first-run")  # the marker is the truth for that one, unless the image named the steps itself
     if "steam" in words and not state.online:
         words.add("network")
     return frozenset(words)
