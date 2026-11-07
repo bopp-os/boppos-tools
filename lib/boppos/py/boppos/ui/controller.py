@@ -214,12 +214,20 @@ class InputMapper:
         self.rep.release_all()
 
 
+def pad_input_allowed(window_active: bool, sole_window: bool) -> bool:
+    """Whether SDL's gamepad presses are for this window. SDL hears the pad even while a game is in front, so normally
+    only the active window takes them. Under a gamescope of its own (the deck image's first boot, before Steam) there
+    is no window manager to make the window active, and nothing else to send the presses to: always take them."""
+    return window_active or sole_window
+
+
 class Sdl3Gamepads:
     """Minimal SDL3 gamepad event source. Raises OSError when SDL3 is not available."""
 
     def __init__(self) -> None:
         name = ctypes.util.find_library("SDL3") or "libSDL3.so.0"
         self.lib = ctypes.CDLL(name)
+        self.lib_name = name
         lib = self.lib
         lib.SDL_Init.argtypes, lib.SDL_Init.restype = [ctypes.c_uint32], ctypes.c_bool
         lib.SDL_PollEvent.argtypes, lib.SDL_PollEvent.restype = [ctypes.c_void_p], ctypes.c_bool
@@ -237,11 +245,22 @@ class Sdl3Gamepads:
                 break
         else:
             self._type_fn = None
+        for fn_name, argtypes, restype in (
+                ("SDL_GetVersion", [], ctypes.c_int),
+                ("SDL_GetError", [], ctypes.c_char_p),
+                ("SDL_GetJoysticks", [ctypes.POINTER(ctypes.c_int)], ctypes.POINTER(ctypes.c_uint32)),
+                ("SDL_GetJoystickNameForID", [ctypes.c_uint32], ctypes.c_char_p),
+                ("SDL_GetJoystickVendorForID", [ctypes.c_uint32], ctypes.c_uint16),
+                ("SDL_GetJoystickProductForID", [ctypes.c_uint32], ctypes.c_uint16),
+                ("SDL_IsGamepad", [ctypes.c_uint32], ctypes.c_bool)):
+            fn = getattr(lib, fn_name, None)  # only for describe(): a missing one is not fatal
+            if fn is not None:
+                fn.argtypes, fn.restype = argtypes, restype
         lib.SDL_SetHint.argtypes, lib.SDL_SetHint.restype = [ctypes.c_char_p, ctypes.c_char_p], ctypes.c_bool
         lib.SDL_Quit.argtypes = []
         lib.SDL_SetHint(b"SDL_JOYSTICK_ALLOW_BACKGROUND_EVENTS", b"1")
         if not lib.SDL_Init(SDL_INIT_GAMEPAD):
-            raise OSError("SDL_Init(GAMEPAD) failed")
+            raise OSError(f"SDL_Init(GAMEPAD) failed: {self._error()}")
         self._open: dict[int, int] = {}
         count = ctypes.c_int(0)
         ids = lib.SDL_GetGamepads(ctypes.byref(count))
@@ -250,6 +269,42 @@ class Sdl3Gamepads:
                 self._open_pad(ids[i])
             lib.SDL_free(ids)
         self._buf = ctypes.create_string_buffer(EVENT_SIZE)
+
+    def _error(self) -> str:
+        fn = getattr(self.lib, "SDL_GetError", None)
+        return (fn() or b"").decode(errors="replace") if fn is not None else ""
+
+    def _ids(self, fn_name: str) -> list[int]:
+        fn = getattr(self.lib, fn_name, None)
+        if fn is None:
+            return []
+        count = ctypes.c_int(0)
+        ids = fn(ctypes.byref(count))
+        if not ids:
+            return []
+        out = [ids[i] for i in range(count.value)]
+        self.lib.SDL_free(ids)
+        return out
+
+    def describe(self) -> list[str]:
+        """For the log: which SDL3 was loaded and every joystick it sees, gamepad or not (a pad SDL has no mapping
+        for is only a joystick, and gives no gamepad events)."""
+        lib = self.lib
+        ver = lib.SDL_GetVersion() if getattr(lib, "SDL_GetVersion", None) is not None else 0
+        lines = [f"SDL3 {ver // 1000000}.{ver // 1000 % 1000}.{ver % 1000} from {self.lib_name}"]
+        sticks = self._ids("SDL_GetJoysticks")
+        for jid in sticks:
+            fn = getattr(lib, "SDL_GetJoystickNameForID", None)
+            name = (fn(jid) or b"?").decode(errors="replace") if fn is not None else "?"
+            vid = lib.SDL_GetJoystickVendorForID(jid) if getattr(lib, "SDL_GetJoystickVendorForID", None) else 0
+            pid = lib.SDL_GetJoystickProductForID(jid) if getattr(lib, "SDL_GetJoystickProductForID", None) else 0
+            pad = getattr(lib, "SDL_IsGamepad", None) is not None and lib.SDL_IsGamepad(jid)
+            kind = f"gamepad, {self.family(jid)}" if pad else "joystick only, no gamepad mapping"
+            state = ", open" if jid in self._open else (", could not open" if pad else "")
+            lines.append(f"  #{jid} {name} [{vid:04x}:{pid:04x}] {kind}{state}")
+        if not sticks:
+            lines.append("  no joysticks or gamepads found (is /dev/input/event* readable for this user?)")
+        return lines
 
     def _open_pad(self, jid: int) -> None:
         if jid not in self._open:

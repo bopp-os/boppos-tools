@@ -113,8 +113,13 @@ def startup_mode(force: str | None, root: str | Path = "/") -> str:
 # names no session itself (it would differ per image flavor). See docs/first-run.md.
 START_IN_CONF = "/usr/share/boppos/start-in.conf"
 CHOICES = ("gaming", "desktop")
-SUPPORTED_DISPLAY_MANAGERS = ("sddm",)
+SUPPORTED_DISPLAY_MANAGERS = ("sddm", "plasmalogin")
 SDDM_AUTOLOGIN = "/etc/sddm.conf.d/50-boppos-autologin.conf"
+# plasmalogin (the deck image): the image's boppos-deck-autologin.service writes the user to 00-boppos-autologin.conf
+# on every boot; the session choice is the file gamescope-session-cachyos's steam-set-session (behind
+# steamos-session-select) writes, which sorts last and wins. Writing that same file keeps both tools in step:
+# Steam's "Switch to Desktop" and this choice change one file. plasmalogin names sessions with the .desktop suffix.
+PLASMALOGIN_AUTOLOGIN = "/etc/plasmalogin.conf.d/zz-steamos-autologin.conf"
 SESSION_DIRS = ("/usr/share/wayland-sessions", "/usr/share/xsessions")
 _SESSION_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.+-]{0,63}$")
 
@@ -159,10 +164,12 @@ def load_start_in(root: str | Path = "/") -> tuple[StartIn | None, str]:
 
 
 def autologin_file(cfg: StartIn) -> str:
-    return {"sddm": SDDM_AUTOLOGIN}[cfg.display_manager]
+    return {"sddm": SDDM_AUTOLOGIN, "plasmalogin": PLASMALOGIN_AUTOLOGIN}[cfg.display_manager]
 
 
 def autologin_text(cfg: StartIn, user: str, choice: str) -> str:
+    if cfg.display_manager == "plasmalogin":
+        return f"[Autologin]\nUser={user}\nSession={cfg.sessions[choice]}.desktop\nRelogin=true\n"
     return f"[Autologin]\nUser={user}\nSession={cfg.sessions[choice]}\n"
 
 
@@ -176,4 +183,4 @@ def current_start_in(cfg: StartIn | None, root: str | Path = "/") -> str | None:
         return None
     match = re.search(r"^Session=(.+)$", text, re.M)
     by_session = {v: k for k, v in cfg.sessions.items()}
-    return by_session.get(match.group(1).strip()) if match else None
+    return by_session.get(match.group(1).strip().removesuffix(".desktop")) if match else None

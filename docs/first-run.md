@@ -68,17 +68,21 @@ gaming-session = <name of the .desktop file in wayland-sessions or xsessions, wi
 desktop-session = <same>
 ```
 
-The app offers a choice only when its session's `.desktop` file is installed. Today it implements **SDDM** only: it
-writes `/etc/sddm.conf.d/50-boppos-autologin.conf` (`[Autologin] User= Session=`). Any other `display-manager`, a
+The app offers a choice only when its session's `.desktop` file is installed. It implements **SDDM** (it writes
+`/etc/sddm.conf.d/50-boppos-autologin.conf`, `[Autologin] User= Session=`) and **plasmalogin** (the deck image, see
+below). Any other `display-manager`, a
 missing file, or no installed session means: the step is left out and no autologin is written. Per image flavor:
 
 | Flavor | Needs from the image | App does |
 |---|---|---|
 | Plasma (SDDM) | `start-in.conf` with both session names | writes the SDDM autologin file |
+| deck (plasmalogin) | `display-manager = plasmalogin`, `gaming-session = gamescope-session`, `desktop-session = plasma`; the image writes the user to `/etc/plasmalogin.conf.d/00-boppos-autologin.conf` on every boot | writes `/etc/plasmalogin.conf.d/zz-steamos-autologin.conf` (`[Autologin] User= Session=<name>.desktop Relogin=true`), the file `steam-set-session` (behind `steamos-session-select`) owns, so Steam's "Switch to Desktop" and this choice change one file. It sorts after `00-…` and wins |
 | GNOME (GDM) | not implemented; the mechanism is `/etc/gdm/custom.conf` `[daemon] AutomaticLogin=` and it needs a decision from the image session | nothing (step hidden) |
 | anything else | a spec | nothing (step hidden) |
 
 The tour asks only when no autologin file selects a session yet, so after the setup it does not ask twice.
+
+The deck image's first boot in Game Mode (before Steam) has its own contract: [deck-first-boot.md](deck-first-boot.md).
 
 ## Apps in the tour
 
