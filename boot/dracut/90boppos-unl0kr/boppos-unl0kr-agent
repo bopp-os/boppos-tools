@@ -23,6 +23,7 @@ OVERRIDE=${BOPPOS_UNL0KR_CONF:-/etc/boppos-unl0kr.conf}
 PLYMOUTH=${BOPPOS_UNL0KR_PLYMOUTH:-plymouth}
 PLYMOUTH_PID=${BOPPOS_UNL0KR_PLYMOUTH_PID:-/run/plymouth/pid}
 SYSTEMCTL=${BOPPOS_UNL0KR_SYSTEMCTL:-systemctl}
+DMI_VERSION=${BOPPOS_UNL0KR_DMI_VERSION:-/sys/class/dmi/id/product_version}
 POLL=${BOPPOS_UNL0KR_POLL:-0.5}
 DEV=${BOPPOS_UNL0KR_DEV:-/dev}
 # The GPU driver (amdgpu, or virtio-gpu in a VM) can still be loading when the first prompt appears, and
@@ -91,6 +92,15 @@ start_fallback() {
     "$SYSTEMCTL" --no-block start systemd-ask-password-plymouth.service || log "could not start Plymouth's agent"
 }
 
+# panel_rotation: the rotation for a known portrait panel (the kernel's panel orientation quirks), else nothing.
+panel_rotation() {
+    local version=
+    [[ -r $DMI_VERSION ]] && read -r version < "$DMI_VERSION"
+    case $version in
+        "Legion Go 8APU1") echo 90 ;;
+    esac
+}
+
 have_display() {
     compgen -G "$DEV/dri/card*" > /dev/null || [[ -e $DEV/fb0 ]]
 }
@@ -131,7 +141,7 @@ run_unl0kr() {
 
 # answer ASKFILE: 0 = answered, 1 = unl0kr failed, 2 = prompt went away or was not ours to answer.
 answer() {
-    local ask=$1 socket pid notafter message out rc args
+    local ask=$1 socket pid notafter message out rc args rotation
     socket=$(ini_get "$ask" Socket) || return 2
     pid=$(ini_get "$ask" PID) || pid=
     notafter=$(ini_get "$ask" NotAfter) || notafter=0
@@ -144,6 +154,11 @@ answer() {
 
     args=(-n -m "$message")
     [[ -r $OVERRIDE ]] && args+=(-C "$OVERRIDE")
+    rotation=$(panel_rotation)
+    if [[ -n $rotation ]]; then
+        printf '[general]\nrotation=%s\n' "$rotation" > "$STATE/rotation.conf"
+        args+=(-C "$STATE/rotation.conf")
+    fi
     wait_display "$ask" || return 2
     out="$STATE/reply"
     : > "$out"
