@@ -71,7 +71,7 @@ class WelcomeFlow(Gtk.Box):
         self.choices = welcome.initial_choices(self.hw)
         self.default_flatpaks = set(self.choices.flatpaks)  # what "Install defaults" goes back to
         if asked:
-            self.choices.start_in = "desktop" if "desktop" in self.start_in.choices else self.start_in.choices[0]
+            self.choices.start_in = firstrun.recommended_start_in(self.start_in, gaming, self.hw.kind)
         self.on_finish = on_finish
         self.index = 0
 

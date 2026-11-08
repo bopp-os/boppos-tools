@@ -246,3 +246,21 @@ def test_fling_keeps_going_after_a_flick_and_stops_after_a_slow_drag():
     slow.track(0.0, 0.0)
     slow.track(0.1, -5.0)
     assert slow.release(0.1) == 0.0  # 50 px/s: let go and it stays put
+
+
+def test_steam_launch_makes_the_pad_ours_and_the_log_names_the_steam_env():
+    from boppos import session
+    from boppos.ui.controller import input_env_lines, virtual_note
+
+    assert session.launched_by_steam({"SteamGameId": "3221225472", "SteamAppId": "0"})  # a non-Steam shortcut
+    assert not session.launched_by_steam({"GAMESCOPE_WAYLAND_DISPLAY": "gamescope-0"})
+    lines = input_env_lines({"SDL_GAMECONTROLLER_IGNORE_DEVICES": "0x17ef/0x6182",
+                             "SDL_GAMECONTROLLER_ALLOW_STEAM_VIRTUAL_GAMEPAD": "1", "SteamAppId": "0",
+                             "SDL_GAMECONTROLLERCONFIG": "x" * 500})
+    assert "  SDL_GAMECONTROLLER_IGNORE_DEVICES=0x17ef/0x6182" in lines
+    assert "  SDL_GAMECONTROLLER_ALLOW_STEAM_VIRTUAL_GAMEPAD=1" in lines
+    assert "  SteamGameId not set" in lines
+    assert all(len(line) < 200 for line in lines)  # a long mapping string is shortened
+    assert virtual_note(0x28DE, 0x11FF, False) == "virtual: Steam Input"
+    assert virtual_note(0x17EF, 0x6182, False) == ""
+    assert virtual_note(0, 0, True) == "virtual: SDL"

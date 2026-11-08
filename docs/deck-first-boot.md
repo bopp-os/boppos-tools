@@ -104,6 +104,14 @@ on plasmalogin (see [first-run.md](first-run.md#where-to-start-gaming-mode-or-de
 - Under the image's own gamescope (no Steam, no window manager) GTK never marks the window active, so the usual rule
   "gamepad presses only reach the active window" is off whenever `BOPPOS_FIRST_BOOT_MISSING` is set: the window is
   the only one there.
+- Started by Steam (the BoppOS non-Steam shortcut: `SteamGameId` / `SteamAppId` set) the same rule is off too. Steam
+  Input hides the real controller (`SDL_GAMECONTROLLER_IGNORE_DEVICES`) and offers its "Steam Virtual Gamepad"
+  (`28de:11ff`, allowed by `SDL_GAMECONTROLLER_ALLOW_STEAM_VIRTUAL_GAMEPAD`, which SDL3 honours), and it feeds that
+  pad only to the app in front, never while Steam's own overlay is open. GTK's "active" under gamescope's X11 is
+  not reliable there, so it no longer decides.
+- **Start in** preselects Gaming Mode when the image offers it and either the session already is Gaming Mode or the
+  machine is a handheld (`hwprofiles` kind, from DMI); Desktop otherwise (`firstrun.recommended_start_in`). The
+  account setup and the tour use the same rule.
 - Touch: gamescope gives the touchscreen to Xwayland as a mouse, and GtkScrolledWindow only drag-scrolls for touch
   devices. In Game Mode boppos-deck scrolls on a primary-button drag (`ui/kinetic.py`): nothing is claimed until the
   pointer moves 12 px, so a tap still clicks, and a flick keeps scrolling for a moment. Sliders and text fields keep
@@ -116,8 +124,13 @@ on plasmalogin (see [first-run.md](first-run.md#where-to-start-gaming-mode-or-de
 - In Game Mode boppos-deck asks libadwaita for dark (`PREFER_DARK`): dark unless the system explicitly asks for
   light. `ADW_DEBUG_COLOR_SCHEME` still wins when set.
 - At startup boppos-deck logs to stderr which SDL3 it loaded and every joystick SDL sees: name, `vid:pid`, and
-  whether SDL has a gamepad mapping for it (a joystick without one gives no input). It also logs pad hotplug, the
-  first press it received, and when presses are dropped because the window is not active. On the image:
+  whether SDL has a gamepad mapping for it (a joystick without one gives no input), and whether it is virtual
+  (Steam Input's pad, or an SDL virtual joystick). Before that it logs the SDL/Steam variables that decide which pads
+  SDL shows (`SDL_GAMECONTROLLER_IGNORE_DEVICES`, `..._ALLOW_STEAM_VIRTUAL_GAMEPAD`, `SteamAppId`, `SteamGameId`, and
+  a few more), and whether pad input waits for the active window. It also logs pad hotplug, the first press it
+  received, every change of the window's active state, and when presses are dropped because the window is not
+  active. Started from Steam, stderr goes wherever Steam's game output goes (the Steam session's journal on the
+  image). On the image:
   `journalctl -b --user | grep boppos-deck` (or the first-boot unit's journal). Typical causes: "no joysticks"
   means `/dev/input/event*` is not readable for the session user; "joystick only" means inputplumber's virtual
   device is not in SDL's gamepad database.
