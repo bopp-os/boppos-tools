@@ -279,6 +279,24 @@ def test_plymouths_agent_stays_off_after_a_good_passphrase(env, tmp_path):
     assert not [c for c in calls(env) if c.startswith("systemctl")]
 
 
+def test_a_legion_go_gets_the_rotation_config(env, tmp_path):
+    dmi = tmp_path / "product_version"
+    dmi.write_text("Legion Go 8APU1\n")
+    ask(env)
+    run(env, BOPPOS_UNL0KR_DMI_VERSION=str(dmi))
+    conf = Path(env["BOPPOS_UNL0KR_STATE"]) / "rotation.conf"
+    assert conf.read_text() == "[general]\nrotation=90\n"
+    assert f"-C {conf}" in calls(env)[1]
+
+
+def test_other_devices_get_no_rotation(env, tmp_path):
+    dmi = tmp_path / "product_version"
+    dmi.write_text("ThinkPad\n")
+    ask(env)
+    run(env, BOPPOS_UNL0KR_DMI_VERSION=str(dmi))
+    assert "rotation.conf" not in calls(env)[1]
+
+
 def test_unl0kr_is_given_up_after_two_failures_in_a_row(env):
     for n in range(3):
         ask(env, name=f"ask.{n}")
