@@ -81,6 +81,11 @@ plymouth_off() {
 plymouth_on() {
     if [[ $PLYMOUTH_WAS_UP == 1 ]]; then
         "$PLYMOUTH" reactivate || log "plymouth reactivate failed"
+        # two-step stops its wheel on deactivate but still counts as animating, so reactivate does not restart it.
+        # Changing mode does; reboot is the mode with the same screen as boot-up in the BoppOS theme.
+        if ! { "$PLYMOUTH" change-mode --reboot && "$PLYMOUTH" change-mode --boot-up; }; then
+            log "plymouth wheel restart failed"
+        fi
     fi
 }
 
