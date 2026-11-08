@@ -51,6 +51,11 @@ import threading
 import time
 from pathlib import Path
 
+# Game Mode's session has no display for a tray: importing pystray would raise, and systemd would restart it for ever.
+# A clean exit stops the restarts; graphical-session.target starts it again with Plasma.
+if __name__ == "__main__" and not (os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY")):
+    sys.exit(0)
+
 # ── Third-party — fail early with a friendly message ─────────────────────────
 try:
     import pystray
