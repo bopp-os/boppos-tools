@@ -214,11 +214,41 @@ class InputMapper:
         self.rep.release_all()
 
 
-def pad_input_allowed(window_active: bool, sole_window: bool) -> bool:
+def pad_input_allowed(window_active: bool, exclusive: bool) -> bool:
     """Whether SDL's gamepad presses are for this window. SDL hears the pad even while a game is in front, so normally
-    only the active window takes them. Under a gamescope of its own (the deck image's first boot, before Steam) there
-    is no window manager to make the window active, and nothing else to send the presses to: always take them."""
-    return window_active or sole_window
+    only the active window takes them. exclusive: the presses can only be ours, whether or not GTK thinks the window is
+    active. That holds under a gamescope of its own (the deck image's pre-Steam window: no window manager makes the
+    window active) and when Steam launched us (Steam Input feeds its virtual gamepad only to the app in front, and
+    not while Steam's own overlay is open; gamescope's X11 focus does not reliably reach GTK as "active")."""
+    return window_active or exclusive
+
+
+STEAM_VIRTUAL_PAD = (0x28DE, 0x11FF)  # Steam Input's uinput gamepad
+# What decides which controllers SDL shows us when Steam launched us (Steam sets them for the game).
+INPUT_ENV = ("SDL_GAMECONTROLLER_IGNORE_DEVICES", "SDL_GAMECONTROLLER_IGNORE_DEVICES_EXCEPT",
+             "SDL_GAMECONTROLLER_ALLOW_STEAM_VIRTUAL_GAMEPAD", "SDL_GAMECONTROLLERCONFIG", "SteamAppId", "SteamGameId",
+             "SteamVirtualGamepadInfo", "SDL_JOYSTICK_HIDAPI")
+
+
+def input_env_lines(env) -> list[str]:
+    """The INPUT_ENV values for the log, long ones (a mapping string) shortened."""
+    out = []
+    for name in INPUT_ENV:
+        value = env.get(name)
+        if value is None:
+            out.append(f"  {name} not set")
+        else:
+            out.append(f"  {name}={value if len(value) <= 120 else value[:117] + '...'}")
+    return out
+
+
+def virtual_note(vid: int, pid: int, sdl_virtual: bool) -> str:
+    """How a joystick is virtual, for the log: "" for a real device."""
+    if (vid, pid) == STEAM_VIRTUAL_PAD:
+        return "virtual: Steam Input"
+    if sdl_virtual:
+        return "virtual: SDL"
+    return ""
 
 
 class Sdl3Gamepads:
@@ -252,7 +282,8 @@ class Sdl3Gamepads:
                 ("SDL_GetJoystickNameForID", [ctypes.c_uint32], ctypes.c_char_p),
                 ("SDL_GetJoystickVendorForID", [ctypes.c_uint32], ctypes.c_uint16),
                 ("SDL_GetJoystickProductForID", [ctypes.c_uint32], ctypes.c_uint16),
-                ("SDL_IsGamepad", [ctypes.c_uint32], ctypes.c_bool)):
+                ("SDL_IsGamepad", [ctypes.c_uint32], ctypes.c_bool),
+                ("SDL_IsJoystickVirtual", [ctypes.c_uint32], ctypes.c_bool)):
             fn = getattr(lib, fn_name, None)  # only for describe(): a missing one is not fatal
             if fn is not None:
                 fn.argtypes, fn.restype = argtypes, restype
@@ -301,7 +332,9 @@ class Sdl3Gamepads:
             pad = getattr(lib, "SDL_IsGamepad", None) is not None and lib.SDL_IsGamepad(jid)
             kind = f"gamepad, {self.family(jid)}" if pad else "joystick only, no gamepad mapping"
             state = ", open" if jid in self._open else (", could not open" if pad else "")
-            lines.append(f"  #{jid} {name} [{vid:04x}:{pid:04x}] {kind}{state}")
+            sdl_virtual = getattr(lib, "SDL_IsJoystickVirtual", None) is not None and lib.SDL_IsJoystickVirtual(jid)
+            note = virtual_note(vid, pid, sdl_virtual) or "real device"
+            lines.append(f"  #{jid} {name} [{vid:04x}:{pid:04x}] {kind}{state}, {note}")
         if not sticks:
             lines.append("  no joysticks or gamepads found (is /dev/input/event* readable for this user?)")
         return lines

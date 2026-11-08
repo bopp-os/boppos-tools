@@ -16,10 +16,10 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 from gi.repository import Adw, Gdk, Gio, GLib, GObject, Gtk, Pango  # noqa: E402
 
-from .. import firstboot, firstrun, hwprofiles, oobe, system, welcome  # noqa: E402
+from .. import firstboot, firstrun, hwprofiles, oobe, session, system, welcome  # noqa: E402
 from . import agent as polkit_agent  # noqa: E402
 from . import backend, kinetic  # noqa: E402
-from .controller import DIRECTIONS, PAGES, Action, InputMapper, Sdl3Gamepads, pad_input_allowed  # noqa: E402
+from .controller import DIRECTIONS, PAGES, Action, InputMapper, Sdl3Gamepads, input_env_lines, pad_input_allowed  # noqa: E402
 from .hints import hint_items  # noqa: E402
 from .oobe import OobeFlow  # noqa: E402
 from .osk import PasswordBuffer  # noqa: E402
@@ -87,6 +87,9 @@ class DeckWindow(Adw.ApplicationWindow):
         # The only window in a gamescope of its own (the image's first boot, before Steam): no window manager makes
         # it active there, so the controller must not wait for that.
         self.sole_window = firstboot.launched_by_image()
+        # Controller presses can only be ours (see pad_input_allowed): alone in gamescope, or started by Steam
+        self.pad_exclusive = self.sole_window or session.launched_by_steam()
+        self.connect("notify::is-active", lambda *_a: log(f"window active: {self.is_active()}"))
         self._pad_blocked = False  # logged once per change, for hardware tests
         self._pad_seen = False
         self.pad_family = pad.family() if pad is not None else "generic"
@@ -960,7 +963,7 @@ class DeckWindow(Adw.ApplicationWindow):
                     log(f"first gamepad input: id {ev[-1]} ({self.pad_family})")
             actions += got
         actions += self.mapper.tick(now)
-        if not pad_input_allowed(self.is_active(), self.sole_window):
+        if not pad_input_allowed(self.is_active(), self.pad_exclusive):
             # SDL hears the controller even behind a game; those presses are not for us
             if actions and not self._pad_blocked:
                 log("gamepad input ignored: the window is not active")
@@ -1213,6 +1216,9 @@ class DeckApp(Adw.Application):
         if self.gaming and not os.environ.get("ADW_DEBUG_COLOR_SCHEME"):
             # Game Mode: dark unless the system asks for light (there is usually no settings portal to ask).
             Adw.StyleManager.get_default().set_color_scheme(Adw.ColorScheme.PREFER_DARK)
+        log("controller environment:")
+        for line in input_env_lines(os.environ):
+            log(line)
         try:
             self.pad = Sdl3Gamepads()
         except OSError as exc:
@@ -1220,8 +1226,11 @@ class DeckApp(Adw.Application):
         else:
             for line in self.pad.describe():
                 log(line)
-            if firstboot.launched_by_image():
-                log("first boot under gamescope: gamepad input is taken whether or not the window is active")
+            if firstboot.launched_by_image() or session.launched_by_steam():
+                why = "started by Steam" if session.launched_by_steam() else "alone in gamescope"
+                log(f"{why}: gamepad input is taken whether or not the window is active")
+            else:
+                log("gamepad input only while the window is active")
 
     def run_test_mode(self, win: DeckWindow, mode: str) -> None:
         """BOPPOS_DECK_TEST=keyboard | keyboard-retry | text: open the on-screen keyboard on its own, with a
@@ -1312,4 +1321,8 @@ def log(msg: str) -> None:
 
 
 def main() -> int:
+    # Before anything starts a child process: no command inherits Steam's overlay (and its ld.so noise)
+    removed = session.strip_overlay_preload()
+    if removed:
+        log(f"removed Steam's overlay from LD_PRELOAD for child processes: {' '.join(removed)}")
     return DeckApp().run(sys.argv)

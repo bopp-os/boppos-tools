@@ -152,3 +152,15 @@ def test_current_start_in_reads_the_autologin_file(tmp_path):
     f.parent.mkdir(parents=True)
     f.write_text(fr.autologin_text(cfg, "ripps", "gaming"))
     assert fr.current_start_in(cfg, root) == "gaming"
+
+
+def test_start_in_recommends_gaming_mode_on_a_handheld_or_in_game_mode():
+    both = fr.StartIn("plasmalogin", {"gaming": "gamescope-session", "desktop": "plasma"})
+    assert fr.recommended_start_in(both, False, "handheld") == "gaming"  # the deck image on a Legion Go
+    assert fr.recommended_start_in(both, True, "desktop") == "gaming"  # already in Game Mode
+    assert fr.recommended_start_in(both, False, "laptop") == "desktop"
+    assert fr.recommended_start_in(both, False, "desktop") == "desktop"
+    desktop_only = fr.StartIn("sddm", {"desktop": "plasma"})
+    assert fr.recommended_start_in(desktop_only, True, "handheld") == "desktop"  # no gaming session to offer
+    gaming_only = fr.StartIn("plasmalogin", {"gaming": "gamescope-session"})
+    assert fr.recommended_start_in(gaming_only, False, "desktop") == "gaming"

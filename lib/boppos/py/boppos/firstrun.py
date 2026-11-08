@@ -163,6 +163,15 @@ def load_start_in(root: str | Path = "/") -> tuple[StartIn | None, str]:
     return StartIn(dm, sessions), ""
 
 
+def recommended_start_in(cfg: StartIn, in_gaming_mode: bool, kind: str) -> str:
+    """The choice a flow preselects. Gaming Mode when the image offers it and either this session already is Gaming
+    Mode or the machine is a handheld (hwprofiles' kind: DMI); Desktop otherwise. On a handheld image like the deck one
+    Game Mode is the point; on a desktop or laptop the desktop stays the safer start."""
+    if "gaming" in cfg.choices and (in_gaming_mode or kind == "handheld"):
+        return "gaming"
+    return "desktop" if "desktop" in cfg.choices else cfg.choices[0]
+
+
 def autologin_file(cfg: StartIn) -> str:
     return {"sddm": SDDM_AUTOLOGIN, "plasmalogin": PLASMALOGIN_AUTOLOGIN}[cfg.display_manager]
 

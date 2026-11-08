@@ -16,7 +16,7 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 from gi.repository import Adw, GLib, Gtk  # noqa: E402
 
-from .. import firstrun, oobe, system  # noqa: E402
+from .. import firstrun, hwprofiles, oobe, session, system  # noqa: E402
 from .network import NetworkPanel  # noqa: E402
 from .widgets import combo_row, group, info_row, plain  # noqa: E402
 
@@ -31,7 +31,7 @@ def _run(argv: list[str], stdin: str) -> tuple[int, str]:
         p = subprocess.run(argv, input=stdin, capture_output=True, text=True, timeout=300, check=False)
     except (OSError, subprocess.TimeoutExpired) as exc:
         return 1, str(exc)
-    return p.returncode, p.stderr or p.stdout
+    return p.returncode, session.drop_overlay_noise(p.stderr or "") or p.stdout
 
 
 def page(*groups: Adw.PreferencesGroup) -> Adw.PreferencesPage:
@@ -52,8 +52,9 @@ class OobeFlow(Gtk.Box):
         self.choices = oobe.Choices()
         # Where to start is the image's to offer (its start-in.conf); without it the step and the call are left out.
         self.start_in, self.start_in_problem = firstrun.load_start_in()
-        if self.start_in is not None and self.choices.session not in self.start_in.choices:
-            self.choices.session = self.start_in.choices[0]
+        if self.start_in is not None:  # Gaming Mode on a handheld or when already in it, else Desktop
+            self.choices.session = firstrun.recommended_start_in(self.start_in, session.gaming_mode(),
+                                                                 hwprofiles.detect().kind)
         self.steps = [s for s in oobe.STEPS if s.key != "session" or self.start_in is not None]
         self.on_finish = on_finish
         self.index = 0
