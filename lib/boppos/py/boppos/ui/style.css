@@ -35,7 +35,7 @@ window.deck .hint-label { margin-right: 22px; opacity: 0.85; }
 window.deck .page-box { margin: 1.3em; }
 
 window.deck .progress-title { font-weight: 800; font-size: 160%; }
-window.deck .progress-log { font-family: monospace; font-size: 85%; }
+window.deck .progress-log { font-family: "DejaVu Sans Mono", monospace; font-size: 85%; }
 window.deck .value-label { opacity: 0.7; }
 
 /* Status bubble for a job running in the background (Apps page installs) */

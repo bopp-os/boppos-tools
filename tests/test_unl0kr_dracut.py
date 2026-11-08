@@ -240,6 +240,7 @@ def test_a_prompt_gets_the_typed_passphrase_with_plymouth_handed_over_and_back(e
         "unl0kr -n -m Please enter passphrase for disk root",
         "reply 1 /run/systemd/ask-password/sck.abc <hunter 2>",
         "plymouth reactivate",
+        "plymouth change-mode --reboot", "plymouth change-mode --boot-up",
     ]
     assert not list(Path(env["BOPPOS_UNL0KR_STATE"]).glob("reply*")), "the passphrase was left on disk"
 
@@ -257,7 +258,7 @@ def test_a_failed_unl0kr_leaves_the_prompt_to_plymouth(env):
     ask(env)
     run(env, UNL0KR_MODE="fail")
     assert calls(env) == ["plymouth deactivate", "unl0kr -n -m Please enter passphrase for disk root",
-                          "plymouth reactivate"]
+                          "plymouth reactivate", "plymouth change-mode --reboot", "plymouth change-mode --boot-up"]
 
 
 def _fake_systemctl(env, tmp_path):
@@ -313,6 +314,7 @@ def test_an_unl0kr_that_fails_at_start_is_tried_again(env):
         "unl0kr -n -m Please enter passphrase for disk root",
         "reply 1 /run/systemd/ask-password/sck.abc <hunter 2>",
         "plymouth reactivate",
+        "plymouth change-mode --reboot", "plymouth change-mode --boot-up",
     ]
     assert "did not start (exit 1), trying again" in stderr
 
@@ -380,7 +382,7 @@ def test_unl0kr_is_closed_when_the_prompt_is_answered_elsewhere(env):
     path.unlink()
     assert proc.wait(timeout=5) == 0
     assert not [c for c in calls(env) if c.startswith("reply")]
-    assert calls(env)[-1] == "plymouth reactivate"
+    assert calls(env)[-3:] == ["plymouth reactivate", "plymouth change-mode --reboot", "plymouth change-mode --boot-up"]
 
 
 # --- the VM test driver --------------------------------------------------------------------------
