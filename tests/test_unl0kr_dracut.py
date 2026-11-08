@@ -128,7 +128,8 @@ def test_install_ships_unl0kr_the_agent_and_enables_its_path_unit(tmp_path):
     assert "/usr/lib/systemd/systemd-reply-password" in log
     assert "/usr/share/X11/xkb/symbols/us" in log
     assert f"inst_script {AGENT} /usr/lib/boppos-unl0kr/boppos-unl0kr-agent" in log
-    assert "systemctl -q --root" in log and log.rstrip().endswith("enable boppos-unl0kr-agent.path")
+    assert "systemctl -q --root" in log and "enable boppos-unl0kr-agent.path" in log
+    assert log.rstrip().endswith("mask systemd-ask-password-plymouth.path"), "its prompt lingers after unl0kr answers"
     conf = (tmp_path / "initdir/etc/boppos-unl0kr.conf").read_text()
     assert "backend=drm" in conf and "default=breezy-dark" in conf
     assert "[keyboard]\nautohide=false\n" in conf, "the on-screen keyboard must show with a controller attached"
@@ -257,6 +258,25 @@ def test_a_failed_unl0kr_leaves_the_prompt_to_plymouth(env):
     run(env, UNL0KR_MODE="fail")
     assert calls(env) == ["plymouth deactivate", "unl0kr -n -m Please enter passphrase for disk root",
                           "plymouth reactivate"]
+
+
+def _fake_systemctl(env, tmp_path):
+    fake = tmp_path / "systemctl"
+    fake.write_text(f"""#!/bin/sh\nprintf '%s\\n' "systemctl $*" >> {env['LOG']}\n""")
+    fake.chmod(0o755)
+    return {"BOPPOS_UNL0KR_SYSTEMCTL": str(fake)}
+
+
+def test_plymouths_agent_starts_only_when_unl0kr_fails(env, tmp_path):
+    ask(env)
+    run(env, UNL0KR_MODE="fail", **_fake_systemctl(env, tmp_path))
+    assert calls(env)[-1] == "systemctl --no-block start systemd-ask-password-plymouth.service"
+
+
+def test_plymouths_agent_stays_off_after_a_good_passphrase(env, tmp_path):
+    ask(env)
+    run(env, **_fake_systemctl(env, tmp_path))
+    assert not [c for c in calls(env) if c.startswith("systemctl")]
 
 
 def test_unl0kr_is_given_up_after_two_failures_in_a_row(env):

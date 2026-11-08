@@ -38,9 +38,9 @@ packaged in bopp-os/pkgbuilds. Nothing changes until an image asks for the modul
   moment it takes to reply.
 - **Plymouth stays, and hands over.** Per prompt the agent runs `plymouth deactivate` (plymouthd drops its
   DRM master and stops reading the keyboard), runs unl0kr on the DRM backend, then `plymouth reactivate`,
-  which brings the splash back with its wheel while the disk unlocks. We keep Plymouth's own agent rather
-  than masking it because it is the fallback: if unl0kr fails (no display, no input, a crash) Plymouth
-  returns with its passphrase prompt still pending, and a keyboard can answer it there. After two failures
+  which brings the splash back with its wheel while the disk unlocks. Plymouth's own agent is masked in the
+  initrd, because its password screen stayed up after unl0kr had answered. It is still the fallback: if unl0kr
+  fails (no display, no input, a crash) the agent starts it, and a keyboard can answer the prompt there. After two failures
   in a row the agent stops trying for that boot. The first prompt can come before the GPU driver has
   loaded, so the agent waits up to 20 seconds for `/dev/dri/card*` (or `/dev/fb0`), and an unl0kr that
   exits within 5 seconds of starting is started again, up to 3 times. (buffybox's own `unl0kr-agent`, built with

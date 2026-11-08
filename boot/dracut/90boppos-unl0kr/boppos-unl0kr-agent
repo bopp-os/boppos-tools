@@ -7,8 +7,9 @@
 #
 # Plymouth keeps running and keeps its own agent. For each prompt this agent asks plymouthd to deactivate
 # (it drops the DRM master and stops reading the keyboard), runs unl0kr, replies, and reactivates Plymouth,
-# which then shows its wheel while the disk unlocks. If unl0kr fails, Plymouth comes back with its own
-# passphrase prompt still pending, so a physical keyboard always has a way in.
+# which then shows its wheel while the disk unlocks. Plymouth's own password agent is masked in the initrd (a
+# prompt it shows lingers on screen after unl0kr answers); if unl0kr fails this agent starts it, so a physical
+# keyboard always has a way in.
 #
 # Long-running like systemd's own agents: started once by boppos-unl0kr-agent.path, stopped at switch-root.
 
@@ -21,6 +22,7 @@ REPLY=${BOPPOS_UNL0KR_REPLY:-/usr/lib/systemd/systemd-reply-password}
 OVERRIDE=${BOPPOS_UNL0KR_CONF:-/etc/boppos-unl0kr.conf}
 PLYMOUTH=${BOPPOS_UNL0KR_PLYMOUTH:-plymouth}
 PLYMOUTH_PID=${BOPPOS_UNL0KR_PLYMOUTH_PID:-/run/plymouth/pid}
+SYSTEMCTL=${BOPPOS_UNL0KR_SYSTEMCTL:-systemctl}
 POLL=${BOPPOS_UNL0KR_POLL:-0.5}
 DEV=${BOPPOS_UNL0KR_DEV:-/dev}
 # The GPU driver (amdgpu, or virtio-gpu in a VM) can still be loading when the first prompt appears, and
@@ -79,6 +81,14 @@ plymouth_on() {
     if [[ $PLYMOUTH_WAS_UP == 1 ]]; then
         "$PLYMOUTH" reactivate || log "plymouth reactivate failed"
     fi
+}
+
+# Plymouth's agent picks up the pending prompt; once started it keeps watching for later ones.
+start_fallback() {
+    [[ $FALLBACK_STARTED == 1 ]] && return
+    FALLBACK_STARTED=1
+    log "starting Plymouth's password agent"
+    "$SYSTEMCTL" --no-block start systemd-ask-password-plymouth.service || log "could not start Plymouth's agent"
 }
 
 have_display() {
@@ -171,11 +181,13 @@ answer() {
     rm -f "$out"
     plymouth_on
     PLYMOUTH_WAS_UP=0
+    ((rc == 1)) && start_fallback
     return "$rc"
 }
 
 # Stopped mid-prompt (emergency.service, switch-root): do not leave Plymouth deactivated.
 PLYMOUTH_WAS_UP=0
+FALLBACK_STARTED=0
 upid=
 on_stop() {
     [[ -n $upid ]] && kill -TERM "$upid" 2> /dev/null

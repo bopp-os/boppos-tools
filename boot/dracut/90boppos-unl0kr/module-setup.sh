@@ -44,7 +44,7 @@ install() {
     inst_binary unl0kr
     inst_multiple -o /usr/share/unl0kr/unl0kr.conf /usr/share/unl0kr/unl0kr.conf.d/*.conf \
         /etc/unl0kr.conf /etc/unl0kr.conf.d/*.conf
-    inst_multiple /usr/lib/systemd/systemd-reply-password sleep rm mkdir
+    inst_multiple /usr/lib/systemd/systemd-reply-password sleep rm mkdir systemctl
 
     # Hardware keyboards go through xkbcommon, which compiles the keymap from the XKB data at runtime.
     # unl0kr cannot load a keymap without it, so ship the whole tree (a few MB, it compresses well).
@@ -94,4 +94,7 @@ install() {
     inst_simple "$moddir/boppos-unl0kr-agent.path" "$systemdsystemunitdir/boppos-unl0kr-agent.path"
     inst_simple "$moddir/boppos-unl0kr-agent.service" "$systemdsystemunitdir/boppos-unl0kr-agent.service"
     $SYSTEMCTL -q --root "$initdir" enable boppos-unl0kr-agent.path
+    # Plymouth's agent would show its own password screen, which stays up after unl0kr answers. Only the .path is
+    # masked: the agent starts the .service itself when unl0kr fails.
+    $SYSTEMCTL -q --root "$initdir" mask systemd-ask-password-plymouth.path
 }
