@@ -19,6 +19,8 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
+from .session import drop_overlay_noise
+
 NMCLI = "nmcli"
 SCAN_FIELDS = "IN-USE,SSID,SIGNAL,SECURITY"
 PSK_KEY = "802-11-wireless-security.psk"  # the secret field of WPA/WPA2 and of WPA3 personal (sae) alike
@@ -196,7 +198,7 @@ def join(net: Wifi, password: str, run: Run = subprocess.run, tmp_dir: str | Pat
             if proc.returncode:
                 if not net.open or net.hidden:
                     run(delete_argv(net), capture_output=True, text=True, timeout=30, check=False)
-                return False, friendly((proc.stderr or "") + (proc.stdout or ""))
+                return False, friendly(drop_overlay_noise((proc.stderr or "") + (proc.stdout or "")))
         return True, f"Connected to {net.ssid}."
     except subprocess.TimeoutExpired:
         return False, "The network did not answer in time."

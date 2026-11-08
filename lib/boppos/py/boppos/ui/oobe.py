@@ -31,7 +31,7 @@ def _run(argv: list[str], stdin: str) -> tuple[int, str]:
         p = subprocess.run(argv, input=stdin, capture_output=True, text=True, timeout=300, check=False)
     except (OSError, subprocess.TimeoutExpired) as exc:
         return 1, str(exc)
-    return p.returncode, p.stderr or p.stdout
+    return p.returncode, session.drop_overlay_noise(p.stderr or "") or p.stdout
 
 
 def page(*groups: Adw.PreferencesGroup) -> Adw.PreferencesPage:

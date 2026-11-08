@@ -9,7 +9,11 @@ import threading
 from collections.abc import Callable
 from pathlib import Path
 
-from ..session import gaming_mode  # noqa: F401 - re-exported for the UI
+from ..session import (
+    drop_overlay_noise,
+    gaming_mode,  # noqa: F401 - re-exported for the UI
+    is_overlay_noise,
+)
 
 _DEV_BIN = Path(__file__).resolve().parents[5] / "bin"
 
@@ -58,7 +62,8 @@ def run_json(cmd: list[str], timeout: int = 120) -> dict | list:
     try:
         return json.loads(proc.stdout)
     except json.JSONDecodeError:
-        return {"error": (proc.stderr or proc.stdout).strip() or f"{cmd[0]} exited {proc.returncode}"}
+        text = drop_overlay_noise(proc.stderr or "").strip() or drop_overlay_noise(proc.stdout or "").strip()
+        return {"error": text or f"{cmd[0]} exited {proc.returncode}"}
 
 
 class Job:
@@ -88,6 +93,8 @@ class Job:
                 break
             assert proc.stdout is not None
             for raw in proc.stdout:
+                if is_overlay_noise(raw):
+                    continue  # a process started with Steam's overlay preload after all: its ld.so noise
                 ev = parse_event(raw.rstrip("\n"))
                 if ev["event"] == "done":
                     final.update({k: v for k, v in ev.items() if k != "event"})

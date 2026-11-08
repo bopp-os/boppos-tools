@@ -264,3 +264,57 @@ def test_steam_launch_makes_the_pad_ours_and_the_log_names_the_steam_env():
     assert virtual_note(0x28DE, 0x11FF, False) == "virtual: Steam Input"
     assert virtual_note(0x17EF, 0x6182, False) == ""
     assert virtual_note(0, 0, True) == "virtual: SDL"
+
+
+OVL32 = "/home/u/.local/share/Steam/ubuntu12_32/gameoverlayrenderer.so"
+OVL64 = "/home/u/.local/share/Steam/ubuntu12_64/gameoverlayrenderer.so"
+
+
+def test_steam_overlay_is_removed_from_ld_preload_and_the_rest_is_kept():
+    from boppos import session
+
+    env = {"LD_PRELOAD": f"{OVL32}:{OVL64}"}
+    assert session.strip_overlay_preload(env) == [OVL32, OVL64]
+    assert "LD_PRELOAD" not in env  # nothing left: unset, not empty
+
+    env = {"LD_PRELOAD": f"/usr/lib/libmangohud.so {OVL32}:{OVL64}  /opt/x/libfoo.so"}
+    assert session.strip_overlay_preload(env) == [OVL32, OVL64]
+    assert env["LD_PRELOAD"] == "/usr/lib/libmangohud.so:/opt/x/libfoo.so"
+
+    env = {"LD_PRELOAD": "/usr/lib/libmangohud.so"}
+    assert session.strip_overlay_preload(env) == []
+    assert env == {"LD_PRELOAD": "/usr/lib/libmangohud.so"}  # untouched
+    assert session.strip_overlay_preload({}) == []
+
+
+def test_ld_so_overlay_noise_is_filtered_from_command_output():
+    from boppos import session
+
+    noise = (f"ERROR: ld.so: object '{OVL32}' from LD_PRELOAD cannot be preloaded "
+             "(wrong ELF class: ELFCLASS32): ignored.")
+    assert session.is_overlay_noise(noise)
+    assert not session.is_overlay_noise("ERROR: ld.so: object '/usr/lib/libfoo.so' from LD_PRELOAD cannot be "
+                                         "preloaded (cannot open shared object file): ignored.")
+    assert not session.is_overlay_noise("Updating gameoverlayrenderer settings")
+    text = f"{noise}\nUpdating system…\n{noise}\nDone.\n"
+    assert session.drop_overlay_noise(text) == "Updating system…\nDone.\n"
+    assert session.drop_overlay_noise("plain\n") == "plain\n"
+
+
+def test_job_hides_overlay_noise_lines(tmp_path):
+    import sys
+
+    from boppos.ui import backend
+
+    script = tmp_path / "noisy.py"
+    script.write_text("import sys\n"
+                      f"print(\"ERROR: ld.so: object '{OVL32}' from LD_PRELOAD cannot be preloaded "
+                      "(wrong ELF class: ELFCLASS32): ignored.\", file=sys.stderr, flush=True)\n"
+                      "print('real line', flush=True)\n")
+    events = []
+    done = []
+    job = backend.Job([[sys.executable, str(script)]], lambda f: f(), events.append,
+                      lambda ok, final: done.append(ok))
+    job._run()
+    assert done == [True]
+    assert [e.get("line") for e in events if e["event"] == "log"] == ["real line"]

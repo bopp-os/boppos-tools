@@ -1321,4 +1321,8 @@ def log(msg: str) -> None:
 
 
 def main() -> int:
+    # Before anything starts a child process: no command inherits Steam's overlay (and its ld.so noise)
+    removed = session.strip_overlay_preload()
+    if removed:
+        log(f"removed Steam's overlay from LD_PRELOAD for child processes: {' '.join(removed)}")
     return DeckApp().run(sys.argv)
