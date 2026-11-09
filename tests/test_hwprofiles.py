@@ -57,7 +57,7 @@ def test_device_fix_presets_are_on_for_their_own_profile_only():
     found = kargs.load_dropins("/")
     fixes = {n: d for n, d in found.items() if d.category == "Device fixes"}
     expected = {"onexplayer-f1": "90-onexplayer-f1-panel", "ayaneo-slide": "91-ayaneo-slide-acpi-strict",
-                "framework-intel": "92-framework-intel-keyboard"}
+                "framework-intel": "92-framework-intel-keyboard", "legion-go": "93-legion-go-brightness"}
     for key, hw in hwprofiles.PROFILES.items():
         hit = {n for n, d in fixes.items() if kargs.matches_device(d, hw.dmi)}
         assert hit == ({expected[key]} if key in expected else set()), key

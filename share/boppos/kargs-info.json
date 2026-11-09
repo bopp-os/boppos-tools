@@ -302,6 +302,13 @@
   "preset": "92-framework-intel-keyboard"
  },
  {
+  "match": "amdgpu.dcdebugmask=0x40000",
+  "summary": "Makes the AMD display driver ignore the firmware's brightness curve.",
+  "risk": "The Legion Go firmware's curve leaves the panel at full brightness. Only matches the original Legion Go. Switching it off makes the brightness controls stop working.",
+  "risk_level": "low",
+  "preset": "93-legion-go-brightness"
+ },
+ {
   "match": "amdgpu.dcdebugmask=0x10",
   "summary": "Turns off Panel Self Refresh in the AMD display driver.",
   "risk": "Fixes flicker or artifacts on some AMD laptop and handheld panels. The display stays in a higher-power state, so battery life drops. Some panels need a different value than this one. Only useful with AMD graphics.",

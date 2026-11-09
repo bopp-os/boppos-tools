@@ -101,6 +101,7 @@ installer's preselection, not a decision.
 | 80-intel-iommu-on | `intel_iommu=on` | medium | no | any |
 | 81-kvm-ignore-msrs | `kvm.ignore_msrs=1 kvm.report_ignored_msrs=0` | low | no | any |
 | 82-sleep-s2idle | `mem_sleep_default=s2idle` | low | no | any |
+| 93-legion-go-brightness | `amdgpu.dcdebugmask=0x40000` | low | **yes** | Lenovo Legion Go |
 | 90-onexplayer-f1-panel | `video=eDP-1:panel_orientation=left_side_up plymouth.use-simpledrm=0 loglevel=0` | low | **yes** | ONEXPLAYER F1 |
 | 91-ayaneo-slide-acpi-strict | `acpi=strict` | low | **yes** | AYANEO SLIDE |
 | 92-framework-intel-keyboard | `module_blacklist=hid_sensor_hub` | low | **yes** | Framework, Intel |
