@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import os
 import re
 import shutil
 import subprocess
+import zlib
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
@@ -37,14 +39,59 @@ class Target:
         return cls(d["key"], d["name"], d["exe"], d["launch"], d.get("icon", ""))
 
 
-def find_icon(app_id: str, roots: tuple[Path, ...] = ICON_ROOTS) -> str:
-    """Largest PNG icon the Flatpak app exports (Steam does not take SVG), or ''."""
+def icon_cache() -> Path:
+    base = os.environ.get("XDG_CACHE_HOME") or str(Path.home() / ".cache")
+    return Path(base) / "boppos-deck/icons"
+
+
+def rasterize_svg(svg: Path, app_id: str, cache: Path | None = None, run=subprocess.run) -> str:
+    """A 512px PNG of an SVG icon, cached under a name that changes with the SVG's content (files deployed by
+    Flatpak are all dated 1970, so a date cannot tell an update). '' when rsvg-convert is missing or fails."""
+    cache = cache or icon_cache()
+    try:
+        digest = f"{zlib.crc32(svg.read_bytes()):08x}"
+    except OSError:
+        return ""
+    dest = cache / f"{app_id}-{digest}.png"
+    if dest.is_file():
+        return str(dest)
+    tool = shutil.which("rsvg-convert")
+    if not tool:
+        return ""
+    cache.mkdir(parents=True, exist_ok=True)
+    tmp = dest.with_suffix(".tmp")
+    try:
+        proc = run([tool, "-w", "512", "-h", "512", "--keep-aspect-ratio", "-o", str(tmp), str(svg)],
+                   capture_output=True, timeout=30, check=False)
+    except (OSError, subprocess.TimeoutExpired):
+        tmp.unlink(missing_ok=True)
+        return ""
+    if proc.returncode != 0 or not tmp.is_file():
+        tmp.unlink(missing_ok=True)
+        return ""
+    for old in cache.glob(f"{app_id}-*.png"):  # an earlier version of this app's icon
+        old.unlink(missing_ok=True)
+    tmp.replace(dest)
+    return str(dest)
+
+
+def find_icon(app_id: str, roots: tuple[Path, ...] = ICON_ROOTS, cache: Path | None = None) -> str:
+    """Largest PNG icon the Flatpak app exports, else its scalable SVG made into a PNG (Steam does not take
+    SVG), or ''."""
     best: tuple[int, Path] | None = None
     for root in roots:
         for path in root.glob(f"hicolor/*x*/apps/{app_id}.png"):
             m = re.match(r"(\d+)x\d+$", path.parent.parent.name)
             if m and (best is None or int(m.group(1)) > best[0]):
                 best = (int(m.group(1)), path)
+    if best and best[0] >= 128:
+        return str(best[1])
+    for root in roots:  # a small PNG only, or none: a scalable icon draws sharper on the artwork
+        svg = root / f"hicolor/scalable/apps/{app_id}.svg"
+        if svg.is_file():
+            png = rasterize_svg(svg, app_id, cache)
+            if png:
+                return png
     return str(best[1]) if best else ""
 
 

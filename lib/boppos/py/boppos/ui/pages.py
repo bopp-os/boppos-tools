@@ -871,6 +871,18 @@ class SteamPage(Page):
         self.box.append(g)
         self.update_apply_row()
 
+        if inside:
+            g = group("Artwork")
+            g.add(button_row("Update artwork", "Makes missing library artwork and redraws the artwork BoppOS made "
+                             "for the shortcuts above. Artwork you set yourself is kept."
+                             + (" Steam shows it the next time it starts." if data["steam_running"] else ""),
+                             "Update", self.update_art))
+            self.box.append(g)
+
+    def update_art(self) -> None:
+        self.win.run_job("Updating Steam artwork", [[tool("bopp-steam-shortcut"), "--json", "refresh-art"]],
+                         lambda ok, final: self.refresh())
+
     def remember(self, cat: str, open_: bool) -> None:
         (self.expanded.add if open_ else self.expanded.discard)(cat)
 

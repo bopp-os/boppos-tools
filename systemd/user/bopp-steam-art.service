@@ -1,0 +1,14 @@
+[Unit]
+Description=Bring the Steam library artwork of BoppOS-made shortcuts up to date
+# Steam can give a shortcut an id of its own after it was added; the artwork has to be named after that id.
+# This only writes to Steam's grid folder (never shortcuts.vdf), so it is safe while Steam runs.
+ConditionPathExistsGlob=|%h/.local/share/Steam/userdata/*/config/shortcuts.vdf
+ConditionPathExistsGlob=|%h/.var/app/com.valvesoftware.Steam/.local/share/Steam/userdata/*/config/shortcuts.vdf
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/bopp-steam-shortcut refresh-art
+Nice=10
+
+[Install]
+WantedBy=default.target

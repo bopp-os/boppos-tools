@@ -53,4 +53,16 @@ rsvg-convert "$tmp/icon.svg" -o "$tmp/icon.png"
 python3 -c 'import sys; from PIL import Image; Image.open(sys.argv[1]).convert("RGB").save(sys.argv[2], "JPEG", quality=92)' \
     "$tmp/icon.png" "$out/icon.jpg"
 rm -f "$out/icon.png"
+# Tag the PNGs as ours (a text chunk), so "Update artwork" may replace older copies in Steam but never yours
+python3 - "$out"/capsule.png "$out"/portrait.png "$out"/hero.png "$out"/logo.png <<'EOF'
+import sys
+from PIL import Image
+from PIL.PngImagePlugin import PngInfo
+for p in sys.argv[1:]:
+    with Image.open(p) as im:
+        img = im.copy()
+    info = PngInfo()
+    info.add_text("Software", "boppos-deck")
+    img.save(p, "PNG", pnginfo=info, optimize=True)
+EOF
 echo "rendered:"; ls -l "$out" | awk 'NR>1 {print $5, $9}'
