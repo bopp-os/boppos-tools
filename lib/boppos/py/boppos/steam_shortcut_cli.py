@@ -41,6 +41,9 @@ def build_parser() -> argparse.ArgumentParser:
                    help="ask a running Steam to quit so the queued changes apply, and reopen it on the desktop")
     s.add_argument("--queue-ok", action="store_true",
                    help="queued changes count as success (Steam running, or no library yet): they apply later")
+    r = sub.add_parser("refresh-art", help="make missing artwork and re-render our own for shortcuts in the library "
+                       "(artwork you replaced is kept; Steam may be running)")
+    r.add_argument("--only", default="", metavar="KEY[,KEY...]", help="just these app ids (or boppos-deck)")
     w = sub.add_parser("apply-pending", help="apply queued changes once Steam is closed")
     w.add_argument("--wait", type=float, default=0, metavar="SECONDS", help="wait this long for Steam to quit")
     w.add_argument("--reopen-steam", action="store_true", help="start Steam again afterwards (desktop only)")
@@ -139,6 +142,35 @@ def _sync(args, home: Path) -> int:
     return code
 
 
+def _refresh_art(args, files) -> int:
+    emit = make_emitter(args.json)
+    targets = steam_apps.all_targets()
+    only = [k for k in args.only.split(",") if k]
+    unknown = [k for k in only if k not in targets]
+    if unknown:
+        emit({"event": "log", "line": f"unknown app(s): {', '.join(unknown)}"})
+        emit({"event": "done", "ok": False, "error": "unknown-app"})
+        return EXIT_UNKNOWN
+    if not files:
+        emit({"event": "log", "line": "Steam has not created a library for this user yet."})
+        emit({"event": "done", "ok": False, "error": "no-steam-userdata"})
+        return EXIT_NO_USERDATA
+    sources = {t.identity(): t.icon for k, t in targets.items() if not only or k in only}
+    emit({"event": "step", "id": "artwork", "status": "start"})
+    written, failed = 0, False
+    for path in files:
+        try:
+            written += ss.refresh_art(path, sources)
+        except (VdfError, OSError) as exc:
+            emit({"event": "log", "line": f"{path}: {exc}"})
+            failed = True
+    emit({"event": "log", "line": f"{written} artwork file(s) written"
+          + (". Steam shows them the next time it starts." if written and ss.steam_running() else ".")})
+    emit({"event": "step", "id": "artwork", "status": "fail" if failed else "ok"})
+    emit({"event": "done", "ok": not failed, "written": written})
+    return 1 if failed else 0
+
+
 def _apply_pending(args, home: Path) -> int:
     if args.wait and ss.steam_running():
         steam_sync.wait_for_steam_exit(args.wait)
@@ -173,6 +205,8 @@ def main(argv: list[str] | None = None) -> int:
         return _apps(args, home, files)
     if args.cmd == "sync":
         return _sync(args, home)
+    if args.cmd == "refresh-art":
+        return _refresh_art(args, files)
     return _apply_pending(args, home)
 
 
