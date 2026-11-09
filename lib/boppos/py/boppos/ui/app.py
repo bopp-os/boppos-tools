@@ -22,7 +22,10 @@ from . import backend, kinetic  # noqa: E402
 from .controller import DIRECTIONS, PAGES, Action, InputMapper, Sdl3Gamepads, input_env_lines, pad_input_allowed  # noqa: E402
 from .hints import hint_items  # noqa: E402
 from .oobe import OobeFlow  # noqa: E402
-from .osk import PasswordBuffer  # noqa: E402
+from .osk import LAYOUT as OSK_LAYOUT  # noqa: E402
+from .osk import UNITS as OSK_UNITS  # noqa: E402
+from .osk import Key, PasswordBuffer  # noqa: E402
+from .osk import key_unit as osk_key_unit  # noqa: E402
 from .pages import ALL_PAGES  # noqa: E402
 from .welcome import WelcomeFlow  # noqa: E402
 
@@ -278,70 +281,81 @@ class DeckWindow(Adw.ApplicationWindow):
         for w in (self.a_title, self.a_sub, self.a_error, self.a_display):
             box.append(w)
 
-        self.osk_keys: list[list[Gtk.Button]] = []
-        widths = [10, 10, 10, 9]
-        keys = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6, halign=Gtk.Align.CENTER)
-        for n in widths:
-            row = Gtk.Box(spacing=6, halign=Gtk.Align.CENTER, homogeneous=True)
-            buttons = []
-            for _ in range(n):
-                b = Gtk.Button()
-                b.add_css_class("osk-key")
-                b.connect("clicked", lambda btn: self.osk_press(btn.char))
-                row.append(b)
-                buttons.append(b)
-            self.osk_keys.append(buttons)
-            keys.append(row)
-        # A flow box, so the bottom row wraps in a narrow window instead of setting the window's width
-        bottom = Gtk.FlowBox(selection_mode=Gtk.SelectionMode.NONE, focusable=False, homogeneous=False,
-                             halign=Gtk.Align.CENTER, column_spacing=6, row_spacing=6, max_children_per_line=7)
-        self.osk_shift = self.osk_button("Shift", lambda: self.osk_action("shift"), bottom)
-        self.osk_sym = self.osk_button("123", lambda: self.osk_action("symbols"), bottom)
-        space = self.osk_button("Space", lambda: self.osk_press(" "), bottom)
-        space.add_css_class("osk-space")
-        self.osk_button("Delete", lambda: self.osk_action("backspace"), bottom)
-        self.osk_show = self.osk_button("Show", lambda: self.osk_action("visible"), bottom)
-        ok = self.osk_button("OK", self.auth_submit, bottom)
-        ok.add_css_class("suggested-action")
-        self.osk_button("Cancel", self.auth_cancel, bottom)
-        for child in self._flow_children(bottom):
-            child.set_focusable(False)  # focus goes to the buttons, not to their wrappers
-        keys.append(bottom)
-        box.append(keys)
+        # One grid in half-key columns, so a 1.5- or 2.5-wide key lines up like on a real keyboard. Its size is
+        # set from the window size in apply_scale (osk.key_unit).
+        self.osk_grid = Gtk.Grid(row_spacing=6, column_spacing=6, row_homogeneous=True, column_homogeneous=True,
+                                 halign=Gtk.Align.CENTER, valign=Gtk.Align.END, vexpand=True)
+        self.osk_grid.add_css_class("osk")
+        self.osk_chars: list[tuple[Gtk.Button, Key]] = []
+        self.osk_by_kind: dict[str, list[Gtk.Button]] = {}
+        actions = {"backspace": lambda: self.osk_action("backspace"), "shift": lambda: self.osk_action("shift"),
+                   "caps": lambda: self.osk_action("caps"), "symbols": lambda: self.osk_action("symbols"),
+                   "show": lambda: self.osk_action("visible"),
+                   "space": lambda: self.osk_press(" "), "enter": self.auth_submit, "cancel": self.auth_cancel}
+        labels = {"backspace": "Backspace", "shift": "Shift", "caps": "Caps", "symbols": "Sym", "space": "Space",
+                  "enter": "Enter", "cancel": "Cancel", "show": "Show"}
+        for y, row in enumerate(OSK_LAYOUT):
+            x = 0
+            for key in row:
+                span = round(key.width * 2)
+                if key.kind != "gap":
+                    b = Gtk.Button(label=labels.get(key.kind, ""), hexpand=True, vexpand=True)
+                    b.add_css_class("osk-key")
+                    if key.kind == "char":
+                        b.connect("clicked", lambda _b, k=key: self.osk_type(k))
+                        self.osk_chars.append((b, key))
+                    else:
+                        b.add_css_class("osk-mod")
+                        b.connect("clicked", lambda _b, fn=actions[key.kind]: fn())
+                        self.osk_by_kind.setdefault(key.kind, []).append(b)
+                    self.osk_grid.attach(b, x, y, span, 1)
+                x += span
+        self.osk_by_kind["enter"][0].add_css_class("suggested-action")
+        self.osk_first = next(b for b, k in self.osk_chars if k.base == "q")
+        self.apply_osk_size(*self._osk_for)
+        box.append(self.osk_grid)
         self.osk_refresh()
         return box
 
-    def osk_button(self, label: str, fn: Callable[[], None], parent: Gtk.FlowBox) -> Gtk.Button:
-        b = Gtk.Button(label=label)
-        b.add_css_class("osk-key")
-        b.connect("clicked", lambda _b: fn())
-        parent.append(b)
-        return b
+    def apply_osk_size(self, width: int, height: int) -> str:
+        """Size the keyboard for the window; returns the CSS for its key labels."""
+        unit_w, unit_h = osk_key_unit(width, height)
+        gap = max(4, unit_h // 12)
+        if hasattr(self, "osk_grid"):  # apply_scale runs once before the keyboard is built
+            self.osk_grid.set_row_spacing(gap)
+            self.osk_grid.set_column_spacing(gap)
+            rows = len(OSK_LAYOUT)
+            self.osk_grid.set_size_request(OSK_UNITS * unit_w, rows * unit_h + (rows - 1) * gap)
+        return (f"window.deck .osk-key {{ font-size: {max(11, round(unit_h * 0.38))}px; }}\n"
+                f"window.deck .osk-key.osk-mod {{ font-size: {max(10, round(unit_h * 0.27))}px; }}")
 
     def osk_refresh(self) -> None:
-        rows = self.pw.rows()
-        for buttons, chars in zip(self.osk_keys, rows, strict=True):
-            for i, b in enumerate(buttons):
-                b.set_visible(i < len(chars))
-                if i < len(chars):
-                    b.set_label(chars[i])
-                    b.char = chars[i]
-        self.osk_sym.set_label("abc" if self.pw.symbols else "123")
-        self.osk_show.set_label("Hide" if self.pw.visible else "Show")
-        if self.pw.shift:
-            self.osk_shift.add_css_class("suggested-action")
-        else:
-            self.osk_shift.remove_css_class("suggested-action")
+        for b, key in self.osk_chars:
+            ch = self.pw.label(key)
+            b.set_label(ch)
+        for b in self.osk_by_kind["shift"]:
+            (b.add_css_class if self.pw.shift else b.remove_css_class)("osk-on")
+        for b in self.osk_by_kind["caps"]:
+            (b.add_css_class if self.pw.caps else b.remove_css_class)("osk-on")
+        sym = self.osk_by_kind["symbols"][0]
+        sym.set_label("abc" if self.pw.symbols else "Sym")
+        (sym.add_css_class if self.pw.symbols else sym.remove_css_class)("osk-on")
+        show = self.osk_by_kind["show"][0]
+        show.set_label("Hide" if self.pw.visible else "Show")
         echo = bool(self.auth_req and self.auth_req["echo"])
-        self.osk_show.set_visible(not echo)
+        show.set_sensitive(not echo)  # not hidden: the bottom row keeps its shape
         self.a_display.set_label(self.pw.display(echo) or " ")
+
+    def osk_type(self, key: Key) -> None:
+        self.pw.press(key)
+        self.osk_refresh()
 
     def osk_press(self, ch: str) -> None:
         self.pw.type(ch)
         self.osk_refresh()
 
     def osk_action(self, name: str) -> None:
-        {"shift": self.pw.toggle_shift, "symbols": self.pw.toggle_symbols,
+        {"shift": self.pw.toggle_shift, "caps": self.pw.toggle_caps, "symbols": self.pw.toggle_symbols,
          "backspace": self.pw.backspace, "visible": self.pw.toggle_visible}[name]()
         self.osk_refresh()
 
@@ -373,7 +387,7 @@ class DeckWindow(Adw.ApplicationWindow):
         self.stack.set_visible_child_name("auth")
         self.osk_refresh()
         self.render_hints()
-        self.osk_keys[1][0].grab_focus()
+        self.osk_first.grab_focus()
 
     def auth_done(self) -> dict | None:
         req, self.auth_req = self.auth_req, None
@@ -474,7 +488,9 @@ class DeckWindow(Adw.ApplicationWindow):
         pct = max(115, min(210, round(128 * (max(width, height) / 1280) ** 0.7 / 4) * 4))
         bar = min(pct, 128) / pct * 100
         css = (f"window.deck, .deck-dialog {{ font-size: {pct}%; }}\n"
-               f"window.deck headerbar, window.deck .hint-bar {{ font-size: {bar:.1f}%; }}")
+               f"window.deck headerbar, window.deck .hint-bar {{ font-size: {bar:.1f}%; }}\n")
+        self._osk_for = (width, height)
+        css += self.apply_osk_size(width, height)
         if hasattr(self.scale_css, "load_from_string"):
             self.scale_css.load_from_string(css)
         else:
