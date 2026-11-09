@@ -47,6 +47,18 @@
     <annotate key="org.freedesktop.policykit.exec.path">/usr/libexec/boppos/decky-helper</annotate>
   </action>
 
+  <action id="org.boppos.deck.debug">
+    <description>Turn temporary SSH access on or off</description>
+    <message>Authentication is required to change SSH access</message>
+    <icon_name>boppos-icon</icon_name>
+    <defaults>
+      <allow_any>auth_admin</allow_any>
+      <allow_inactive>auth_admin</allow_inactive>
+      <allow_active>auth_admin_keep</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/libexec/boppos/debug-helper</annotate>
+  </action>
+
   <!-- First run: administrator password for everyone; rules.d/52-boppos-oobe.rules waives it, while a first run
        is pending, for the boppos-oobe account (setup) and for a wheel user's own welcome-tour calls. -->
   <action id="org.boppos.deck.oobe">

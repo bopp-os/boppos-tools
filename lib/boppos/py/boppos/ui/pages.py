@@ -13,7 +13,7 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 from gi.repository import Adw, Gtk  # noqa: E402
 
-from .. import system  # noqa: E402
+from .. import debug, system  # noqa: E402
 from ..privileged import UsageError, validate_image_ref  # noqa: E402
 from . import backend  # noqa: E402
 from .backend import fingerprint, run_json, tool  # noqa: E402
@@ -956,12 +956,46 @@ class SupportPage(Page):
     title, key, icon = "Support", "support", "help-browser-symbolic"
 
     def fetch(self):
-        return None
+        return debug.ssh_status()
 
     def build(self, data) -> None:
+        self.build_report()
+        if data["state"] != "missing":
+            self.build_ssh(data)
+
+    def build_ssh(self, data) -> None:
+        state = data["state"]
+        g = group("Remote access (SSH)",
+                  "Lets another computer on your network open a terminal here, to debug without typing on this device.")
+        if state == "always":
+            g.add(info_row("SSH", "Starts at boot", "Turned on outside BoppOS, so it is not changed here."))
+        elif state == "on":
+            when = "Turns off by itself within an hour, and at reboot." if data["auto_stop"] else "Turns off at reboot."
+            g.add(button_row("SSH is on", when, "Stop", self.stop_ssh, destructive=True))
+        else:
+            g.add(button_row("SSH is off", "Turn on for one hour. A reboot also turns it off.", "Start",
+                             self.start_ssh))
+        if state != "off":
+            for address in data["addresses"]:
+                g.add(info_row("Connect with", f"ssh {data['user']}@{address}"))
+        self.box.append(g)
+
+    def start_ssh(self) -> None:
+        self.win.confirm("Turn on SSH for one hour?",
+                         "Anyone on this network can try to log in with your account password. Use a trusted network.",
+                         "Turn on", lambda: self.win.run_job(
+                             "Starting SSH", [[tool("bopp-system"), "--json", "ssh-start"]],
+                             lambda ok, final: self.refresh()))
+
+    def stop_ssh(self) -> None:
+        self.win.run_job("Stopping SSH", [[tool("bopp-system"), "--json", "ssh-stop"]],
+                         lambda ok, final: self.refresh())
+
+    def build_report(self) -> None:
         g = group("Support report",
                   "Collects system details and recent action logs into one text file in your home folder.")
-        g.add(button_row("Create support report", "Includes image, device, kernel arguments and the last logs",
+        g.add(button_row("Create support report",
+                         "Includes image, device, kernel arguments, backlight, errors and the last logs",
                          "Create", lambda: self.win.run_job(
                              "Creating support report", [[tool("bopp-system"), "--json", "support-report"]],
                              lambda ok, final: None), suggested=True))
