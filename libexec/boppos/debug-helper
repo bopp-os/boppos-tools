@@ -1,0 +1,41 @@
+#!/usr/bin/python3 -I
+"""Root helper for the Support page: start SSH until a timer stops it, or stop it now.
+
+Only the two fixed verbs are accepted. Nothing is enabled, so a reboot also turns SSH off.
+"""
+
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+# libexec/boppos/<helper> -> ../../lib/boppos/py: /usr/lib/boppos/py when installed, the repo's lib/ in a checkout
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "lib/boppos/py"))
+
+from boppos.privileged import SSH_CLEAR_TIMER, SSH_STOP, SSH_UNIT, UsageError, debug_commands  # noqa: E402
+
+
+def main(argv):
+    os.environ.clear()
+    os.environ.update(PATH="/usr/sbin:/usr/bin", LANG="C.UTF-8")
+    try:
+        commands = debug_commands(argv)
+    except UsageError as exc:
+        print(exc, file=sys.stderr)
+        return 2
+    if subprocess.run(["/usr/bin/systemctl", "is-enabled", "--quiet", SSH_UNIT], check=False).returncode == 0:
+        print("debug-helper: SSH is set to start at boot, so it is left as it is", file=sys.stderr)
+        return 1
+    subprocess.run(SSH_CLEAR_TIMER, check=False, stderr=subprocess.DEVNULL)
+    try:
+        for cmd in commands:
+            subprocess.run(cmd, check=True)
+    except (OSError, subprocess.CalledProcessError) as exc:
+        print(f"debug-helper: {exc}", file=sys.stderr)
+        subprocess.run(SSH_STOP, check=False)  # never leave SSH running without its timer
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

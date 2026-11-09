@@ -12,6 +12,7 @@ import time
 from pathlib import Path
 
 from . import system
+from .debug import report_sections
 from .privileged import UsageError, validate_image_ref
 from .runner import log_dir, make_emitter, open_log, run_stream
 from .support import build_report
@@ -34,6 +35,8 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("reboot", help="reboot now")
     sub.add_parser("about", help="image, flavor, kernel, device")
     sub.add_parser("support-report", help="write ~/boppos-support-<time>.txt")
+    sub.add_parser("ssh-start", help="start SSH for an hour (never enabled at boot)")
+    sub.add_parser("ssh-stop", help="stop temporary SSH")
     return p
 
 
@@ -49,10 +52,10 @@ def _fail(args, msg: str, code: int = 1) -> int:
     return code
 
 
-def _helper_action(args, action: str, helper_args: list[str]) -> int:
+def _helper_action(args, action: str, helper_args: list[str], helper: str = "bootc-helper") -> int:
     emit = make_emitter(args.json, open_log(action))
     emit({"event": "step", "id": action, "status": "start"})
-    cmd = system.helper_cmd("bootc-helper", helper_args)
+    cmd = system.helper_cmd(helper, helper_args)
     lines: list[str] = []
 
     def tee(ev: dict) -> None:
@@ -66,7 +69,7 @@ def _helper_action(args, action: str, helper_args: list[str]) -> int:
         if hint:
             emit({"event": "log", "line": hint})
     emit({"event": "step", "id": action, "status": "ok" if rc == 0 else "fail"})
-    st = system.get_status() if rc == 0 else {}
+    st = system.get_status() if rc == 0 and helper == "bootc-helper" else {}
     emit({"event": "done", "ok": rc == 0, "reboot_required": bool(st.get("reboot_required"))})
     return 0 if rc == 0 else 1
 
@@ -125,6 +128,7 @@ def _support_report(args) -> int:
                                       else system.helper_cmd("kargs-helper", [verb]))
             sections[f"kargs {verb}"] = proc.stdout or proc.stderr
     sections["/proc/cmdline"] = Path("/proc/cmdline").read_text()
+    sections.update(report_sections())
     for log in sorted(log_dir().glob("*.log"))[-5:]:
         sections[f"log {log.name}"] = "\n".join(log.read_text(errors="replace").splitlines()[-200:])
     out = Path.home() / f"boppos-support-{time.strftime('%Y%m%d-%H%M%S')}.txt"
@@ -159,6 +163,8 @@ def main(argv: list[str] | None = None) -> int:
         except UsageError as exc:
             return _fail(args, str(exc), 2)
         return _helper_action(args, cmd, [cmd, image])
+    if cmd in ("ssh-start", "ssh-stop"):
+        return _helper_action(args, cmd, [cmd], helper="debug-helper")
     if cmd == "reboot":
         return subprocess.run(["systemctl", "reboot"], check=False).returncode
     return _support_report(args)

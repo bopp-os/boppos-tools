@@ -24,6 +24,25 @@ class UsageError(Exception):
     pass
 
 
+SYSTEMCTL = "/usr/bin/systemctl"
+SSH_UNIT = "sshd.service"
+SSH_STOP_TIMER = "boppos-ssh-stop.timer"
+SSH_MINUTES = 60
+SSH_CLEAR_TIMER = [SYSTEMCTL, "stop", SSH_STOP_TIMER]
+SSH_STOP = [SYSTEMCTL, "stop", SSH_UNIT]
+
+
+def debug_commands(argv: list[str]) -> list[list[str]]:
+    """Command lines for debug-helper's two verbs. The timer is transient and SSH is never enabled."""
+    if argv == ["ssh-start"]:
+        return [[SYSTEMCTL, "start", SSH_UNIT],
+                ["/usr/bin/systemd-run", "--collect", "--unit=boppos-ssh-stop", f"--on-active={SSH_MINUTES}min",
+                 *SSH_STOP]]
+    if argv == ["ssh-stop"]:
+        return [SSH_STOP]
+    raise UsageError("usage: debug-helper ssh-start|ssh-stop")
+
+
 def checked_karg(arg: str, verb: str = "add") -> str:
     """Validate an argument for the helper. Adding is checked against the whole forbidden list; removing only
     against what is needed to boot, so a bad argument that is already there can always be taken out."""
