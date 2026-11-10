@@ -1,25 +1,171 @@
 #!/usr/bin/python3 -I
-"""Root helper for bopp-decky: install or remove plugin_loader.service for the calling user.
+"""Root helper for bopp-decky: turn the system Decky Loader on or off for the calling user, and move an old
+~/homebrew install (plugin_loader.service, which ran a user-writable file as root) over to it.
 
-The user comes from pkexec (PKEXEC_UID) and the unit is a fixed template; the only variable is the
-home directory from the passwd entry. Nothing else is accepted from the caller.
+The user comes from pkexec (PKEXEC_UID); nothing else is accepted from the caller. Everything read from or
+written to the home folder is done by a child process running as that user, so a symlink planted there cannot
+make root read or write another file. Root only unpacks the regular files and directories the child sends into
+a fresh folder of its own under /var/lib/decky-loader.
 """
 
 import os
 import pwd
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 # libexec/boppos/<helper> -> ../../lib/boppos/py: /usr/lib/boppos/py when installed, the repo's lib/ in a checkout
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "lib/boppos/py"))
 
-from boppos.decky import SERVICE_NAME, UNIT_PATH, DeckyError, check_binary, unit_text  # noqa: E402
-from boppos.kargs import atomic_write  # noqa: E402
+from boppos import decky  # noqa: E402
+from boppos.decky import DeckyError  # noqa: E402
+
+ACTIONS = ("install", "uninstall", "migrate")
+
+
+def log(line):
+    print(line, flush=True)
 
 
 def systemctl(*args, check=True):
     subprocess.run(["/usr/bin/systemctl", *args], check=check)
+
+
+def drop_to(pw):
+    """In a forked child: become the user for good (uid, gid and supplementary groups)."""
+    os.initgroups(pw.pw_name, pw.pw_gid)
+    os.setgid(pw.pw_gid)
+    os.setuid(pw.pw_uid)
+    if os.getuid() != pw.pw_uid or os.geteuid() != pw.pw_uid or os.getegid() != pw.pw_gid:
+        raise OSError("could not drop privileges")
+    os.umask(0o077)
+    os.chdir(pw.pw_dir)
+
+
+def fork_as_user(pw, fn):
+    """Start fn() in a child running as the user; returns its pid. The child never returns into root code."""
+    sys.stdout.flush()
+    sys.stderr.flush()
+    pid = os.fork()
+    if pid:
+        return pid
+    code = 1
+    try:
+        drop_to(pw)
+        fn()
+        code = 0
+    except BaseException as exc:  # noqa: BLE001
+        print(f"decky-helper: {exc}", file=sys.stderr)
+    finally:
+        sys.stdout.flush()
+        sys.stderr.flush()
+        os._exit(code)
+
+
+def wait(pid):
+    return os.waitstatus_to_exitcode(os.waitpid(pid, 0)[1])
+
+
+def stop_legacy_service():
+    unit = Path(decky.LEGACY_UNIT_PATH)
+    if not (unit.is_file() or unit.is_symlink()):
+        return False
+    log(f"stopping the old {decky.LEGACY_SERVICE}")
+    # KillMode=process in the old unit leaves plugin processes behind on stop; kill the whole cgroup first.
+    systemctl("kill", decky.LEGACY_SERVICE, check=False)
+    systemctl("disable", "--now", decky.LEGACY_SERVICE, check=False)
+    unit.unlink()
+    systemctl("daemon-reload")
+    log(f"removed {unit}")
+    return True
+
+
+def copy_privileged(pw):
+    """~/homebrew/{plugins,settings} -> /var/lib/decky-loader/<user>/, read by the user and sent over a pipe."""
+    home = Path(pw.pw_dir)
+    dest = decky.state_dir(pw.pw_name)
+    root = Path(decky.STATE_ROOT)
+    root.mkdir(mode=0o755, exist_ok=True)
+    dest.mkdir(mode=0o755, exist_ok=True)
+    for d in (root, dest):
+        st = os.lstat(d)
+        if st.st_uid != os.geteuid() or not os.path.isdir(d) or os.path.islink(d):  # geteuid() is 0 here
+            raise DeckyError(f"{d} must be a directory owned by root")
+    r, w = os.pipe()
+
+    def send():
+        os.close(r)
+        with os.fdopen(w, "wb") as out:
+            decky.write_tar(home / decky.LEGACY_DIR, decky.PRIVILEGED_TOPS, out)
+
+    with tempfile.TemporaryDirectory(prefix=f".migrate-{pw.pw_name}-", dir=root) as staging:
+        pid = fork_as_user(pw, send)
+        os.close(w)
+        try:
+            with os.fdopen(r, "rb") as src:
+                files = decky.extract_tar(src, decky.PRIVILEGED_TOPS, Path(staging))
+        finally:
+            status = wait(pid)
+        if status != 0:
+            raise DeckyError("reading ~/homebrew failed; nothing was moved")
+        moved, kept = decky.merge_into(Path(staging), dest, decky.PRIVILEGED_TOPS)
+    log(f"plugins and settings: {files} files read, {len(moved)} entries added to {dest}, {len(kept)} already there")
+    return moved
+
+
+def copy_unprivileged_and_clean_up(pw):
+    """As the user: ~/homebrew/{data,logs} -> ~/.local/var/opt/decky-loader/, then delete the old binary."""
+    home = Path(pw.pw_dir)
+
+    def work():
+        dest = home / decky.UNPRIVILEGED_DIR
+        dest.mkdir(mode=0o755, parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(prefix=".migrate-", dir=dest) as staging:
+            files = decky.copy_tree(home / decky.LEGACY_DIR, decky.UNPRIVILEGED_TOPS, Path(staging))
+            moved, kept = decky.merge_into(Path(staging), dest, decky.UNPRIVILEGED_TOPS)
+        log(f"data and logs: {files} files read, {len(moved)} entries added to ~/{decky.UNPRIVILEGED_DIR}, "
+            f"{len(kept)} already there")
+        for rel in decky.remove_legacy_files(home):
+            log(f"deleted ~/{rel}")
+
+    if wait(fork_as_user(pw, work)) != 0:
+        raise DeckyError("copying plugin data and logs failed; the old files in ~/homebrew were kept")
+
+
+def migrate(pw):
+    """Move an old ~/homebrew install over. Safe to run again: only missing entries are added."""
+    stopped = stop_legacy_service()
+    legacy = Path(pw.pw_dir) / decky.LEGACY_DIR
+    if not os.path.isdir(legacy) or os.path.islink(legacy):
+        if stopped:
+            log("no ~/homebrew folder to move")
+        return False
+    log("moving the old Decky Loader install from ~/homebrew")
+    moved = copy_privileged(pw)
+    copy_unprivileged_and_clean_up(pw)
+    log("~/homebrew was kept; delete it yourself once Decky works")
+    return bool(moved)
+
+
+def install(pw):
+    if not os.path.isfile(decky.LOADER_BIN):
+        raise DeckyError("Decky Loader is not part of this system image yet. Update your system first.")
+    # The unit points UNPRIVILEGED_PATH at /home/<user>; check before moving anything there.
+    if os.path.realpath(pw.pw_dir) != os.path.realpath(f"/home/{pw.pw_name}"):
+        raise DeckyError(f"your home folder is {pw.pw_dir}, but Decky Loader expects /home/{pw.pw_name}")
+    unit = decky.unit_name(pw.pw_name)
+    if migrate(pw):
+        systemctl("try-restart", unit, check=False)  # pick up moved plugins if it was already running
+    systemctl("enable", "--now", unit)
+    log(f"enabled {unit}")
+
+
+def uninstall(pw):
+    migrate(pw)  # an old root service must not stay behind; its plugins are kept for a reinstall
+    unit = decky.unit_name(pw.pw_name)
+    systemctl("disable", "--now", unit, check=False)
+    log(f"disabled {unit}; plugins and settings in {decky.state_dir(pw.pw_name)} were kept")
 
 
 def main(argv):
@@ -27,25 +173,17 @@ def main(argv):
     raw_uid = os.environ.get("PKEXEC_UID") or os.environ.get("SUDO_UID", "")
     os.environ.clear()
     os.environ.update(PATH="/usr/sbin:/usr/bin", LANG="C.UTF-8")
-    if len(argv) != 1 or argv[0] not in ("install", "uninstall"):
-        print("usage: decky-helper install|uninstall", file=sys.stderr)
+    if len(argv) != 1 or argv[0] not in ACTIONS:
+        print("usage: decky-helper install|uninstall|migrate", file=sys.stderr)
         return 2
-    if not raw_uid.isdigit() or int(raw_uid) == 0:
+    if not raw_uid.isdigit() or int(raw_uid) < 1000 or int(raw_uid) == 65534:
         print("decky-helper: must be started through pkexec by a normal user", file=sys.stderr)
         return 2
-    uid = int(raw_uid)
+    os.umask(0o022)
     try:
-        home = pwd.getpwuid(uid).pw_dir
-        if argv[0] == "install":
-            check_binary(Path(home) / "homebrew/services/PluginLoader", uid)
-            atomic_write(Path(UNIT_PATH), unit_text(home))
-            systemctl("daemon-reload")
-            systemctl("enable", SERVICE_NAME)
-            systemctl("restart", SERVICE_NAME)
-        else:
-            systemctl("disable", "--now", SERVICE_NAME, check=False)
-            Path(UNIT_PATH).unlink(missing_ok=True)
-            systemctl("daemon-reload")
+        pw = pwd.getpwuid(int(raw_uid))
+        decky.validate_user(pw.pw_name)
+        {"install": install, "uninstall": uninstall, "migrate": migrate}[argv[0]](pw)
     except (DeckyError, KeyError, OSError, subprocess.CalledProcessError) as exc:
         print(f"decky-helper: {exc}", file=sys.stderr)
         return 1

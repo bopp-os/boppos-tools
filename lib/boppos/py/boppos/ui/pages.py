@@ -928,35 +928,56 @@ class DeckyPage(Page):
         return run_json([tool("bopp-decky"), "--json", "status"])
 
     def build(self, data) -> None:
-        g = group("Decky Loader", "Plugin loader for Steam Gaming Mode. Installed for your user in ~/homebrew.")
+        g = group("Decky Loader", "Plugin loader for Steam Gaming Mode. Part of BoppOS, off until you turn it on.")
         if "error" in data:
             g.add(message_row(f"Could not read the status: {data['error']}"))
             self.box.append(g)
             return
+        if data.get("legacy"):
+            self.box.append(self.legacy_group(data))
+        if not data.get("available"):
+            g.add(info_row("Status", "not available"))
+            g.add(message_row("This system image does not include Decky Loader yet. Update your system first."))
+            self.box.append(g)
+            return
         if data["installed"]:
-            state = "running" if data["service_active"] else "installed, not running"
+            state = "running" if data["service_active"] else "turned on, not running"
             g.add(info_row("Status", state, data.get("version") or ""))
-            g.add(button_row("Update Decky Loader", "Downloads the latest stable release and verifies it",
-                             "Update", self.install, suggested=True))
+            g.add(message_row("Decky Loader is updated with the system."))
         else:
-            g.add(info_row("Status", "not installed"))
-            g.add(button_row("Install Decky Loader", "Downloads the latest stable release and verifies it",
+            g.add(info_row("Status", "off"))
+            g.add(button_row("Install Decky Loader", "Turns on the Decky Loader that comes with BoppOS",
                              "Install", self.install, suggested=True))
         g.add(message_row("Steam restarts after installing so that Decky can attach to it."))
         self.box.append(g)
         if self.win.advanced and data["installed"]:
-            g = group("Remove", "Advanced. Plugins and settings in ~/homebrew are kept.")
-            g.add(button_row("Uninstall Decky Loader", "Stops and removes the service", "Uninstall",
+            g = group("Remove", "Advanced. Plugins and settings are kept for a reinstall.")
+            g.add(button_row("Uninstall Decky Loader", "Turns the service off", "Uninstall",
                              self.uninstall, destructive=True))
             self.box.append(g)
+
+    def legacy_group(self, data):
+        g = group("Old Decky Loader install",
+                  "An older install in ~/homebrew is still set up. It runs a file from your home folder as root.")
+        if data.get("available"):
+            g.add(button_row("Move to the system Decky Loader", "Copies your plugins and settings over, then "
+                             "removes the old service", "Move", self.install, suggested=True))
+        else:
+            g.add(button_row("Turn off the old install", "Removes the old service and keeps your plugins for "
+                             "later", "Turn off", self.migrate, destructive=True))
+        return g
 
     def install(self) -> None:
         self.win.run_job("Installing Decky Loader", [[tool("bopp-decky"), "--json", "install"]],
                          lambda ok, final: self.refresh())
 
+    def migrate(self) -> None:
+        self.win.run_job("Turning off the old Decky Loader", [[tool("bopp-decky"), "--json", "migrate"]],
+                         lambda ok, final: self.refresh())
+
     def uninstall(self) -> None:
         self.win.confirm("Uninstall Decky Loader?",
-                         "The service is removed. Plugins and settings stay in ~/homebrew.",
+                         "The service is turned off. Plugins and settings are kept for a reinstall.",
                          "Uninstall", lambda: self.win.run_job(
                              "Removing Decky Loader", [[tool("bopp-decky"), "--json", "uninstall"]],
                              lambda ok, final: self.refresh()), destructive=True)
