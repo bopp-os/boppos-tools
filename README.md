@@ -192,10 +192,10 @@ power-profiles-daemon writes CPU boost (its amd-pstate driver) and panel power s
 ### `bopp-decky` (Decky Loader)
 
 ```bash
-bopp-decky [--json] status | install | uninstall
+bopp-decky [--json] status | install | uninstall | migrate
 ```
 
-Installs per user into `~/homebrew` from the latest stable GitHub release, like the upstream installer, but verifies the download against the sha256 digest GitHub publishes (a release without one is refused). The root helper writes a fixed `plugin_loader.service` to `/etc/systemd/system` and refuses a binary the user does not own or that others can write to. It also sets Steam's CEF remote-debugging flag. In Gaming Mode it restarts Steam; elsewhere restart Steam yourself. As with upstream Decky, this is a root service that runs a file from your home directory.
+Turns on the `decky-loader` package that ships in the image (`/usr/bin/decky-loader`); Decky stays off until `install`. If the package is missing it fails with "update your system first", because `/usr` is read-only. `install` runs `systemctl enable --now decky-loader@<user>.service` for the calling user through the root helper, which first migrates an old install: `plugin_loader.service` (a root service that ran a file from your home folder) is stopped, disabled and removed, `~/homebrew/{plugins,settings}` are copied to `/var/lib/decky-loader/<user>/` (root-owned, so a user process cannot plant a plugin that runs as root), `~/homebrew/{data,logs}` to `~/.local/var/opt/decky-loader/`, and `~/homebrew/services/PluginLoader` is deleted. Only regular files and directories are copied; the home side is read as the user. Running it again changes nothing. `migrate` does only that step; `uninstall` turns the unit off and keeps `/var/lib/decky-loader/<user>`. It also sets Steam's CEF remote-debugging flag; in Gaming Mode it restarts Steam.
 
 ### `bopp-steam-shortcut` (Steam library entries)
 

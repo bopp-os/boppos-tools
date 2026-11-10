@@ -1,108 +1,211 @@
-"""Decky Loader install logic (modelled on SteamDeckHomebrew/decky-installer cli/install_release.sh).
+"""Decky Loader on BoppOS: the system `decky-loader` package, one `decky-loader@<user>.service` per user.
 
-Differences from upstream: the download is verified against the sha256 digest GitHub publishes for the
-asset, and the root helper writes a fixed unit template instead of fetching one from the main branch.
+The package ships /usr/bin/decky-loader and a template unit that keeps plugins and settings in a root-owned
+/var/lib/decky-loader/<user> (PRIVILEGED_PATH) and plugin data and logs in ~/.local/var/opt/decky-loader
+(UNPRIVILEGED_PATH). The unit stays off until bopp-decky enables it.
+
+Older BoppOS (and the upstream installer) ran ~/homebrew/services/PluginLoader as root from plugin_loader.service,
+a file the user can replace. The functions below move such an install over: they copy regular files and
+directories only, never follow a symlink, and only add entries the destination does not have yet, so running the
+migration again changes nothing.
 """
 
 from __future__ import annotations
 
-import hashlib
-import json
 import os
 import re
+import shutil
 import stat
+import sys
+import tarfile
 from pathlib import Path
 
-RELEASES_URL = "https://api.github.com/repos/SteamDeckHomebrew/decky-loader/releases"
-SERVICE_NAME = "plugin_loader.service"
-UNIT_PATH = f"/etc/systemd/system/{SERVICE_NAME}"
-_HOME_RE = re.compile(r"^/[A-Za-z0-9_./-]{1,200}$")
-_DIGEST_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
-_TAG_RE = re.compile(r"^v?[0-9A-Za-z._-]{1,40}$")
+LOADER_BIN = "/usr/bin/decky-loader"
+STATE_ROOT = "/var/lib/decky-loader"
+LEGACY_SERVICE = "plugin_loader.service"
+LEGACY_UNIT_PATH = f"/etc/systemd/system/{LEGACY_SERVICE}"
+# Relative to the home folder
+LEGACY_DIR = "homebrew"
+LEGACY_BINARY = "homebrew/services/PluginLoader"
+LEGACY_LEFTOVERS = ("homebrew/services/PluginLoader", "homebrew/services/.loader.version")
+UNPRIVILEGED_DIR = ".local/var/opt/decky-loader"
+# Which ~/homebrew folders go where
+PRIVILEGED_TOPS = ("plugins", "settings")
+UNPRIVILEGED_TOPS = ("data", "logs")
+
+_USER_RE = re.compile(r"^[a-z_][a-z0-9_-]{0,31}$")
+_COPY_CHUNK = 1 << 20
 
 
 class DeckyError(Exception):
     pass
 
 
-def asset_name(machine: str) -> str:
-    return "PluginLoader-arm64" if machine in ("aarch64", "arm64") else "PluginLoader"
+def validate_user(name: str) -> str:
+    if not _USER_RE.match(name):
+        raise DeckyError(f"user name not usable as a unit instance: {name!r}")
+    return name
 
 
-def pick_release(releases_json: str, machine: str = "x86_64") -> dict:
-    """First non-prerelease release that has the loader asset with a sha256 digest."""
-    try:
-        releases = json.loads(releases_json)
-    except json.JSONDecodeError as exc:
-        raise DeckyError(f"unreadable release list: {exc}") from exc
-    want = asset_name(machine)
-    for rel in releases if isinstance(releases, list) else []:
-        if rel.get("prerelease") or rel.get("draft"):
+def unit_name(user: str) -> str:
+    return f"decky-loader@{validate_user(user)}.service"
+
+
+def state_dir(user: str) -> Path:
+    return Path(STATE_ROOT) / validate_user(user)
+
+
+def _warn(msg: str) -> None:
+    print(f"decky: {msg}", file=sys.stderr, flush=True)
+
+
+# --- walking and writing trees ------------------------------------------------------------------
+
+
+def iter_tree(base: Path, tops: tuple[str, ...]):
+    """Yield (relpath, is_dir, fileobj | None, mode) for the regular files and directories under base/<top>.
+
+    Symlinks, devices, sockets and FIFOs are skipped, and a top folder that is itself a symlink is skipped too.
+    Files are opened with O_NOFOLLOW, so a path swapped for a symlink after the check is refused, not followed.
+    Unreadable entries are skipped with a warning."""
+    for top in tops:
+        root = base / top
+        try:
+            st = os.lstat(root)
+        except FileNotFoundError:
             continue
-        for asset in rel.get("assets", []):
-            if asset.get("name") != want:
+        if not stat.S_ISDIR(st.st_mode):
+            _warn(f"skipped {root}: not a directory")
+            continue
+        yield from _walk(root, top, st.st_mode)
+
+
+def _walk(path: Path, rel: str, mode: int):
+    yield rel, True, None, mode
+    try:
+        entries = sorted(os.scandir(path), key=lambda e: e.name)
+    except OSError as exc:
+        _warn(f"skipped {path}: {exc.strerror}")
+        return
+    for entry in entries:
+        child, child_rel = Path(entry.path), f"{rel}/{entry.name}"
+        try:
+            st = entry.stat(follow_symlinks=False)
+        except OSError as exc:
+            _warn(f"skipped {child}: {exc.strerror}")
+            continue
+        if stat.S_ISDIR(st.st_mode):
+            yield from _walk(child, child_rel, st.st_mode)
+        elif stat.S_ISREG(st.st_mode):
+            try:
+                fd = os.open(child, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC)
+            except OSError as exc:
+                _warn(f"skipped {child}: {exc.strerror}")
                 continue
-            tag, digest, url = rel.get("tag_name", ""), asset.get("digest") or "", asset.get("browser_download_url", "")
-            if not _TAG_RE.match(tag):
-                raise DeckyError(f"unexpected release tag {tag!r}")
-            if not _DIGEST_RE.match(digest):
-                raise DeckyError(f"release {tag} has no sha256 digest for {want}; refusing unverified download")
-            if not url.startswith("https://github.com/SteamDeckHomebrew/decky-loader/releases/download/"):
-                raise DeckyError("unexpected download URL")
-            return {"version": tag, "url": url, "sha256": digest.split(":", 1)[1], "size": asset.get("size")}
-    raise DeckyError(f"no stable release with a {want} asset found")
+            with os.fdopen(fd, "rb") as fh:
+                if not stat.S_ISREG(os.fstat(fh.fileno()).st_mode):
+                    _warn(f"skipped {child}: changed while copying")
+                    continue
+                yield child_rel, False, fh, st.st_mode
+        else:
+            _warn(f"skipped {child}: not a regular file or directory")
 
 
-def sha256_file(path: Path) -> str:
-    h = hashlib.sha256()
-    with open(path, "rb") as fh:
-        for chunk in iter(lambda: fh.read(1 << 20), b""):
-            h.update(chunk)
-    return h.hexdigest()
+def _check_rel(rel: str, tops: tuple[str, ...]) -> list[str]:
+    parts = rel.split("/")
+    if not parts or parts[0] not in tops or any(p in ("", ".", "..") or "\0" in p for p in parts):
+        raise DeckyError(f"refusing path {rel!r}")
+    return parts
 
 
-def validate_home(home: str) -> str:
-    if not _HOME_RE.match(home) or ".." in home.split("/"):
-        raise DeckyError(f"home directory not usable in a unit file: {home!r}")
-    return home
+def _write_entry(dest: Path, rel: str, is_dir: bool, src, mode: int) -> None:
+    """Create dest/rel (which must not exist yet). Group and world write bits and setuid/setgid are dropped."""
+    target = dest / rel
+    perm = stat.S_IMODE(mode) & 0o755
+    if is_dir:
+        target.mkdir(mode=0o700, parents=True, exist_ok=True)
+        os.chmod(target, perm | 0o700)
+        return
+    target.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    fd = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600)
+    with os.fdopen(fd, "wb") as out:
+        shutil.copyfileobj(src, out, _COPY_CHUNK)
+        os.fchmod(out.fileno(), perm | 0o600)
 
 
-def unit_text(home: str) -> str:
-    home = validate_home(home)
-    hb = f"{home}/homebrew"
-    return f"""[Unit]
-Description=SteamDeck Plugin Loader (installed by bopp-decky)
-After=network.target
-
-[Service]
-Type=simple
-User=root
-Restart=always
-KillMode=process
-TimeoutStopSec=15
-ExecStart={hb}/services/PluginLoader
-WorkingDirectory={hb}/services
-Environment=UNPRIVILEGED_PATH={hb}
-Environment=PRIVILEGED_PATH={hb}
-Environment=LOG_LEVEL=INFO
-
-[Install]
-WantedBy=multi-user.target
-"""
+def copy_tree(base: Path, tops: tuple[str, ...], staging: Path) -> int:
+    """Copy base/<top> for each top into staging (a fresh, empty folder). Returns the number of files."""
+    files = 0
+    for rel, is_dir, fh, mode in iter_tree(base, tops):
+        _write_entry(staging, rel, is_dir, fh, mode)
+        files += not is_dir
+    return files
 
 
-def check_binary(path: Path, uid: int) -> None:
-    """The root service will exec this file: it must be a plain file owned by the user and not be
-    writable by anyone else, and so must the directories above it up to the home directory."""
-    st = os.lstat(path)
-    if not stat.S_ISREG(st.st_mode) or st.st_uid != uid or st.st_mode & (stat.S_IWGRP | stat.S_IWOTH):
-        raise DeckyError(f"{path} must be a regular file owned by the user and not group/world writable")
-    if not st.st_mode & stat.S_IXUSR:
-        raise DeckyError(f"{path} is not executable")
-    for parent in (path.parent, path.parent.parent):
-        pst = os.lstat(parent)
-        if not stat.S_ISDIR(pst.st_mode) or pst.st_uid != uid or pst.st_mode & (stat.S_IWGRP | stat.S_IWOTH):
-            raise DeckyError(f"{parent} must be a directory owned by the user and not group/world writable")
+def write_tar(base: Path, tops: tuple[str, ...], fileobj) -> None:
+    """Stream base/<top> as an uncompressed tar of regular files and directories (no owners, no links)."""
+    with tarfile.open(fileobj=fileobj, mode="w|", format=tarfile.PAX_FORMAT) as tar:
+        for rel, is_dir, fh, mode in iter_tree(base, tops):
+            info = tarfile.TarInfo(rel)
+            info.mode = stat.S_IMODE(mode)
+            if is_dir:
+                info.type = tarfile.DIRTYPE
+                tar.addfile(info)
+            else:
+                info.size = os.fstat(fh.fileno()).st_size
+                tar.addfile(info, fh)
+
+
+def extract_tar(fileobj, tops: tuple[str, ...], staging: Path) -> int:
+    """Unpack a stream from write_tar into staging. The stream comes from the user, so every member is checked:
+    only regular files and directories, only below one of tops, no absolute paths and no '..'."""
+    files = 0
+    with tarfile.open(fileobj=fileobj, mode="r|") as tar:
+        for member in tar:
+            _check_rel(member.name, tops)
+            if member.isdir():
+                _write_entry(staging, member.name, True, None, member.mode)
+            elif member.isreg():
+                src = tar.extractfile(member)
+                _write_entry(staging, member.name, False, src, member.mode)
+                files += 1
+            else:
+                raise DeckyError(f"refusing {member.name!r}: not a regular file or directory")
+    return files
+
+
+def merge_into(staging: Path, dest: Path, tops: tuple[str, ...]) -> tuple[list[str], list[str]]:
+    """Move staging/<top>/<entry> to dest/<top>/<entry> where dest has no such entry yet (a plugin, a settings
+    file, a plugin's data folder). Existing entries are left alone, which makes a second run a no-op.
+    Returns (moved, kept)."""
+    moved, kept = [], []
+    for top in tops:
+        src_top = staging / top
+        if not src_top.is_dir():
+            continue
+        dst_top = dest / top
+        if dst_top.is_symlink():
+            raise DeckyError(f"{dst_top} is a symlink")
+        dst_top.mkdir(mode=0o755, parents=True, exist_ok=True)
+        for entry in sorted(src_top.iterdir()):
+            target = dst_top / entry.name
+            if os.path.lexists(target):
+                kept.append(f"{top}/{entry.name}")
+            else:
+                os.rename(entry, target)
+                moved.append(f"{top}/{entry.name}")
+    return moved, kept
+
+
+def remove_legacy_files(home: Path) -> list[str]:
+    """Delete the old root-run binary (and its version file). Plugins, data and settings in ~/homebrew are kept."""
+    removed = []
+    for rel in LEGACY_LEFTOVERS:
+        path = home / rel
+        if path.is_symlink() or path.is_file():
+            path.unlink()
+            removed.append(rel)
+    return removed
 
 
 def cef_flag_paths(home: str) -> list[Path]:
