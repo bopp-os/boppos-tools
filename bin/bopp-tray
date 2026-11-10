@@ -33,10 +33,6 @@ Dependencies (all available in CachyOS / AUR):
     libappindicator  — AppIndicator3 / StatusNotifierItem support (Wayland, Niri, Cinnamon)
     libnotify        — notify-send for desktop notifications
     polkit           — pkexec for privileged one-shot service trigger
-
-Signals
--------
-  SIGUSR1 — re-read status file immediately (sent by update-check)
 """
 
 import io
@@ -44,7 +40,6 @@ import json
 import logging
 import os
 import shutil
-import signal
 import subprocess
 import sys
 import threading
@@ -76,6 +71,7 @@ from boppos.tray_logic import compute_state, menu_spec, tooltip  # noqa: E402
 # ── Constants ─────────────────────────────────────────────────────────────────
 STATUS_FILE = Path("/run/boppos/update-status.json")
 POLL_INTERVAL_SECONDS = 300           # 5 min fallback poll
+WATCH_INTERVAL_SECONDS = 5            # how often to look at the status file's mtime
 NOTIFY_COOLDOWN_SECONDS = 3600        # don't re-notify for the same digest within 1 h
 STATE_FILE = Path(os.path.expanduser("~/.cache/boppos/bopp-tray-state.json"))
 
@@ -484,26 +480,35 @@ class BoppTray:
             else:
                 _notify("System is up to date", "No new updates found for BoppOS.")
 
+    @staticmethod
+    def _status_stamp():
+        """Changes whenever update-check replaces the status file (it writes a temp file and renames it)."""
+        try:
+            st = os.stat(STATUS_FILE)
+        except OSError:
+            return None
+        return (st.st_mtime_ns, st.st_ino)
+
     def _poll_loop(self) -> None:
-        """Background thread: refresh on SIGUSR1 wakeup or POLL_INTERVAL timeout."""
+        """Background thread: refresh when the status file changes (checked every few seconds), when the
+        menu asks for it, or after POLL_INTERVAL as a fallback. The root update service never signals us."""
+        stamp = self._status_stamp()
+        last_refresh = time.monotonic()
         while True:
-            self._wakeup.wait(timeout=POLL_INTERVAL_SECONDS)
+            woken = self._wakeup.wait(timeout=WATCH_INTERVAL_SECONDS)
             self._wakeup.clear()
+            new_stamp = self._status_stamp()
+            if not (woken or new_stamp != stamp or time.monotonic() - last_refresh >= POLL_INTERVAL_SECONDS):
+                continue
+            stamp, last_refresh = new_stamp, time.monotonic()
             try:
                 self._refresh()
             except Exception as exc:
                 log.error("Refresh error: %s", exc)
 
-    def _on_sigusr1(self, _signum, _frame) -> None:
-        log.info("Received SIGUSR1 — re-reading update status")
-        self._wakeup.set()
-
     def run(self) -> None:
         # Initial read
         self._refresh()
-
-        # Wire SIGUSR1 from the system service
-        signal.signal(signal.SIGUSR1, self._on_sigusr1)
 
         # Background polling thread
         poll_thread = threading.Thread(target=self._poll_loop, daemon=True)

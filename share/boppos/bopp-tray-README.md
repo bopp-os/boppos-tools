@@ -20,9 +20,9 @@ image system.
 │    2. bootc upgrade --check        → fetch upstream if needed   │
 │    3. bopp-diff --staged           → package diff text          │
 │    4. write /run/boppos/update-status.json  (mode 0644)         │
-│    5. pkill -SIGUSR1 bopp-tray                                  │
+│    (the tray notices the new file by itself)                    │
 └─────────────────────────────────────────────────────────────────┘
-                              │ SIGUSR1 / file read
+                              │ file read (mtime watch)
 ┌─────────────────────────────▼───────────────────────────────────┐
 │  USER SESSION                                                   │
 │                                                                 │

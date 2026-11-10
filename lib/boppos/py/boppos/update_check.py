@@ -128,6 +128,5 @@ def write_status(doc: dict, path: Path = STATUS_FILE) -> None:
 
 def main() -> int:
     write_status(check())
-    # Wake any running tray: it sleeps until this signal rather than polling.
-    subprocess.run(["pkill", "-SIGUSR1", "-f", "bopp-tray"], capture_output=True, check=False)
+    # No signal to the tray: it runs as the user and watches the status file's mtime itself.
     return 0
