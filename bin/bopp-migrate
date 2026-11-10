@@ -82,7 +82,8 @@ echo "--- [1/6] Backing up and resetting system configs (/etc) ---"
 
 # 1.1 Backup /etc
 mkdir -p /var/roothome/migration_backups
-tar -czf "/var/roothome/migration_backups/etc_pre_migration_$TIMESTAMP.tar.gz" /etc 2>/dev/null
+# The archive holds /etc/shadow: keep it private to root
+(umask 077; tar -czf "/var/roothome/migration_backups/etc_pre_migration_$TIMESTAMP.tar.gz" /etc 2>/dev/null)
 echo "✅ /etc backed up to /var/roothome/migration_backups/"
 
 # 1.2 Restore pristine Arch PAM & NSS
@@ -147,8 +148,12 @@ if [ -f /usr/etc/gshadow ]; then
 fi
 
 # 3. Clean up shadow files (Remove dangling entries using strict username anchoring)
-grep -f <(cut -d: -f1 /etc/passwd.new | sed 's/^/^/; s/$/:/') /etc/shadow.tmp > /etc/shadow.new
-grep -f <(cut -d: -f1 /etc/group.new | sed 's/^/^/; s/$/:/') /etc/gshadow.tmp > /etc/gshadow.new
+# The new files are created 0600 root:root (umask 077), so the hashes are never world-readable, not even briefly
+(umask 077
+ grep -f <(cut -d: -f1 /etc/passwd.new | sed 's/^/^/; s/$/:/') /etc/shadow.tmp > /etc/shadow.new
+ grep -f <(cut -d: -f1 /etc/group.new | sed 's/^/^/; s/$/:/') /etc/gshadow.tmp > /etc/gshadow.new)
+chmod 0600 /etc/shadow.new /etc/gshadow.new
+chown root:root /etc/shadow.new /etc/gshadow.new
 rm -f /etc/shadow.tmp /etc/gshadow.tmp
 
 mv /etc/passwd.new /etc/passwd
