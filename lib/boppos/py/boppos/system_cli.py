@@ -96,6 +96,9 @@ def _upgrade(args) -> int:
 def _check(args) -> int:
     subprocess.run(["systemctl", "start", "boppos-update-monitor.service"], check=False, capture_output=True)
     st = system.get_status()
+    # bootc status only knows a staged update; a newer image upstream is what the monitor just found.
+    if "error" not in st and (st.get("monitor") or {}).get("update_available"):
+        st["update_available"] = True
     flatpak = {"count": None}
     if shutil.which("flatpak"):
         proc = system.run_capture(["flatpak", "remote-ls", "--updates", "--columns=application"], timeout=90)

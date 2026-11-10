@@ -4,6 +4,10 @@ import subprocess
 import pytest
 from boppos import update_check as uc
 
+# What bootc upgrade --check really prints (crates/lib/src/cli.rs).
+BOOTC_FOUND = ("Update available for: ostree-image-signed:docker://ghcr.io/x/y:latest\n"
+               "  Version: znver4.20261109\n  Digest: sha256:new\n")
+
 
 def cp(out="", rc=0, err=""):
     return subprocess.CompletedProcess([], rc, out, err)
@@ -61,7 +65,7 @@ def test_an_already_staged_update_is_reported_with_its_diff():
 
 def test_a_different_registry_digest_is_confirmed_by_bootc():
     doc, f = run_check({"bootc status": cp(status_json()), "skopeo inspect": cp("sha256:new\n"),
-                        "bootc upgrade": cp("Available update: sha256:new"), "bopp-diff": cp("diff")})
+                        "bootc upgrade": cp(BOOTC_FOUND), "bopp-diff": cp("diff")})
     assert doc["update_available"] is True and doc["staged_image"] == "sha256:new"
     assert ["skopeo", "inspect", "--format", "{{.Digest}}", "docker://ghcr.io/x/y:latest"] in f.calls
     assert ["bootc", "upgrade", "--check"] in f.calls
@@ -84,7 +88,7 @@ def test_skopeo_same_digest_skips_the_bootc_check():
 def test_bootc_check_finds_an_update_and_prefers_the_restaged_digest():
     answers = {
         "bootc status": [cp(status_json()), cp(status_json(staged="sha256:real"))],
-        "bootc upgrade": cp("Available update: sha256:fromcheck"),
+        "bootc upgrade": cp(BOOTC_FOUND),
     }
     doc, _ = run_check(answers, tools=("bootc",))  # no skopeo, no bopp-diff
     assert doc["update_available"] is True and doc["staged_image"] == "sha256:real"
@@ -99,8 +103,27 @@ def test_retries_when_the_network_is_not_up_yet():
 
 
 def test_check_upgrade_output():
+    assert uc.check_upgrade_output(BOOTC_FOUND) == (True, "sha256:new")
+    assert uc.check_upgrade_output("Update available for: docker://x") == (True, "")  # never the image ref
     assert uc.check_upgrade_output("Available update: sha256:x") == (True, "sha256:x")
     assert uc.check_upgrade_output("No changes in: docker://x") == (False, "")
+
+
+def test_no_changes_is_definitive_so_it_is_not_retried():
+    doc, f = run_check({"bootc status": cp(status_json()), "skopeo inspect": cp("sha256:reg\n"),
+                        "bootc upgrade": cp("No changes in: docker://x")})
+    assert doc["update_available"] is False
+    assert sum(1 for c in f.calls if c[:2] == ["bootc", "upgrade"]) == 1
+
+
+def test_deck_check_reports_an_update_the_monitor_found(monkeypatch, capsys):
+    from boppos import system, system_cli
+    monkeypatch.setattr(system_cli.subprocess, "run", lambda *a, **k: cp())
+    monkeypatch.setattr(system_cli.shutil, "which", lambda name: None)
+    monkeypatch.setattr(system, "get_status", lambda: {"update_available": False, "staged": None,
+                                                       "monitor": {"update_available": True}})
+    assert system_cli.main(["--json", "check"]) == 0
+    assert json.loads(capsys.readouterr().out)["os"]["update_available"] is True
 
 
 def test_status_file_is_written_atomically_and_world_readable(tmp_path):

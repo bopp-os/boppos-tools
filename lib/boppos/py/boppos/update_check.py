@@ -21,8 +21,10 @@ from .bootc import parse_status
 STATUS_FILE = Path("/run/boppos/update-status.json")
 RETRIES = 3
 RETRY_DELAY = 5
-_AVAILABLE = re.compile(r"available update|upgrade available", re.I)
-_DEFINITIVE = re.compile(r"available update|upgrade available|no update", re.I)
+# bootc prints "Update available for: docker://…" then "  Digest: sha256:…", or "No changes in: docker://…".
+_AVAILABLE = re.compile(r"update available|available update|upgrade available", re.I)
+_DEFINITIVE = re.compile(r"update available|available update|upgrade available|no changes in|no update", re.I)
+_DIGEST = re.compile(r"^\s*Digest:\s*(\S+)", re.I | re.M)
 
 Run = Callable[[list[str]], "subprocess.CompletedProcess[str]"]
 
@@ -56,10 +58,13 @@ def _transport(raw: str) -> str:
 
 def check_upgrade_output(text: str) -> tuple[bool, str]:
     """(update found, its digest) from `bootc upgrade --check` output."""
-    for line in text.splitlines():
-        if _AVAILABLE.search(line):
-            return True, line.split()[-1] if line.split() else ""
-    return False, ""
+    if not _AVAILABLE.search(text):
+        return False, ""
+    m = _DIGEST.search(text)
+    if m:
+        return True, m.group(1)
+    last = next(ln for ln in text.splitlines() if _AVAILABLE.search(ln)).split()[-1]
+    return True, last if last.startswith("sha256:") else ""
 
 
 def check(run: Run = _run, which: Callable[[str], str | None] = shutil.which,
