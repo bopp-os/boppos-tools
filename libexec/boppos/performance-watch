@@ -1,0 +1,63 @@
+#!/usr/bin/python3 -I
+"""boppos-performance.service: keep the Performance page's battery settings applied.
+
+power-profiles-daemon rewrites CPU boost and the panel power savings whenever its profile or the power source changes
+(Steam's performance menu changes the profile too). This writes ours again a moment after each such D-Bus change,
+and every 30 seconds in case a change came without a signal. Writes happen only when a value differs.
+"""
+
+import os
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "lib/boppos/py"))
+
+from boppos import performance  # noqa: E402
+from gi.repository import Gio, GLib  # noqa: E402
+
+DELAY_MS = 1500  # after ppd has handled the same change
+POLL_S = 30
+WATCHED = ("/org/freedesktop/UPower", "/org/freedesktop/UPower/PowerProfiles", "/net/hadess/PowerProfiles")
+
+
+class Watcher:
+    def __init__(self) -> None:
+        self.pending = 0
+
+    def apply(self) -> bool:
+        self.pending = 0
+        for change in performance.apply(performance.load()):
+            print(f"set {change}", flush=True)
+        return GLib.SOURCE_REMOVE
+
+    def soon(self, *_args) -> None:
+        if self.pending:
+            GLib.source_remove(self.pending)
+        self.pending = GLib.timeout_add(DELAY_MS, self.apply)
+
+    def on_signal(self, _conn, _sender, path, _iface, _signal, _params) -> None:
+        if path in WATCHED:
+            self.soon()
+
+    def poll(self) -> bool:
+        self.apply()
+        return GLib.SOURCE_CONTINUE
+
+
+def main() -> int:
+    os.environ.update(PATH="/usr/sbin:/usr/bin", LANG="C.UTF-8")
+    w = Watcher()
+    try:
+        bus = Gio.bus_get_sync(Gio.BusType.SYSTEM)
+        bus.signal_subscribe(None, "org.freedesktop.DBus.Properties", "PropertiesChanged", None, None,
+                             Gio.DBusSignalFlags.NONE, w.on_signal)
+    except GLib.Error as exc:
+        print(f"no system bus ({exc.message}): polling only", flush=True)
+    w.apply()
+    GLib.timeout_add_seconds(POLL_S, w.poll)
+    GLib.MainLoop().run()
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

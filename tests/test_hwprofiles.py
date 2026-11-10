@@ -37,6 +37,13 @@ def test_detect_a_handheld(tmp_path):
     assert hw.kind == "handheld" and hw.gpus == ("amd",) and hw.tpm and not hw.camera
 
 
+@pytest.mark.parametrize("product", ["83E1", "83L3", "83N0", "83N1", "83N6", "83Q2", "83Q3"])
+def test_detect_the_legion_go_family_as_handhelds(tmp_path, product):
+    # they have a battery, so a missing product code would make them a "laptop"
+    hw = hwprofiles.detect(_root(tmp_path, {"sys_vendor": "LENOVO", "product_name": product}, "0x1002", True))
+    assert hw.kind == "handheld"
+
+
 def test_detect_laptop_desktop_and_vm(tmp_path):
     lap = hwprofiles.detect(_root(tmp_path / "a", {"sys_vendor": "Dell", "product_name": "XPS"}, "0x8086", True))
     desk = hwprofiles.detect(_root(tmp_path / "b", {"sys_vendor": "ASUS", "product_name": "PRIME"}, "0x10de"))
