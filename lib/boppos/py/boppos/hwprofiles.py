@@ -55,7 +55,10 @@ PROFILES: dict[str, Hardware] = {h.key: h for h in (
 )}
 
 # Handhelds by DMI, for detection on a real machine (product_name patterns, any case).
-HANDHELD_PRODUCTS = ("jupiter", "galileo", "rog ally*", "83e1", "83n0", "83n1", "claw*", "onexplayer*", "ayaneo*")
+# 83xx are Lenovo Legion Go family machine types, as listed by CachyOS chwd (profiles/pci/handhelds, 2026-11-09).
+# chwd also names many bare Ayaneo, OneXPlayer and AOKZOE products that are not matched here yet.
+HANDHELD_PRODUCTS = ("jupiter", "galileo", "rog ally*", "83e1", "83l3", "83n0", "83n1", "83n6", "83q2", "83q3", "claw*",
+                     "onexplayer*", "ayaneo*")
 
 
 def parse_profile(name: str) -> Hardware:

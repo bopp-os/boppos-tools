@@ -156,3 +156,39 @@ def kargs_argv(argv: list[str]) -> list[str]:
         _expect(rest, 1, f"{verb} ARG")
         return ["--json", verb, checked_karg(rest[0], verb)]
     raise UsageError(usage)
+
+
+def performance_argv(argv: list[str]) -> list[str]:
+    """Check `performance-helper` arguments: set-abm system|0-3, set-boost system|off-on-battery,
+    scx SCHED MODE (SCHED is checked again against `scxctl list` by the helper), recommended."""
+    from .performance import BOOST_CHOICES, SCX_MODES, SCX_NONE, parse_abm
+
+    usage = ("usage: performance-helper set-abm system|0-3 | set-boost system|off-on-battery | scx SCHED MODE"
+             " | recommended")
+    if not argv:
+        raise UsageError(usage)
+    verb, rest = argv[0], argv[1:]
+    if verb == "set-abm":
+        _expect(rest, 1, "set-abm system|0-3")
+        try:
+            parse_abm(rest[0])
+        except ValueError as exc:
+            raise UsageError(str(exc)) from None
+        return argv
+    if verb == "set-boost":
+        _expect(rest, 1, "set-boost system|off-on-battery")
+        if rest[0] not in BOOST_CHOICES:
+            raise UsageError(f"invalid CPU boost choice: {rest[0]!r}")
+        return argv
+    if verb == "scx":
+        _expect(rest, 2, "scx SCHED MODE")
+        sched, mode = rest
+        if sched != SCX_NONE and not re.match(r"^[a-z][a-z0-9_]{0,31}$", sched):
+            raise UsageError(f"invalid scheduler name: {sched!r}")
+        if mode not in SCX_MODES:
+            raise UsageError(f"invalid scheduler mode: {mode!r}")
+        return argv
+    if verb == "recommended":
+        _expect(rest, 0, "recommended")
+        return argv
+    raise UsageError(usage)

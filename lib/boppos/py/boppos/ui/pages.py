@@ -13,12 +13,13 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 from gi.repository import Adw, Gtk  # noqa: E402
 
-from .. import debug, system  # noqa: E402
+from .. import debug, performance, system  # noqa: E402
 from ..privileged import UsageError, validate_image_ref  # noqa: E402
 from . import backend  # noqa: E402
 from .backend import fingerprint, run_json, tool  # noqa: E402
 from .widgets import (  # noqa: E402
     button_row,
+    combo_row,
     expander_row,
     group,
     info_row,
@@ -961,6 +962,137 @@ class DeckyPage(Page):
                              lambda ok, final: self.refresh()), destructive=True)
 
 
+# --- Performance --------------------------------------------------------------------------------
+
+# Screen power saving choices: "system" leaves it to power-profiles-daemon
+ABM_OPTIONS = [(v, t + (" (saves the most)" if v == 3 else "")) for v, t in performance.ABM_LABELS.items()]
+SCX_MODE_LABELS = performance.SCX_MODE_LABELS
+
+
+def change_lines(changes: list[dict]) -> str:
+    """One line per setting that applying the recommended settings would change."""
+    return "\n".join(f"{c['what']}: {c['from']} \u2192 {c['to']}" for c in changes)
+
+
+def scx_label(name: str, recommended: str = "") -> str:
+    label = "None (kernel scheduler)" if name == "none" else f"scx_{name}"
+    return f"{label} (recommended)" if name == recommended else label
+
+
+class PerformancePage(Page):
+    title, key, icon = "Performance", "performance", "power-profile-balanced-symbolic"
+
+    def fetch(self):
+        return run_json([tool("bopp-performance"), "--json", "status"])
+
+    def build(self, data) -> None:
+        if "error" in data:
+            g = group("Performance")
+            g.add(message_row(f"Could not read the settings: {data['error']}"))
+            self.box.append(g)
+            return
+        self.build_recommended(data)
+        if data["scx"].get("available"):
+            self.build_scx(data["scx"])
+        if data["battery"] and (data["abm"]["supported"] or data["boost"]["supported"]):
+            self.build_battery(data)
+
+    def build_recommended(self, data) -> None:
+        rec = data["recommended"]
+        changes = rec["changes"]
+        g = group("Recommended settings", f"{rec['title']} profile for {rec['label']}.")
+        g.add(message_row(rec["note"]))
+        if changes:
+            g.add(button_row("Use recommended settings", change_lines(changes), "Apply",
+                             lambda: self.use_recommended(changes), suggested=True))
+        else:
+            g.add(info_row("Use recommended settings", "Your settings already match"))
+        self.box.append(g)
+
+    def build_scx(self, scx) -> None:
+        g = group("CPU scheduler",
+                  "A sched-ext scheduler run by scx_loader. scx_lavd is made for games and handhelds; its Auto "
+                  "mode saves power when the load is light. The choice is kept across reboots.")
+        if scx["sched"] == "none":
+            g.add(info_row("Running now", "Kernel scheduler"))
+        else:
+            mode = SCX_MODE_LABELS.get(scx["mode"], scx["mode"])
+            g.add(info_row("Running now", f"scx_{scx['sched']}", f"{mode} mode"))
+        names = list(scx["schedulers"])
+        rec = scx["recommended"]
+        if rec in names:
+            names.remove(rec)
+            names.insert(0, rec)
+        if rec == "none":  # recommended goes first
+            names.insert(0, "none")
+        else:
+            names.append("none")
+        current = scx["sched"] if scx["sched"] in names else scx["default_sched"]
+        sched_row = combo_row("Scheduler", [scx_label(n, rec) for n in names],
+                              names.index(current) if current in names else 0)
+        modes = scx["modes"]
+        mode = scx["mode"] or scx["default_mode"]
+        mode_row = combo_row("Mode", [SCX_MODE_LABELS.get(m, m) for m in modes],
+                             modes.index(mode) if mode in modes else 0)
+        g.add(sched_row)
+        g.add(mode_row)
+        g.add(button_row("Apply scheduler", "Switches now and keeps it for the next boot", "Apply",
+                         lambda: self.run_verb(["scx", names[sched_row.get_selected()],
+                                                modes[mode_row.get_selected()]], "Scheduler switched.")))
+        self.box.append(g)
+
+    def build_battery(self, data) -> None:
+        g = group("On battery", "Applied only while unplugged, and kept across reboots. On the charger these go back "
+                                "to full brightness range and full CPU speed.")
+        settings = data["settings"]
+        if data["abm"]["supported"]:
+            if data["abm"]["locked"]:
+                g.add(info_row("Screen power saving", "Set by a kernel argument",
+                               "amdgpu.abmlevel is on the kernel command line; remove it to choose here."))
+            else:
+                values = [v for v, _t in ABM_OPTIONS]
+                row = combo_row("Screen power saving", [t for _v, t in ABM_OPTIONS],
+                                values.index(settings["abm"]) if settings["abm"] in values else 0)
+                row.set_subtitle("Dims the backlight and raises contrast to match (AMD ABM). Biggest effect at high "
+                                 "brightness.")
+                row.set_subtitle_lines(0)
+
+                def abm_changed(r, _p) -> None:
+                    v = values[r.get_selected()]
+                    if v != settings["abm"]:
+                        self.run_verb(["set-abm", str(v)], "Saved.")
+                row.connect("notify::selected", abm_changed)
+                g.add(row)
+        if data["boost"]["supported"]:
+            g.add(switch_row("Turn off CPU boost", "Keeps the CPU at its base clock on battery. Saves a few watts; "
+                             "CPU-heavy games lose some frame rate.", settings["boost"] == "off-on-battery",
+                             lambda on: self.run_verb(["set-boost", "off-on-battery" if on else "system"],
+                                                      "Saved.")))
+        now = "battery" if data["on_battery"] else "charger"
+        detail = []
+        if data["abm"]["current"] is not None:
+            detail.append(f"screen power saving {data['abm']['current']}")
+        if data["boost"]["current"] is not None:
+            detail.append("boost " + ("on" if data["boost"]["current"] == "1" else "off"))
+        g.add(info_row("Right now", f"On {now}", ", ".join(detail)))
+        self.box.append(g)
+
+    def use_recommended(self, changes: list[dict]) -> None:
+        self.win.confirm("Use the recommended settings?",
+                         f"This will change:\n{change_lines(changes)}\n\nNothing else is changed.",
+                         "Apply", lambda: self.run_verb(["recommended"], "Recommended settings applied."))
+
+    def run_verb(self, args: list[str], ok_text: str) -> None:
+        def done(res):
+            if isinstance(res, dict) and "error" in res:
+                self.win.toast(f"Could not change it: {res['error']}")
+            else:
+                self.win.toast(ok_text)
+            self.refresh()  # also puts a switch back when the change failed or was cancelled
+
+        self.win.load(lambda: run_json([tool("bopp-performance"), "--json", *args], timeout=180), done)
+
+
 # --- Support ----------------------------------------------------------------------------------
 
 
@@ -1040,4 +1172,4 @@ class AboutPage(Page):
         self.box.append(g)
 
 
-ALL_PAGES = [SystemPage, KargsPage, AppsPage, SteamPage, DeckyPage, SupportPage, AboutPage]
+ALL_PAGES = [SystemPage, PerformancePage, KargsPage, AppsPage, SteamPage, DeckyPage, SupportPage, AboutPage]

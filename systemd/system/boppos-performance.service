@@ -1,0 +1,18 @@
+[Unit]
+Description=BoppOS battery settings (screen power saving, CPU boost)
+Documentation=https://github.com/bopp-os/boppos-tools
+# Enabled and disabled by /usr/libexec/boppos/performance-helper (boppos-deck, Performance)
+ConditionPathExists=/etc/boppos/performance.json
+After=upower.service power-profiles-daemon.service
+
+[Service]
+Type=simple
+ExecStart=/usr/libexec/boppos/performance-watch
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=yes
+ProtectHome=yes
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target
