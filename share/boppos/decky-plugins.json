@@ -1,0 +1,19 @@
+{
+  "schema": 1,
+  "plugins": [
+    {
+      "id": "mako",
+      "name": "MAKO Decky",
+      "repo": "eugeniosegala/MAKO",
+      "tag_prefix": "plugin-v",
+      "asset": "MAKO-Decky-v{version}.zip",
+      "version": "5.0.0",
+      "url": "https://github.com/eugeniosegala/MAKO/releases/download/plugin-v5.0.0/MAKO-Decky-v5.0.0.zip",
+      "sha256": "26188b2c1f7152292acf13c155987a29a4e32f27609b00584fa80064ff78f9ae",
+      "size": 170097306,
+      "dir": "Mako",
+      "note": "Frame generation and spatial scaling for games. Uses the Lossless Scaling DLL: MAKO wants the default public branch of Lossless Scaling, while lsfg-vk 2.0 (part of BoppOS) needs the \"lsfg-vk\" beta branch, and Steam keeps only one branch installed.",
+      "after_install": "Open MAKO in the Decky menu (the ... button) and press \"Install MAKO Renderer\". Do that again after each update."
+    }
+  ]
+}

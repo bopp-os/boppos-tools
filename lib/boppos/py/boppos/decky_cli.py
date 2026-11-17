@@ -10,7 +10,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from . import decky
+from . import decky, decky_plugins
 from .decky import DeckyError
 from .runner import make_emitter, open_log, run_stream
 from .system import explain_pkexec, helper_cmd
@@ -109,11 +109,108 @@ def do_uninstall(emit, home: Path | None = None) -> dict:
 ACTIONS = {"install": do_install, "uninstall": do_uninstall, "migrate": do_migrate}
 
 
+# --- Curated plugins ----------------------------------------------------------------------------
+
+PLUGIN_ACTIONS = ("install", "update", "remove", "rollback")
+
+
+def plugins_status(user: str | None = None, pins_path: Path | None = None, run=subprocess.run,
+                   state: Path | None = None) -> dict:
+    user = user or current_user()
+    unit = decky.unit_name(user)
+
+    def check(verb: str) -> bool:
+        try:
+            return run(["systemctl", verb, "--quiet", unit], capture_output=True, check=False).returncode == 0
+        except OSError:
+            return False
+
+    pins = decky_plugins.load_pins(pins_path)
+    state = state or decky.state_dir(user)
+    return {
+        "decky_available": os.path.isfile(decky.LOADER_BIN),
+        "decky_enabled": check("is-enabled"),
+        "decky_active": check("is-active"),
+        "plugins": decky_plugins.status(pins, state),
+    }
+
+
+def do_plugin(action: str, pid: str, emit, status_fn=plugins_status, stream=run_stream) -> dict:
+    st = status_fn()
+    entry = next((p for p in st["plugins"] if p["id"] == pid), None)
+    if entry is None:
+        raise DeckyError(f"{pid} is not in the BoppOS plugin list")
+    if not st["decky_enabled"]:
+        raise DeckyError("Decky Loader is not turned on. Install it first (bopp-decky install).")
+    installed = entry["state"] != "not installed"
+    if action == "install" and entry["state"] == "up to date":
+        emit({"event": "log", "line": f"{entry['name']} {entry['pinned']} is already installed"})
+        return {"changed": False, "id": pid}
+    if action == "update" and not installed:
+        raise DeckyError(f"{entry['name']} is not installed")
+    if action == "update" and entry["state"] == "up to date":
+        emit({"event": "log", "line": f"{entry['name']} is up to date ({entry['pinned']})"})
+        return {"changed": False, "id": pid}
+    if action == "remove" and not installed:
+        emit({"event": "log", "line": f"{entry['name']} is not installed"})
+        return {"changed": False, "id": pid}
+    helper_action = {"install": "plugin-install", "update": "plugin-install"}.get(action, f"plugin-{action}")
+    rc = stream(helper_cmd("decky-helper", [helper_action, pid]), emit)
+    if rc:
+        raise DeckyError(explain_pkexec(rc, "") or f"{action} of {entry['name']} failed")
+    result = {"changed": True, "id": pid}
+    if action in ("install", "update") and entry["after_install"]:
+        result["after_install"] = entry["after_install"]
+        emit({"event": "log", "line": entry["after_install"]})
+    return result
+
+
+def plugins_main(args, emit_factory) -> int:
+    sub = args.args
+    if not sub or sub[0] == "list":
+        st = plugins_status()
+        if args.json:
+            print(json.dumps(st, indent=2))
+        else:
+            if not st["decky_enabled"]:
+                print("Decky Loader is not turned on (bopp-decky install)")
+            for p in st["plugins"]:
+                print(f"{p['id']}: {p['name']}  installed: {p['installed'] or '-'}  pinned: {p['pinned']}  "
+                      f"({p['state']})")
+        return 0
+    if sub[0] not in PLUGIN_ACTIONS or len(sub) != 2:
+        print("usage: bopp-decky [--json] plugins list | install|update|remove|rollback <id>", file=sys.stderr)
+        return 2
+    action, pid = sub
+    emit = emit_factory(f"decky-plugin-{action}")
+    step = f"plugin-{action}"
+    emit({"event": "step", "id": step, "status": "start"})
+    try:
+        result = do_plugin(action, pid, emit)
+    except (DeckyError, OSError) as exc:
+        emit({"event": "log", "line": f"error: {exc}"})
+        emit({"event": "step", "id": step, "status": "fail"})
+        emit({"event": "done", "ok": False, "error": str(exc)})
+        return 1
+    emit({"event": "step", "id": step, "status": "ok"})
+    emit({"event": "done", "ok": True, **result})
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(prog="bopp-decky", description="Turn Decky Loader on or off")
     p.add_argument("--json", action="store_true", help="machine-readable output (JSON lines for actions)")
-    p.add_argument("cmd", choices=["status", *ACTIONS])
+    p.add_argument("cmd", choices=["status", *ACTIONS, "plugins"])
+    p.add_argument("args", nargs="*", help="plugins: list | install|update|remove|rollback <id>")
     args = p.parse_args(argv)
+    if args.cmd == "plugins":
+        try:
+            return plugins_main(args, lambda name: make_emitter(args.json, open_log(name)))
+        except DeckyError as exc:
+            print(f"bopp-decky: {exc}", file=sys.stderr)
+            return 1
+    if args.args:
+        p.error(f"{args.cmd} takes no arguments")
     if args.cmd == "status":
         st = read_status()
         print(json.dumps(st, indent=2) if args.json else "\n".join(f"{k}: {v}" for k, v in st.items()))
