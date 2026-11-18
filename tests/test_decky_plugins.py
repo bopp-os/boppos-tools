@@ -307,3 +307,41 @@ def test_cli_plugin_actions():
     assert cmds[-1] == ["plugin-remove", "foo"]
     with pytest.raises(DeckyError, match="failed"):
         decky_cli.do_plugin("remove", "foo", events.append, fake_status("up to date"), lambda c, e: 1)
+
+
+# --- Store entries and plugins the Decky store has updated ---------------------------------------
+
+
+def test_store_entries_point_at_the_store_cdn():
+    pins = decky_plugins.load_pins()
+    store = [p for p in pins if p["source"] == "store"]
+    assert len(store) >= 10
+    for p in store:
+        assert p["store_name"]
+        assert p["url"] == decky_plugins.STORE_CDN.format(hash=p["sha256"])
+        assert not p["allow_root"]
+
+
+def test_store_entry_needs_a_store_name(tmp_path):
+    z = make_zip(tmp_path / "f.zip", good_members())
+    with pytest.raises(DeckyError, match="store_name"):
+        pin_for(z, source="store")
+    with pytest.raises(DeckyError, match="source"):
+        pin_for(z, source="ftp")
+
+
+@pytest.mark.parametrize("a, b", [("1.10.0", "1.9.2"), ("2.0.0", "2.0.0-rc.1"), ("3.3.2", "3.3")])
+def test_version_key_orders(a, b):
+    assert decky_plugins.version_key(a) > decky_plugins.version_key(b)
+
+
+def test_newer_install_is_not_offered_a_downgrade(tmp_path):
+    state = tmp_path / "state"
+    state.mkdir()
+    z2 = make_zip(tmp_path / "v2.zip", good_members("2.0.0"))
+    decky_plugins.install_from_zip(z2, state, pin_for(z2, version="2.0.0"), print)
+    z1 = make_zip(tmp_path / "v1.zip", good_members("1.0.0"))
+    assert decky_plugins.status([pin_for(z1)], state)[0]["state"] == "newer"
+    cmds = []
+    r = decky_cli.do_plugin("update", "foo", lambda e: None, fake_status("newer"), lambda c, e: cmds.append(c))
+    assert r["changed"] is False and not cmds

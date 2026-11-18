@@ -1025,7 +1025,7 @@ class PluginsPage(Page):
         g = group()
         g.add(message_row("These plugins are checked by BoppOS: each version is pinned, and the download must match "
                           "its checksum. Decky restarts by itself after a change, so plugins appear without a "
-                          "reboot. Updates arrive here with BoppOS updates."))
+                          "reboot. New versions arrive here with BoppOS updates; Decky's own store may update them sooner."))
         self.box.append(g)
 
     def plugin_group(self, p: dict, enabled: bool):
@@ -1037,7 +1037,8 @@ class PluginsPage(Page):
                 g.add(button_row(f"Install {p['name']}", f"Version {p['pinned']}, {mib}", "Install",
                                  lambda p=p: self.act("install", p), suggested=True))
         else:
-            tag = ("Update available", "warning") if p["state"] == "update available" else None
+            tag = {"update available": ("Update available", "warning"),
+                   "newer": ("Updated by the Decky store", "dim-label")}.get(p["state"])
             g.add(info_row("Installed", p["installed"] or "unknown", f"BoppOS version {p['pinned']}", tag=tag))
             if enabled and p["state"] == "update available":
                 g.add(button_row(f"Update to {p['pinned']}", mib, "Update", lambda p=p: self.act("update", p),

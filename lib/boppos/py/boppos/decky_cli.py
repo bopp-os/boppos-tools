@@ -143,6 +143,10 @@ def do_plugin(action: str, pid: str, emit, status_fn=plugins_status, stream=run_
     if not st["decky_enabled"]:
         raise DeckyError("Decky Loader is not turned on. Install it first (bopp-decky install).")
     installed = entry["state"] != "not installed"
+    if action in ("install", "update") and entry["state"] == "newer":
+        emit({"event": "log", "line": f"{entry['name']} {entry['installed']} is newer than the BoppOS version "
+                                      f"{entry['pinned']}; left as it is"})
+        return {"changed": False, "id": pid}
     if action == "install" and entry["state"] == "up to date":
         emit({"event": "log", "line": f"{entry['name']} {entry['pinned']} is already installed"})
         return {"changed": False, "id": pid}

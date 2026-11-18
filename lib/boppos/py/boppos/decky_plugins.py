@@ -38,11 +38,22 @@ _REPO_RE = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
 MAX_ENTRIES = 20000
 MAX_ZIP_BYTES = 1 << 30
 _CHUNK = 1 << 20
+SOURCES = ("github", "store")
+# Where Decky's own store serves a version's ZIP (decky-loader frontend/src/store.tsx pluginUrl)
+STORE_API = "https://plugins.deckbrew.xyz/plugins"
+STORE_CDN = "https://cdn.tzatzikiweeb.moe/file/steam-deck-homebrew/versions/{hash}.zip"
 
 
 def default_pins_path() -> Path:
     """share/boppos next to lib/boppos/py: /usr/share/boppos when installed, the repo's share/ in a checkout."""
     return Path(__file__).resolve().parents[4] / "share/boppos" / PINS_FILE
+
+
+def version_key(v: str) -> tuple:
+    """Order "1.10.0" after "1.9.2", and a pre-release ("2.0.0-rc.1") before its release."""
+    base, _, suffix = (v or "").partition("-")
+    nums = tuple(int(x) if x.isdigit() else -1 for x in re.split(r"[.+_]", base))
+    return nums, 0 if suffix else 1, suffix
 
 
 def unpacked_cap(size: int) -> int:
@@ -74,6 +85,8 @@ def parse_pin(entry: dict) -> dict:
         "dir": _need(entry, "dir"),
         "note": entry.get("note", ""),
         "after_install": entry.get("after_install", ""),
+        "source": entry.get("source", "github"),
+        "store_name": entry.get("store_name", ""),
         "tag_prefix": entry.get("tag_prefix", "v"),
         "asset": entry.get("asset", ""),
         "allow_root": entry.get("allow_root", False) is True,
@@ -90,7 +103,11 @@ def parse_pin(entry: dict) -> dict:
         raise DeckyError(f"plugin list: {pid}: size out of range")
     if not _DIR_RE.match(pin["dir"]) or pin["dir"] in (".", ".."):
         raise DeckyError(f"plugin list: {pid}: bad folder name {pin['dir']!r}")
-    for key in ("note", "after_install", "tag_prefix", "asset"):
+    if pin["source"] not in SOURCES:
+        raise DeckyError(f"plugin list: {pid}: source must be one of {', '.join(SOURCES)}")
+    if pin["source"] == "store" and not pin["store_name"]:
+        raise DeckyError(f"plugin list: {pid}: a store entry needs 'store_name'")
+    for key in ("note", "after_install", "tag_prefix", "asset", "store_name"):
         if not isinstance(pin[key], str):
             raise DeckyError(f"plugin list: {pid}: '{key}' must be text")
     return pin
@@ -393,10 +410,17 @@ def status(pins: list[dict], state: Path) -> list[dict]:
         installed = plugin_version(d) if present else None
         if present and installed is None:
             installed = "unknown"
-        state_name = "not installed" if not present else "up to date" if installed == p["version"] else \
-            "update available"
+        if not present:
+            state_name = "not installed"
+        elif installed == p["version"]:
+            state_name = "up to date"
+        elif installed != "unknown" and version_key(installed) > version_key(p["version"]):
+            state_name = "newer"  # updated by Decky's own store: never offer to go back
+        else:
+            state_name = "update available"
         out.append({
-            "id": p["id"], "name": p["name"], "repo": p["repo"], "pinned": p["version"], "installed": installed,
+            "id": p["id"], "name": p["name"], "repo": p["repo"], "source": p["source"], "pinned": p["version"],
+            "installed": installed,
             "state": state_name, "size": p["size"], "note": p["note"], "after_install": p["after_install"],
             "can_rollback": (state / BACKUP_DIR / p["dir"]).is_dir(),
         })
