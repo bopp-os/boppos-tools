@@ -1025,7 +1025,8 @@ class PluginsPage(Page):
         g = group()
         g.add(message_row("These plugins are checked by BoppOS: each version is pinned, and the download must match "
                           "its checksum. Decky restarts by itself after a change, so plugins appear without a "
-                          "reboot. New versions arrive here with BoppOS updates; Decky's own store may update them sooner."))
+                          "reboot. New versions arrive here with BoppOS updates; Decky's own store may update them "
+                          "sooner."))
         self.box.append(g)
 
     def plugin_group(self, p: dict, enabled: bool):
