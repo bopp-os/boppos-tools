@@ -36,8 +36,8 @@
   </action>
 
   <action id="org.boppos.deck.decky">
-    <description>Install or remove the Decky Loader service</description>
-    <message>Authentication is required to install or remove the Decky Loader service</message>
+    <description>Install or remove the Decky Loader service and its BoppOS plugins</description>
+    <message>Authentication is required to install or remove Decky Loader or a Decky plugin</message>
     <icon_name>boppos-icon</icon_name>
     <defaults>
       <allow_any>auth_admin</allow_any>

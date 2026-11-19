@@ -944,6 +944,8 @@ class DeckyPage(Page):
             state = "running" if data["service_active"] else "turned on, not running"
             g.add(info_row("Status", state, data.get("version") or ""))
             g.add(message_row("Decky Loader is updated with the system."))
+            g.add(button_row("Decky plugins", "Install plugins checked by BoppOS with the controller", "Open",
+                             self.open_plugins))
         else:
             g.add(info_row("Status", "off"))
             g.add(button_row("Install Decky Loader", "Turns on the Decky Loader that comes with BoppOS",
@@ -971,6 +973,9 @@ class DeckyPage(Page):
         self.win.run_job("Installing Decky Loader", [[tool("bopp-decky"), "--json", "install"]],
                          lambda ok, final: self.refresh())
 
+    def open_plugins(self) -> None:
+        self.win.select_page(next(i for i, pg in enumerate(self.win.pages) if pg.key == "plugins"))
+
     def migrate(self) -> None:
         self.win.run_job("Turning off the old Decky Loader", [[tool("bopp-decky"), "--json", "migrate"]],
                          lambda ok, final: self.refresh())
@@ -981,6 +986,93 @@ class DeckyPage(Page):
                          "Uninstall", lambda: self.win.run_job(
                              "Removing Decky Loader", [[tool("bopp-decky"), "--json", "uninstall"]],
                              lambda ok, final: self.refresh()), destructive=True)
+
+
+class PluginsPage(Page):
+    """The curated Decky plugins (share/boppos/decky-plugins.json): install, update and remove with the
+    controller. The root helper downloads only the pinned ZIP and checks its sha256 before it lands."""
+
+    title, key, icon = "Decky plugins", "plugins", "application-x-addon-symbolic"
+
+    def __init__(self, win):
+        super().__init__(win)
+        self.just_installed: str | None = None  # id whose "what next" note leads the page
+
+    def fetch(self):
+        return run_json([tool("bopp-decky"), "--json", "plugins", "list"])
+
+    def build(self, data) -> None:
+        if "error" in data:
+            g = group("Decky plugins")
+            g.add(message_row(f"Could not read the plugin list: {data['error']}"))
+            self.box.append(g)
+            return
+        plugins = data.get("plugins") or []
+        enabled = data.get("decky_enabled")
+        if not enabled:
+            g = group("Decky Loader is off", "Plugins run inside Decky Loader, so turn it on first.")
+            g.add(button_row("Open the Decky Loader page", "Install Decky Loader there, then come back",
+                             "Open", self.open_decky, suggested=True))
+            self.box.append(g)
+        done = next((p for p in plugins if p["id"] == self.just_installed and p["after_install"]
+                     and p["state"] != "not installed"), None)
+        if done:
+            g = group(f"Next: finish setting up {done['name']}")
+            g.add(message_row(done["after_install"]))
+            self.box.append(g)
+        for p in plugins:
+            self.box.append(self.plugin_group(p, enabled))
+        g = group()
+        g.add(message_row("These plugins are checked by BoppOS: each version is pinned, and the download must match "
+                          "its checksum. Decky restarts by itself after a change, so plugins appear without a "
+                          "reboot. New versions arrive here with BoppOS updates; Decky's own store may update them "
+                          "sooner."))
+        self.box.append(g)
+
+    def plugin_group(self, p: dict, enabled: bool):
+        g = group(p["name"], p.get("note") or None)
+        mib = f"{p['size'] / (1 << 20):.0f} MiB download"
+        if p["state"] == "not installed":
+            g.add(info_row("Installed", "no", f"BoppOS version {p['pinned']}"))
+            if enabled:
+                g.add(button_row(f"Install {p['name']}", f"Version {p['pinned']}, {mib}", "Install",
+                                 lambda p=p: self.act("install", p), suggested=True))
+        else:
+            tag = {"update available": ("Update available", "warning"),
+                   "newer": ("Updated by the Decky store", "dim-label")}.get(p["state"])
+            g.add(info_row("Installed", p["installed"] or "unknown", f"BoppOS version {p['pinned']}", tag=tag))
+            if enabled and p["state"] == "update available":
+                g.add(button_row(f"Update to {p['pinned']}", mib, "Update", lambda p=p: self.act("update", p),
+                                 suggested=True))
+            if p.get("after_install"):
+                g.add(message_row(p["after_install"]))
+            if enabled:
+                g.add(button_row(f"Remove {p['name']}", "Its settings and data are kept", "Remove",
+                                 lambda p=p: self.remove(p), destructive=True))
+        if enabled and self.win.advanced and p.get("can_rollback"):
+            g.add(button_row("Go back to the previous copy", "Advanced. Swaps in the copy kept by the last change",
+                             "Roll back", lambda p=p: self.act("rollback", p), destructive=True))
+        return g
+
+    def open_decky(self) -> None:
+        idx = next(i for i, pg in enumerate(self.win.pages) if pg.key == "decky")
+        self.win.select_page(idx)
+
+    def act(self, action: str, p: dict) -> None:
+        verb = {"install": "Installing", "update": "Updating", "remove": "Removing", "rollback": "Rolling back"}
+
+        def done(ok, final):
+            if ok and action in ("install", "update"):
+                self.just_installed = p["id"]
+            self.refresh()
+
+        self.win.run_job(f"{verb[action]} {p['name']}",
+                         [[tool("bopp-decky"), "--json", "plugins", action, p["id"]]], done)
+
+    def remove(self, p: dict) -> None:
+        self.win.confirm(f"Remove {p['name']}?", "Decky restarts without it. Its settings and data are kept, so "
+                         "installing it again picks up where you left off.", "Remove",
+                         lambda: self.act("remove", p), destructive=True)
 
 
 # --- Performance --------------------------------------------------------------------------------
@@ -1193,4 +1285,5 @@ class AboutPage(Page):
         self.box.append(g)
 
 
-ALL_PAGES = [SystemPage, PerformancePage, KargsPage, AppsPage, SteamPage, DeckyPage, SupportPage, AboutPage]
+ALL_PAGES = [SystemPage, PerformancePage, KargsPage, AppsPage, SteamPage, DeckyPage, PluginsPage, SupportPage,
+             AboutPage]

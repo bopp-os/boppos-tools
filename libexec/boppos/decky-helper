@@ -1,6 +1,8 @@
 #!/usr/bin/python3 -I
 """Root helper for bopp-decky: turn the system Decky Loader on or off for the calling user, and move an old
-~/homebrew install (plugin_loader.service, which ran a user-writable file as root) over to it.
+~/homebrew install (plugin_loader.service, which ran a user-writable file as root) over to it. plugin-install,
+plugin-remove and plugin-rollback take one id from the curated list (share/boppos/decky-plugins.json); the URL,
+checksum and folder come from that list, never from the caller (see boppos.decky_plugins).
 
 The user comes from pkexec (PKEXEC_UID); nothing else is accepted from the caller. Everything read from or
 written to the home folder is done by a child process running as that user, so a symlink planted there cannot
@@ -13,15 +15,19 @@ import pwd
 import subprocess
 import sys
 import tempfile
+import zipfile
 from pathlib import Path
 
 # libexec/boppos/<helper> -> ../../lib/boppos/py: /usr/lib/boppos/py when installed, the repo's lib/ in a checkout
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "lib/boppos/py"))
 
-from boppos import decky  # noqa: E402
+from boppos import decky, decky_plugins  # noqa: E402
 from boppos.decky import DeckyError  # noqa: E402
 
 ACTIONS = ("install", "uninstall", "migrate")
+PLUGIN_ACTIONS = ("plugin-install", "plugin-remove", "plugin-rollback")
+# The curated list shipped next to this helper (/usr/share/boppos when installed). Never taken from the caller.
+PINS = Path(__file__).resolve().parents[2] / "share/boppos" / decky_plugins.PINS_FILE
 
 
 def log(line):
@@ -168,13 +174,67 @@ def uninstall(pw):
     log(f"disabled {unit}; plugins and settings in {decky.state_dir(pw.pw_name)} were kept")
 
 
+def plugin_state(pw):
+    """/var/lib/decky-loader/<user>, only while the user's Decky is turned on (it creates and owns that folder)."""
+    unit = decky.unit_name(pw.pw_name)
+    enabled = subprocess.run(["/usr/bin/systemctl", "is-enabled", "--quiet", unit], check=False).returncode == 0
+    if not enabled:
+        raise DeckyError("Decky Loader is not turned on. Install it on the Decky Loader page first.")
+    state = decky.state_dir(pw.pw_name)
+    for d in (Path(decky.STATE_ROOT), state):
+        st = os.lstat(d)
+        if not os.path.isdir(d) or os.path.islink(d) or st.st_uid != 0:
+            raise DeckyError(f"{d} must be a directory owned by root")
+    return unit, state
+
+
+def restart_decky(unit):
+    """Load the new plugin set now. KillMode=process would leave the old plugin processes running: kill the
+    whole cgroup first (the unit restarts by itself; the explicit restart covers a stopped one)."""
+    active = subprocess.run(["/usr/bin/systemctl", "is-active", "--quiet", unit], check=False).returncode == 0
+    systemctl("kill", unit, check=False)
+    systemctl("restart", unit)
+    log(f"restarted {unit}" if active else f"started {unit}")
+
+
+def plugin_install(pw, pin):
+    unit, state = plugin_state(pw)
+    log(f"downloading {pin['name']} {pin['version']} ({pin['size'] // (1 << 20)} MiB)")
+    with tempfile.TemporaryDirectory(prefix=".plugin-download-", dir=state) as tmp:
+        zip_path = Path(tmp) / "plugin.zip"
+
+        def progress(pct):
+            print(f"\r{pct}%", end="" if pct < 100 else "\n", flush=True)
+
+        decky_plugins.download(pin, zip_path, progress)
+        log("size and sha256 match the BoppOS list")
+        decky_plugins.install_from_zip(zip_path, state, pin, log)
+    restart_decky(unit)
+
+
+def plugin_remove(pw, pin):
+    unit, state = plugin_state(pw)
+    if decky_plugins.remove(state, pin, log):
+        restart_decky(unit)
+    else:
+        log(f"{pin['name']} is not installed")
+
+
+def plugin_rollback(pw, pin):
+    unit, state = plugin_state(pw)
+    decky_plugins.rollback(state, pin, log)
+    restart_decky(unit)
+
+
 def main(argv):
     # pkexec scrubs the environment and sets PKEXEC_UID; sudo sets SUDO_UID itself (development use)
     raw_uid = os.environ.get("PKEXEC_UID") or os.environ.get("SUDO_UID", "")
     os.environ.clear()
     os.environ.update(PATH="/usr/sbin:/usr/bin", LANG="C.UTF-8")
-    if len(argv) != 1 or argv[0] not in ACTIONS:
-        print("usage: decky-helper install|uninstall|migrate", file=sys.stderr)
+    plugin_cmd = len(argv) == 2 and argv[0] in PLUGIN_ACTIONS
+    if not plugin_cmd and (len(argv) != 1 or argv[0] not in ACTIONS):
+        print("usage: decky-helper install|uninstall|migrate\n"
+              "       decky-helper plugin-install|plugin-remove|plugin-rollback <id>", file=sys.stderr)
         return 2
     if not raw_uid.isdigit() or int(raw_uid) < 1000 or int(raw_uid) == 65534:
         print("decky-helper: must be started through pkexec by a normal user", file=sys.stderr)
@@ -183,8 +243,13 @@ def main(argv):
     try:
         pw = pwd.getpwuid(int(raw_uid))
         decky.validate_user(pw.pw_name)
-        {"install": install, "uninstall": uninstall, "migrate": migrate}[argv[0]](pw)
-    except (DeckyError, KeyError, OSError, subprocess.CalledProcessError) as exc:
+        if plugin_cmd:
+            pin = decky_plugins.find_pin(argv[1], decky_plugins.load_pins(PINS))
+            {"plugin-install": plugin_install, "plugin-remove": plugin_remove,
+             "plugin-rollback": plugin_rollback}[argv[0]](pw, pin)
+        else:
+            {"install": install, "uninstall": uninstall, "migrate": migrate}[argv[0]](pw)
+    except (DeckyError, ValueError, zipfile.BadZipFile, KeyError, OSError, subprocess.CalledProcessError) as exc:
         print(f"decky-helper: {exc}", file=sys.stderr)
         return 1
     return 0

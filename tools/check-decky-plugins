@@ -1,0 +1,151 @@
+#!/usr/bin/env python3
+"""Check each curated Decky plugin (share/boppos/decky-plugins.json) for a newer upstream release: the GitHub
+release of a "source": "github" entry, the Decky store listing of a "source": "store" one.
+
+    tools/check-decky-plugins            print what is out of date (exit 10 if anything is)
+    tools/check-decky-plugins --write    download each newer ZIP, check it like decky-helper does, and repin it
+    tools/check-decky-plugins --write mako   only that entry
+
+--write never trusts the release page: it downloads the asset, takes size and sha256 from the bytes, and runs the
+same extraction and plugin.json checks as the installer (one top folder named like the pin, no symlinks, no
+"root" flag unless allowed, package.json version equal to the tag). Set GITHUB_TOKEN to avoid API rate limits.
+"""
+
+import argparse
+import hashlib
+import json
+import os
+import re
+import sys
+import tempfile
+import urllib.request
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "lib/boppos/py"))
+
+from boppos import decky_plugins  # noqa: E402
+from boppos.decky import DeckyError  # noqa: E402
+
+PINS = ROOT / "share/boppos" / decky_plugins.PINS_FILE
+
+
+def api(url):
+    req = urllib.request.Request(url, headers={"Accept": "application/vnd.github+json",
+                                               "User-Agent": "boppos-check-decky-plugins"})
+    if tok := os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN"):
+        req.add_header("Authorization", f"Bearer {tok}")
+    with urllib.request.urlopen(req, timeout=60) as r:
+        return json.load(r)
+
+
+vkey = decky_plugins.version_key
+_store = None
+
+
+def latest_store(pin):
+    """(version, asset-like dict) of the newest version Decky's store lists under the entry's store_name."""
+    global _store
+    if _store is None:
+        _store = api(decky_plugins.STORE_API)
+    plugin = next((p for p in _store if p.get("name") == pin["store_name"]), None)
+    if not plugin or not plugin.get("versions"):
+        return None
+    v = max(plugin["versions"], key=lambda x: x.get("created", ""))
+    url = decky_plugins.STORE_CDN.format(hash=v["hash"])
+    cap = decky_plugins.MAX_ZIP_BYTES  # the store lists no size; the sha256 decides
+    return v["name"], {"browser_download_url": url, "size": cap, "digest": f"sha256:{v['hash']}"}
+
+
+def latest_release(pin):
+    if pin["source"] == "store":
+        return latest_store(pin)
+    """(version, asset dict) of the newest non-draft, non-prerelease release with the pin's tag prefix."""
+    best = None
+    for rel in api(f"https://api.github.com/repos/{pin['repo']}/releases?per_page=50"):
+        tag = rel.get("tag_name", "")
+        if rel.get("draft") or rel.get("prerelease") or not tag.startswith(pin["tag_prefix"]):
+            continue
+        version = tag[len(pin["tag_prefix"]):]
+        if not re.match(r"^\d+(\.\d+)*$", version):
+            continue
+        want = pin["asset"].format(version=version) if pin["asset"] else None
+        asset = next((a for a in rel.get("assets", []) if want and a["name"] == want), None)
+        if asset and (best is None or vkey(version) > vkey(best[0])):
+            best = (version, asset)
+    return best
+
+
+def repin(pin, version, asset):
+    new = dict(pin, version=version, url=asset["browser_download_url"], size=asset["size"], sha256="0" * 64)
+    with tempfile.TemporaryDirectory(prefix="decky-pin-") as tmp:
+        zip_path = Path(tmp) / "plugin.zip"
+        # Download with the size from the API as a cap, then take the checksum from the bytes themselves
+        h = hashlib.sha256()
+        req = urllib.request.Request(new["url"], headers={"User-Agent": "boppos-check-decky-plugins"})
+        got = 0
+        with urllib.request.urlopen(req, timeout=120) as r, open(zip_path, "wb") as out:
+            while chunk := r.read(1 << 20):
+                got += len(chunk)
+                if got > new["size"]:
+                    raise DeckyError("the download is larger than the release says")
+                h.update(chunk)
+                out.write(chunk)
+        new["sha256"], new["size"] = h.hexdigest(), got
+        if asset.get("digest", "").startswith("sha256:") and asset["digest"][7:] != new["sha256"]:
+            raise DeckyError("the downloaded bytes do not match the digest the release lists")
+        stage = Path(tmp) / "stage"
+        stage.mkdir()
+        plugin_dir = decky_plugins.extract_plugin(zip_path, stage, decky_plugins.parse_pin(new))
+        decky_plugins.check_plugin(plugin_dir, decky_plugins.parse_pin(new))
+        if decky_plugins.plugin_version(plugin_dir) != version:
+            raise DeckyError(f"package.json does not say version {version}")
+    return new
+
+
+def main(argv=None):
+    ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
+    ap.add_argument("--write", action="store_true", help="download, verify and repin newer releases")
+    ap.add_argument("ids", nargs="*")
+    args = ap.parse_args(argv)
+    data = json.loads(PINS.read_text())
+    pins = decky_plugins.load_pins(PINS)
+    outdated = 0
+    for i, pin in enumerate(pins):
+        if args.ids and pin["id"] not in args.ids:
+            continue
+        try:
+            found = latest_release(pin)
+        except (OSError, ValueError) as exc:
+            print(f"? {pin['id']}: could not check {pin['repo']}: {exc}")
+            continue
+        if not found:
+            where = f"store entry {pin['store_name']!r}" if pin["source"] == "store" else \
+                f"release with tag {pin['tag_prefix']}<version> and asset {pin['asset']!r}"
+            print(f"? {pin['id']}: no {where}")
+            continue
+        version, asset = found
+        if vkey(version) <= vkey(pin["version"]):
+            print(f"✓ {pin['id']} {pin['version']} is current")
+            continue
+        outdated += 1
+        print(f"↑ {pin['id']}: {pin['version']} -> {version} ({asset['browser_download_url']})")
+        if not args.write:
+            continue
+        try:
+            new = repin(pin, version, asset)
+        except (DeckyError, OSError) as exc:
+            print(f"  ✗ not repinned: {exc}")
+            continue
+        for key in ("version", "url", "sha256", "size"):
+            data["plugins"][i][key] = new[key]
+        print(f"  sha256 {new['sha256']}, {new['size']} bytes, checks passed")
+    if args.write:
+        PINS.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n")
+        decky_plugins.load_pins(PINS)  # still a valid list
+        return 0
+    return 10 if outdated else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

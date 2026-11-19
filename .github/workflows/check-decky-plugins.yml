@@ -1,0 +1,59 @@
+name: Check Decky plugin pins
+
+on:
+  schedule:
+    - cron: '30 20 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Repin newer releases and open a PR
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          # Downloads each newer ZIP and runs the installer's checks on it; the sha256 comes from the bytes
+          tools/check-decky-plugins --write | tee check.log
+          if git diff --quiet -- share/boppos/decky-plugins.json; then
+            echo "All Decky plugin pins are current"
+            exit 0
+          fi
+          gh label create "upstream-update" --color "1d76db" \
+            --description "Updates from upstream package sources" --repo "$REPO" || true
+          summary=$(grep '^↑' check.log | sed 's/^↑ //' | cut -d' ' -f1-4 | paste -sd ',' -)
+          branch="upstream-update/decky-plugins"
+          git push origin --delete "$branch" 2>/dev/null || true
+          git checkout -b "$branch"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add share/boppos/decky-plugins.json
+          git commit -m "decky-plugins: repin ${summary}"
+          git push origin "$branch"
+          {
+            echo "Newer upstream releases of curated Decky plugins. Each ZIP was downloaded and passed the"
+            echo "installer's checks (size, sha256 from the bytes, safe extraction, plugin.json flags, version)."
+            echo
+            echo '```'
+            cat check.log
+            echo '```'
+            echo
+            echo "Before merging: read the upstream release notes and try the update from boppos-deck on a deck."
+            echo
+            echo '```diff'
+            git diff HEAD~1 HEAD -- share/boppos/decky-plugins.json
+            echo '```'
+          } > pr_body.md
+          gh pr create --repo "$REPO" --base main --head "$branch" --label "upstream-update" \
+            --title "decky-plugins: repin ${summary}" --body-file pr_body.md \
+            || echo "::warning::PR creation failed or already exists"
