@@ -105,6 +105,9 @@ def check(run: Run = _run, which: Callable[[str], str | None] = shutil.which,
                 if _DEFINITIVE.search(text):
                     break
                 sleep(RETRY_DELAY)
+            else:  # bootc never gave an answer: say so instead of reporting "up to date"
+                return _status(False, current, "", transport, "",
+                               f"bootc upgrade --check gave no answer: {text.strip()[-500:] or 'no output'}")
             available, found = check_upgrade_output(text)
             if available:
                 staged_digest = found

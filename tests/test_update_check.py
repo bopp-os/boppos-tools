@@ -116,6 +116,15 @@ def test_no_changes_is_definitive_so_it_is_not_retried():
     assert sum(1 for c in f.calls if c[:2] == ["bootc", "upgrade"]) == 1
 
 
+def test_bootc_check_that_never_answers_is_an_error_not_up_to_date():
+    # e.g. a sandboxed service: "error: Upgrading: Operation not permitted (os error 1)"
+    err = cp(rc=1, err="error: Upgrading: Operation not permitted (os error 1)")
+    doc, f = run_check({"bootc status": cp(status_json()), "skopeo inspect": cp("sha256:reg\n"),
+                        "bootc upgrade": [err, err, err]})
+    assert doc["update_available"] is False and "Operation not permitted" in doc["error"]
+    assert sum(1 for c in f.calls if c[:2] == ["bootc", "upgrade"]) == 3
+
+
 def test_deck_check_reports_an_update_the_monitor_found(monkeypatch, capsys):
     from boppos import system, system_cli
     monkeypatch.setattr(system_cli.subprocess, "run", lambda *a, **k: cp())
