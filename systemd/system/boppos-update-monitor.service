@@ -19,5 +19,5 @@ ProtectHostname=true
 ProtectKernelLogs=true
 ProtectKernelModules=true
 ProtectKernelTunables=true
-RestrictNamespaces=true
+# No RestrictNamespaces: bootc needs namespaces to fetch images ("Operation not permitted" otherwise)
 LockPersonality=true
